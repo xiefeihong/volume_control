@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">音量阶数</string>
+    <string name="app_subtitle">媒体档位 16~29 可调 · 两种蓝牙音量模式适配耳机</string>
+    <string name="xposed_description">自定义媒体音量档位数（16~29），并提供两种蓝牙耳机音量控制模式。</string>
+
+    <string name="sec_status">运行状态</string>
+    <string name="sec_media">媒体音量档位</string>
+    <string name="sec_bt">蓝牙音量控制模式</string>
+    <string name="sec_bt_range">音量范围</string>
+    <string name="sec_actions">操作</string>
+    <string name="sec_guide">使用说明</string>
+
+    <string name="status_detecting">检测中…</string>
+    <string name="btn_refresh">刷新检测</string>
+    <string name="btn_apply_restart">重启系统框架（媒体档位数修改后）</string>
+    <string name="btn_reset">恢复系统默认（关闭模块）</string>
+
+    <string name="label_enable">启用模块（档位数与蓝牙模式）</string>
+    <string name="label_media_steps_default">媒体档位：24 档（范围 16~29）</string>
+    <string name="label_media_steps_fmt">媒体档位：%1$d 档（范围 16~29）</string>
+    <string name="media_hint">仅调整媒体（音乐/视频）档位，其他音频流不受影响。范围限定 16~29：兼顾调节细腻度与蓝牙 AVRCP 映射质量。修改自动保存，点「重启系统框架」生效。</string>
+
+    <string name="mode_absolute">模式A：保持绝对音量（默认）</string>
+    <string name="mode_software">模式B：停用绝对音量（手机端衰减）</string>
+    <string name="mode_hint" formatted="false">模式A：保持耳机绝对音量控制，用低音量增强曲线映射 0~127，低音量区每档间距更大，避免「5% 与 10% 听感相同」「首档无声」。模式B：Hook 蓝牙栈停用绝对音量，由手机端直接衰减音频、耳机固定自身硬件音量，从根本上避免重复与无声（耳机端不再同步显示音量）。切换模式后点「重启蓝牙」生效。</string>
+    <string name="range_hint" formatted="false">模式A 下是发给耳机的 AVRCP 绝对值范围（0~127）；模式B 下是软件衰减百分比（127=100% 不衰减），拖动滑条即可手动调节衰减程度。第 1 档从「最小」之上开始（低档听不见可调到 8~20），「最大」可整体限制最高音量。</string>
+    <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
+    <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
+
+    <string name="status_root_ok">Root：可用（su 已授权）</string>
+    <string name="status_root_fail">Root：不可用，无法写入系统配置</string>
+    <string name="status_lsposed_ok">LSPosed：已安装（请启用本模块）</string>
+    <string name="status_lsposed_fail">LSPosed：未检测到，模块将无法加载</string>
+    <string name="status_volume_line">媒体档位：当前 %1$d 档 · 目标 %2$d 档</string>
+    <string name="status_module_on_fmt">模块配置：已生效（媒体 %1$d 档）</string>
+    <string name="status_module_pending_fmt">模块配置：未生效，需重启系统框架（媒体 %1$d 档）</string>
+    <string name="status_module_off">模块配置：未启用，当前为系统默认档位</string>
+    <string name="status_module_off_pending_fmt">模块配置：已关闭，但系统仍为修改后的档位（当前 %1$d 档），需重启系统框架恢复</string>
+    <string name="status_bt_none">蓝牙音频设备：未连接（连接耳机后可回来看映射预览）</string>
+    <string name="status_bt_fmt">蓝牙音频设备：%1$s</string>
+    <string name="status_config_fmt">系统配置键：%1$s</string>
+    <string name="status_config_none">系统配置键：未写入（Hook 将改用应用内配置）</string>
+    <string name="status_btmode_fmt">蓝牙音量模式：%1$s</string>
+    <string name="mode_name_absolute">模式A · 保持绝对音量</string>
+    <string name="mode_name_software">模式B · 停用绝对音量</string>
+
+    <string name="pending_yes_fmt">检测到设置尚未生效（当前 %1$d 档 ≠ 目标 %2$d 档），点击下方「重启系统框架」使其生效。</string>
+    <string name="pending_no">当前系统档位与设置一致。媒体档位数修改后点「重启系统框架」生效。</string>
+
+    <string name="dlg_ok">继续</string>
+    <string name="dlg_cancel">取消</string>
+    <string name="dlg_restart_title">重启系统框架</string>
+    <string name="dlg_restart_msg">将软重启系统框架，使媒体档位数生效（设置已自动保存）：
+
+• 屏幕会短暂黑屏，随后自动恢复
+• 正在播放的声音会中断，本应用会被关闭
+• 耗时约 5~30 秒</string>
+    <string name="dlg_reset_title">恢复系统默认</string>
+    <string name="dlg_reset_msg">将关闭模块并恢复默认档位（24 档）、模式A 与默认音量范围，并立即保存。媒体档位数需点「重启系统框架」后恢复。确定继续吗？</string>
+    <string name="dlg_restart_bt_title">重启蓝牙</string>
+    <string name="dlg_restart_bt_msg">将关闭并重新打开蓝牙（设置已自动保存）：
+
+• 蓝牙耳机/设备会断开，请重新连接
+• 耗时约数秒，不需要重启系统框架</string>
+
+    <string name="toast_push_fail">写入系统配置失败，请确认 su 已授权</string>
+    <string name="toast_auto_save_fail">自动保存失败：无法写入系统配置，请确认 su 已授权</string>
+    <string name="toast_reset_done">已恢复默认设置并保存。媒体档位数请点「重启系统框架」生效；蓝牙模式 / 音量范围请点「重启蓝牙」生效</string>
+    <string name="toast_config_adopted">已从系统读取现有配置并恢复界面</string>
+    <string name="toast_bt_restarting">正在重启蓝牙…耳机将断开，请稍后重新连接</string>
+    <string name="toast_bt_restart_fail">蓝牙重启命令执行失败（svc / cmd 均不可用）</string>
+    <string name="toast_sys_restarting">正在重启系统框架…屏幕将短暂黑屏，本应用会被关闭</string>
+
+    <string name="btn_restart_bt">重启蓝牙（模式 / 范围修改后）</string>
+    <string name="ops_hint">所有设置修改后会自动保存。音量范围 / 蓝牙模式的修改点「重启蓝牙」生效；媒体档位数的修改点「重启系统框架」生效。</string>
+
+    <string name="log_title">模块日志（VolumeControl）</string>
+    <string name="btn_logs">查看模块日志</string>
+    <string name="log_empty">未找到模块日志。可能原因：
+• LSPosed 中未启用模块
+• 安装本版本后尚未重启过系统框架 / 蓝牙（Hook 只在进程启动时加载）
+• 此处显示全部级别日志；LSPosed 日志页仅记录错误日志（E 级）</string>
+    <string name="dlg_copy">复制</string>
+    <string name="dlg_close">关闭</string>
+    <string name="toast_log_copied">日志已复制到剪贴板</string>
+
+    <string name="guide_text" formatted="false">1. 在 LSPosed 中启用本模块，然后重启系统框架（本页按钮即可）。
+
+2. 媒体音量档位：16~29 档可选，只影响媒体流（音乐/视频）。修改档位数后点「重启系统框架」，期间黑屏属正常现象（设置会自动保存）。
+
+3. 蓝牙模式A（默认，保持绝对音量）：把档位映射为 0~127 发给耳机，并采用低音量增强曲线，低音量区每档间距更大，避免「5% 和 10% 听感相同」与「首档无声」。若耳机内部有效档位少（常见 8~19 个），手机档位多于它仍可能重复，此时改用模式B。
+
+4. 蓝牙模式B（低音量问题首选）：Hook 蓝牙栈停用绝对音量，由手机端直接衰减音频信号，耳机固定自身硬件音量，从根本上避免档位重复与低档无声；代价是耳机端不再同步显示/控制音量。
+
+5. 音量范围：「最小」抬高第 1 档（低档听不见时调到 8~20），「最大」限制最高音量。模式A 下是发给耳机的 AVRCP 绝对值，模式B 下是手机端软件衰减百分比。
+
+6. 生效方式：所有修改都会自动保存。调整音量范围 / 切换模式 → 点「重启蓝牙」（几秒后耳机重连即可）；修改媒体档位数 → 点「重启系统框架」。
+
+7. 恢复默认：点「恢复系统默认」并重启生效；或在 LSPosed 中停用模块后重启手机。
+
+8. 排查：状态区查看「系统配置键」与媒体档位是否生效；点「查看模块日志」查看模块自写日志（系统框架与蓝牙各一份，另含 LSPosed / logcat 结果）。</string>
+</resources>

@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.xiefeihong.volumecontrol'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.xiefeihong.volumecontrol"
+        minSdk 26
+        targetSdk 35
+        versionCode 10
+        versionName "1.9"
+    }
+
+    buildFeatures {
+        viewBinding true
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.10.0'
+    // libxposed 新版 API（102）：仅编译期需要，运行期由 LSPosed 注入
+    compileOnly 'io.github.libxposed:api:102.0.0'
+}

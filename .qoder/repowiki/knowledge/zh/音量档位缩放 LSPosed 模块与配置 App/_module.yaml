@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: ""
+title: 音量档位缩放 LSPosed 模块与配置 App
+scope:
+    - app/
+    - build.gradle
+    - settings.gradle
+    - gradle.properties
+    - local.properties
+    - gradlew
+    - gradlew.bat
+source_files: []
+depends_on: []
+related_to: []
