@@ -126,7 +126,7 @@ public final class Avrcp {
         return buildAbsolutePreview(maxSteps, minAbs, maxAbs);
     }
 
-    /** 模式B：手机端软件衰减（衰减乘数 0~100）。 */
+    /** 模式B：手机端软件衰减（衰减乘数 0~200）。 */
     private static String buildSoftwarePreview(int maxSteps, int minAbs, int maxAbs,
             int attenMultiplier) {
         // maxAbs 控制 curve 映射范围
@@ -136,7 +136,7 @@ public final class Avrcp {
 
         StringBuilder sb = new StringBuilder();
         sb.append("模式B：停用绝对音量（最大音量 ").append(maxAbs)
-                .append(" · 约 ").append(maxPercent).append("%）\n");
+                .append(" · 衰减乘数 ").append(attenMultiplier).append("%）\n");
         sb.append("✓ 音量由手机软件曲线平滑控制，不经过耳机内部档位量化\n");
         sb.append("✓ 从根本上避免「相邻档位听感相同」与「低档位无声」\n");
         if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
@@ -145,6 +145,14 @@ public final class Avrcp {
             sb.append("第 1 档 → ").append(lowest).append("/").append(maxSteps).append("\n");
         } else {
             sb.append("最大音量 127：不限制，滑块可达 100%\n");
+        }
+        if (attenMultiplier != 100) {
+            sb.append("衰减乘数：").append(attenMultiplier).append("%");
+            if (attenMultiplier < 100) {
+                sb.append("（降低音量）\n");
+            } else {
+                sb.append("（放大音量）\n");
+            }
         }
         sb.append("· 耳机音量请用耳机自身的音量键调整\n");
         sb.append("· 耳机端音量同步显示会失效（正常现象）\n");
@@ -192,20 +200,23 @@ public final class Avrcp {
         sb.append("提示：耳机内部有效档位较少时（常见 8~19），手机档位多于它仍会重复；模式B 可彻底解决\n\n");
 
         sb.append("档位 → AVRCP 音量：\n");
+        // 计算每个条目所需宽度（最大档位数 + "→" + 最大 AVRCP 值）
+        int stepWidth = String.valueOf(maxSteps).length();
+        int avrcpWidth = String.valueOf(Prefs.AVRCP_MAX_VOLUME).length();
+        String entryFmt = "%" + stepWidth + "d→%-" + avrcpWidth + "d";
+        int perLine = 5;
         StringBuilder line = new StringBuilder();
-        int perLine = 0;
         for (int step = 0; step <= maxSteps; step++) {
-            if (perLine == 0) {
+            int pos = step % perLine;
+            if (pos == 0) {
                 line.setLength(0);
             }
-            line.append(step).append("→")
-                    .append(curveToAbsoluteVolume(step, maxSteps, range[0], range[1]));
-            perLine++;
-            if (perLine >= 8 || step == maxSteps) {
+            line.append(String.format(entryFmt, step,
+                    curveToAbsoluteVolume(step, maxSteps, range[0], range[1])));
+            if (pos == perLine - 1 || step == maxSteps) {
                 sb.append(line).append('\n');
-                perLine = 0;
             } else {
-                line.append("   ");
+                line.append("  ");
             }
         }
         return sb.toString();

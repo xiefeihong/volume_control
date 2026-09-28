@@ -143,7 +143,7 @@ public class MainActivity extends AppCompatActivity {
         }
         minAbs = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, minAbs));
         maxAbs = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, maxAbs));
-        attenMultiplier = Math.max(0, Math.min(100, attenMultiplier));
+        attenMultiplier = Math.max(0, Math.min(200, attenMultiplier));
 
         binding.switchEnable.setChecked(enabled);
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);

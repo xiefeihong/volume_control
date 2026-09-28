@@ -84,7 +84,7 @@ public final class Prefs {
             int btMode, int minAbs, int maxAbs, int attenMultiplier) {
         return (enabled ? 1 : 0) + ";" + clampMediaSteps(mediaSteps)
                 + ";" + btMode + ";" + minAbs + ";" + maxAbs
-                + ";" + Math.max(0, Math.min(100, attenMultiplier));
+                + ";" + Math.max(0, Math.min(200, attenMultiplier));
     }
 
     /**
@@ -145,7 +145,7 @@ public final class Prefs {
                 minAbs = maxAbs;
                 maxAbs = tmp;
             }
-            attenMultiplier = Math.max(0, Math.min(100, attenMultiplier));
+            attenMultiplier = Math.max(0, Math.min(200, attenMultiplier));
             return new int[]{enabled, mediaSteps, mode, minAbs, maxAbs, attenMultiplier};
         } catch (NumberFormatException e) {
             return null;

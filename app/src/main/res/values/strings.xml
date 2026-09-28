@@ -29,7 +29,7 @@
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_atten_fmt">最大音量：%1$d · 约 %2$d%%</string>
     <string name="label_atten_multiplier_fmt">衰减乘数：%1$d%%</string>
-    <string name="range_hint_modeb" formatted="false">模式B 额外提供「衰减乘数」滑条（0~100%），100%=不衰减，数值越小音量越低。此乘数控制软件衰减的最终输出比例。</string>
+    <string name="range_hint_modeb" formatted="false">模式B 额外提供「衰减乘数」滑条（0~200%），100%=不衰减，数值越小音量越低，大于 100% 可放大音量。</string>
 
     <string name="status_root_ok">Root：可用（su 已授权）</string>
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>
