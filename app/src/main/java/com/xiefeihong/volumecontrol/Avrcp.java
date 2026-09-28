@@ -109,39 +109,43 @@ public final class Avrcp {
     /**
      * 生成蓝牙音量预览文本（供界面直接显示）。
      *
-     * @param maxSteps 生效后的媒体档位数
-     * @param btMode   {@link Prefs#BT_MODE_ABSOLUTE} 或 {@link Prefs#BT_MODE_SOFTWARE}
+     * @param maxSteps         生效后的媒体档位数
+     * @param btMode           {@link Prefs#BT_MODE_ABSOLUTE} 或 {@link Prefs#BT_MODE_SOFTWARE}
+     * @param minAbs           最小绝对音量（模式A）
+     * @param maxAbs           最大绝对音量（模式A）
+     * @param attenMultiplier  模式B 衰减乘数（0~100，100=不衰减）
      */
-    public static String buildPreview(int maxSteps, int btMode, int minAbs, int maxAbs) {
+    public static String buildPreview(int maxSteps, int btMode, int minAbs, int maxAbs,
+            int attenMultiplier) {
         if (maxSteps <= 0) {
             return "暂无数据";
         }
         if (btMode == Prefs.BT_MODE_SOFTWARE) {
-            return buildSoftwarePreview(maxSteps, minAbs, maxAbs);
+            return buildSoftwarePreview(maxSteps, minAbs, maxAbs, attenMultiplier);
         }
         return buildAbsolutePreview(maxSteps, minAbs, maxAbs);
     }
 
-    /** 模式B：手机端软件衰减（音量范围为衰减百分比）。 */
-    private static String buildSoftwarePreview(int maxSteps, int minAbs, int maxAbs) {
+    /** 模式B：手机端软件衰减（衰减乘数 0~100）。 */
+    private static String buildSoftwarePreview(int maxSteps, int minAbs, int maxAbs,
+            int attenMultiplier) {
+        // maxAbs 控制 curve 映射范围
         int[] range = normalizedRange(minAbs, maxAbs);
-        int lowest = curveToSystemIndex(1, maxSteps, range[0], range[1]);
-        int minPercent = (int) Math.round(range[0] * 100.0 / Prefs.AVRCP_MAX_VOLUME);
-        int maxPercent = (int) Math.round(range[1] * 100.0 / Prefs.AVRCP_MAX_VOLUME);
+        int lowest = curveToSystemIndex(1, maxSteps, 0, maxAbs);
+        int maxPercent = (int) Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("模式B：停用绝对音量（手动控制软件衰减）\n");
+        sb.append("模式B：停用绝对音量（最大音量 ").append(maxAbs)
+                .append(" · 约 ").append(maxPercent).append("%）\n");
         sb.append("✓ 音量由手机软件曲线平滑控制，不经过耳机内部档位量化\n");
         sb.append("✓ 从根本上避免「相邻档位听感相同」与「低档位无声」\n");
-        sb.append("衰减范围：约 ").append(minPercent).append("%~").append(maxPercent)
-                .append("（拖动「音量范围」滑条手动调节）\n");
-        sb.append("第 1 档 → 衰减档 ").append(lowest).append("/").append(maxSteps)
-                .append("\n");
-        sb.append("最高档 → 音量上限约 ").append(maxPercent).append("%");
-        if (maxPercent < 100) {
-            sb.append("（最大音量设置生效）");
+        if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
+            sb.append("最大音量：").append(maxAbs).append("（约 ").append(maxPercent)
+                    .append("%，滑块上限）\n");
+            sb.append("第 1 档 → ").append(lowest).append("/").append(maxSteps).append("\n");
+        } else {
+            sb.append("最大音量 127：不限制，滑块可达 100%\n");
         }
-        sb.append("\n");
         sb.append("· 耳机音量请用耳机自身的音量键调整\n");
         sb.append("· 耳机端音量同步显示会失效（正常现象）\n");
         sb.append("提示：调整后点「重启蓝牙」即可生效（设置会自动保存）。");

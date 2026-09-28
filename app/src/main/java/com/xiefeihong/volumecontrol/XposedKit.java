@@ -41,6 +41,8 @@ public final class XposedKit {
 
     /** 模块自写日志：系统框架侧文件（system_server 可写，root 可读）。 */
     static final String SYS_LOG_FILE = "/data/system/volumecontrol_sys.log";
+    /** 备用日志路径（当 /data/system/ 被 SELinux 阻止时使用）。 */
+    private static final String SYS_LOG_FILE_FALLBACK = "/data/misc/volumecontrol_sys.log";
     /** 模块自写日志：蓝牙进程侧文件名（写入蓝牙应用数据目录）。 */
     static final String BT_LOG_FILE_NAME = "volumecontrol_bt.log";
     private static final String BT_LOG_FILE_FALLBACK =
@@ -80,11 +82,27 @@ public final class XposedKit {
             new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US);
 
     /**
-     * 普通日志（INFO）：仅写自写文件（应用内「查看模块日志」可见全部级别），
-     * 不进入 LSPosed 日志页，避免常规信息刷屏。
+     * 普通日志（INFO）：写自写文件 + LSPosed 日志文件 + logcat。
+     * 三通道全写，确保至少一个通道可见：
+     * - 文件日志可能被 SELinux 阻止
+     * - {@code Log.i()} 从 system_server 可能被 Android 15 日志策略过滤
+     * - {@code module.log()} 直接写入 LSPosed 日志文件（/data/adb/lspd/log/），最可靠
      */
     static void log(String message) {
         writeLogFile("I", message);
+        try {
+            XposedModule module = sModule;
+            if (module != null) {
+                module.log(Log.INFO, LOG_TAG, LOG_PREFIX + message);
+            }
+        } catch (Throwable ignored) {
+            // 日志失败不影响功能
+        }
+        try {
+            Log.i(LOG_TAG, LOG_PREFIX + message);
+        } catch (Throwable ignored) {
+            // 日志失败不影响功能
+        }
     }
 
     /**
@@ -122,7 +140,7 @@ public final class XposedKit {
         }
     }
 
-    /** 追加写入当前进程的日志文件（带级别标记）；文件过大时清空重写，连续失败 3 次后放弃。 */
+    /** 追加写入当前进程的日志文件（带级别标记）；文件过大时清空重写，连续失败 3 次后放弃文件日志。 */
     private static void writeLogFile(String level, String message) {
         synchronized (LOG_LOCK) {
             try {
@@ -144,7 +162,7 @@ public final class XposedKit {
                 synchronized (LOG_TIME_FORMAT) {
                     time = LOG_TIME_FORMAT.format(new Date());
                 }
-                byte[] bytes = (time + " [" + level + "] " + message + "\n")
+                byte[] bytes = ("[" + level + "] " + time + " " + message + "\n")
                         .getBytes(StandardCharsets.UTF_8);
                 try (FileOutputStream out = new FileOutputStream(file, true)) {
                     out.write(bytes);
@@ -152,7 +170,10 @@ public final class XposedKit {
                 sLogFileFailureCount = 0;
             } catch (Throwable t) {
                 if (++sLogFileFailureCount >= 3 && sLogFilePath != null) {
-                    // 连续失败（如 SELinux 限制）：放弃文件日志，保留 LSPosed 日志 / logcat 通道
+                    // 连续失败（如 SELinux 限制）：放弃文件日志，依赖 logcat 兜底
+                    logErrorOnce("logfile-give-up",
+                            "log file write failed " + sLogFileFailureCount
+                                    + " times, switching to logcat only");
                     sLogFilePath = null;
                     sLogFileFailureCount = 4;
                 }
@@ -171,7 +192,37 @@ public final class XposedKit {
         }
         String path = null;
         if (sIsSystemProcess) {
+            // 先尝试主路径，失败后用备用路径
             path = SYS_LOG_FILE;
+            File testFile = new File(path);
+            try {
+                File parent = testFile.getParentFile();
+                if (parent != null && !parent.exists()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    parent.mkdirs();
+                }
+                // 测试是否可写
+                try (FileOutputStream test = new FileOutputStream(testFile, true)) {
+                    test.write(0);
+                }
+            } catch (Throwable t) {
+                // 主路径不可写，尝试备用路径
+                path = SYS_LOG_FILE_FALLBACK;
+                try {
+                    File fallback = new File(path);
+                    File parent = fallback.getParentFile();
+                    if (parent != null && !parent.exists()) {
+                        //noinspection ResultOfMethodCallIgnored
+                        parent.mkdirs();
+                    }
+                    try (FileOutputStream test = new FileOutputStream(fallback, true)) {
+                        test.write(0);
+                    }
+                } catch (Throwable t2) {
+                    // 备用路径也不可用，依赖 logcat 兜底
+                    path = null;
+                }
+            }
         } else {
             Context context = bluetoothContext();
             if (context != null) {
@@ -286,7 +337,8 @@ public final class XposedKit {
             if (value instanceof int[]) {
                 return (int[]) value;
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            logError("getStaticIntArrayField(" + clazz.getSimpleName() + "." + name + ") failed: " + t);
         }
         return null;
     }
@@ -300,7 +352,7 @@ public final class XposedKit {
      * → 通道2 配置镜像文件（App 以 root 写入 /data/system，不依赖 SettingsProvider，
      * 开机全程可读——冷启动构造期的关键通道）。</p>
      *
-     * @return int[]{enabled, mediaSteps, btMode, minAbs, maxAbs} 或 null
+     * @return int[]{enabled, mediaSteps, btMode, minAbs, maxAbs, attenMultiplier} 或 null
      */
     static int[] readConfig(Context context) {
         // 通道1：Settings.Global

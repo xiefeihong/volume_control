@@ -23,7 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 主界面：设置媒体音量档位（16~29）、选择蓝牙音量模式与音量范围。
+ * 主界面：设置媒体音量档位（15~29）、选择蓝牙音量模式与音量范围。
  * 设置变更后自动保存；重启蓝牙 / 系统框架使其生效。
  */
 public class MainActivity extends AppCompatActivity {
@@ -90,6 +90,7 @@ public class MainActivity extends AppCompatActivity {
         binding.seekMediaSteps.setOnSeekBarChangeListener(listener);
         binding.seekMinAbs.setOnSeekBarChangeListener(listener);
         binding.seekMaxAbs.setOnSeekBarChangeListener(listener);
+        binding.seekAttenMultiplier.setOnSeekBarChangeListener(listener);
 
         binding.radioBtMode.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
@@ -120,6 +121,7 @@ public class MainActivity extends AppCompatActivity {
                     binding.radioBtMode.check(R.id.radioModeAbsolute);
                     binding.seekMinAbs.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
                     binding.seekMaxAbs.setProgress(Prefs.ABS_VOLUME_MAX_DEFAULT);
+                    binding.seekAttenMultiplier.setProgress(Prefs.ATTEN_MULTIPLIER_DEFAULT);
                     mainHandler.removeCallbacks(autoSaveRunnable);
                     saveToSystem(() -> Toast.makeText(this, R.string.toast_reset_done,
                             Toast.LENGTH_LONG).show());
@@ -135,11 +137,13 @@ public class MainActivity extends AppCompatActivity {
         int btMode = prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE);
         int minAbs = prefs.getInt(Prefs.KEY_MIN_ABS, Prefs.ABS_VOLUME_MIN_DEFAULT);
         int maxAbs = prefs.getInt(Prefs.KEY_MAX_ABS, Prefs.ABS_VOLUME_MAX_DEFAULT);
+        int attenMultiplier = prefs.getInt(Prefs.KEY_ATTEN_MULTIPLIER, Prefs.ATTEN_MULTIPLIER_DEFAULT);
         if (btMode != Prefs.BT_MODE_SOFTWARE) {
             btMode = Prefs.BT_MODE_ABSOLUTE;
         }
         minAbs = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, minAbs));
         maxAbs = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, maxAbs));
+        attenMultiplier = Math.max(0, Math.min(100, attenMultiplier));
 
         binding.switchEnable.setChecked(enabled);
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
@@ -147,11 +151,12 @@ public class MainActivity extends AppCompatActivity {
                 ? R.id.radioModeSoftware : R.id.radioModeAbsolute);
         binding.seekMinAbs.setProgress(minAbs);
         binding.seekMaxAbs.setProgress(maxAbs);
+        binding.seekAttenMultiplier.setProgress(attenMultiplier);
     }
 
     // ==================== 配置计算与预览 ====================
 
-    /** 当前选择的媒体档位数（16~29）。 */
+    /** 当前选择的媒体档位数（15~29）。 */
     private int currentMediaSteps() {
         int steps = Prefs.MEDIA_STEPS_MIN + binding.seekMediaSteps.getProgress();
         return Prefs.clampMediaSteps(steps);
@@ -194,6 +199,13 @@ public class MainActivity extends AppCompatActivity {
         int mediaSteps = currentMediaSteps();
         binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
 
+        boolean isModeB = currentBtMode() == Prefs.BT_MODE_SOFTWARE;
+        int attenMultiplier = binding.seekAttenMultiplier.getProgress();
+
+        // 模式B 专属：衰减乘数滑条仅模式B 下可见
+        binding.tvAttenMultiplier.setVisibility(isModeB ? android.view.View.VISIBLE : android.view.View.GONE);
+        binding.seekAttenMultiplier.setVisibility(isModeB ? android.view.View.VISIBLE : android.view.View.GONE);
+
         int minAbs = currentMinAbs();
         int maxAbs = currentMaxAbs();
         binding.tvMinAbs.setText(getString(R.string.label_min_abs_fmt, minAbs,
@@ -201,7 +213,14 @@ public class MainActivity extends AppCompatActivity {
         binding.tvMaxAbs.setText(getString(R.string.label_max_abs_fmt, maxAbs,
                 Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
 
-        String preview = Avrcp.buildPreview(mediaSteps, currentBtMode(), minAbs, maxAbs);
+        if (isModeB) {
+            binding.tvAttenMultiplier.setText(getString(R.string.label_atten_multiplier_fmt, attenMultiplier));
+            binding.tvRangeHint.setText(getString(R.string.range_hint_modeb));
+        } else {
+            binding.tvRangeHint.setText(getString(R.string.range_hint));
+        }
+
+        String preview = Avrcp.buildPreview(mediaSteps, currentBtMode(), minAbs, maxAbs, attenMultiplier);
         int split = preview.indexOf("\n\n");
         if (split > 0) {
             binding.tvAvrcpSummary.setText(preview.substring(0, split));
@@ -220,7 +239,8 @@ public class MainActivity extends AppCompatActivity {
                 .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
                 .putInt(Prefs.KEY_BT_MODE, currentBtMode())
                 .putInt(Prefs.KEY_MIN_ABS, currentMinAbs())
-                .putInt(Prefs.KEY_MAX_ABS, currentMaxAbs());
+                .putInt(Prefs.KEY_MAX_ABS, currentMaxAbs())
+                .putInt(Prefs.KEY_ATTEN_MULTIPLIER, binding.seekAttenMultiplier.getProgress());
         if (synchronous) {
             editor.commit();
         } else {
@@ -230,7 +250,8 @@ public class MainActivity extends AppCompatActivity {
 
     private String currentConfigString() {
         return Prefs.encodeConfig(binding.switchEnable.isChecked(), currentMediaSteps(),
-                currentBtMode(), currentMinAbs(), currentMaxAbs());
+                currentBtMode(), currentMinAbs(), currentMaxAbs(),
+                binding.seekAttenMultiplier.getProgress());
     }
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
@@ -352,6 +373,8 @@ public class MainActivity extends AppCompatActivity {
                             .putInt(Prefs.KEY_BT_MODE, globalConfig[2])
                             .putInt(Prefs.KEY_MIN_ABS, globalConfig[3])
                             .putInt(Prefs.KEY_MAX_ABS, globalConfig[4])
+                            .putInt(Prefs.KEY_ATTEN_MULTIPLIER,
+                                    globalConfig.length > 5 ? globalConfig[5] : Prefs.ATTEN_MULTIPLIER_DEFAULT)
                             .commit();
                     adopted = true;
                 }
@@ -446,6 +469,13 @@ public class MainActivity extends AppCompatActivity {
                                 Toast.makeText(this, R.string.toast_log_copied,
                                         Toast.LENGTH_SHORT).show();
                             }
+                        })
+                        .setNeutralButton(R.string.dlg_clear, (dialog, which) -> {
+                            executor.execute(() -> {
+                                Shell.clearModuleLogs();
+                                mainHandler.post(() -> Toast.makeText(this,
+                                        R.string.toast_logs_cleared, Toast.LENGTH_LONG).show());
+                            });
                         })
                         .setNegativeButton(R.string.dlg_close, null)
                         .show();

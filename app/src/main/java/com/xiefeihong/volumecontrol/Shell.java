@@ -221,13 +221,15 @@ public final class Shell {
      */
     public static String readModuleLogs() {
         Result result = su(
-                "echo '@SYS@'; tail -n 120 /data/system/volumecontrol_sys.log 2>/dev/null; "
-                        + "echo '@BT@'; tail -n 120 /data/data/com.android.bluetooth/files/"
+                "echo '@SYS@'; "
+                        + "tail -n 200 /data/system/volumecontrol_sys.log 2>/dev/null; "
+                        + "tail -n 200 /data/misc/volumecontrol_sys.log 2>/dev/null; "
+                        + "echo '@BT@'; tail -n 200 /data/data/com.android.bluetooth/files/"
                         + "volumecontrol_bt.log 2>/dev/null; "
-                        + "echo '@LSPD@'; grep -a -h 'VolumeControl: ' /data/adb/lspd/log/* 2>/dev/null "
-                        + "| tail -n 80; "
-                        + "echo '@LOGCAT@'; logcat -b all -d -t 30000 2>/dev/null "
-                        + "| grep -a 'VolumeControl: ' | tail -n 80");
+                        + "echo '@LSPD@'; grep -a -h 'VolumeControl' /data/adb/lspd/log/* 2>/dev/null "
+                        + "| tail -n 150; "
+                        + "echo '@LOGCAT@'; logcat -d -t 500 2>/dev/null "
+                        + "| grep -a 'VolumeControl' | tail -n 150");
         String output = result.output == null ? "" : result.output;
         String sys = section(output, "@SYS@", "@BT@");
         String bt = section(output, "@BT@", "@LSPD@");
@@ -256,6 +258,17 @@ public final class Shell {
                     .append(diag.output == null ? "" : diag.output.trim());
         }
         return report.toString().trim();
+    }
+
+    /**
+     * 清理模块日志：删除模块自写文件 + LSPosed 日志文件 + 清除 logcat。
+     */
+    public static void clearModuleLogs() {
+        su("rm -f /data/system/volumecontrol_sys.log "
+                + "/data/misc/volumecontrol_sys.log "
+                + "/data/data/com.android.bluetooth/files/volumecontrol_bt.log "
+                + "/data/adb/lspd/log/* 2>/dev/null; "
+                + "logcat -c 2>/dev/null");
     }
 
     /** 截取 {@code startKey} 与 {@code endKey} 之间的输出段（endKey 为 null 时到结尾）。 */

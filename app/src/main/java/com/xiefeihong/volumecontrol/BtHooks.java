@@ -118,8 +118,8 @@ final class BtHooks {
                     }
                     return curved;
                 }
-            } catch (Throwable ignored) {
-                // 保持系统原始换算，避免影响蓝牙功能
+            } catch (Throwable t) {
+                XposedKit.logError("modeA systemToAvrcp hook failed: " + t);
             }
             return result;
         }
@@ -151,7 +151,8 @@ final class BtHooks {
                 }
                 return Avrcp.curveToSystemStep(
                         (Integer) arg0, maxSteps, config[3], config[4]);
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                XposedKit.logError("modeA avrcpToSystem hook failed: " + t);
             }
             return result;
         }
@@ -183,7 +184,8 @@ final class BtHooks {
                                     return chain.proceed(newArgs);
                                 }
                             }
-                        } catch (Throwable ignored) {
+                        } catch (Throwable t) {
+                            XposedKit.logError("deviceConnected hook failed: " + t);
                         }
                         return chain.proceed();
                     }
@@ -213,7 +215,8 @@ final class BtHooks {
                             if (AudioHooks.isModeB(config)) {
                                 return Boolean.FALSE;
                             }
-                        } catch (Throwable ignored) {
+                        } catch (Throwable t) {
+                            XposedKit.logError("getAbsoluteVolumeSupported hook failed: " + t);
                         }
                         return result;
                     }
@@ -242,7 +245,8 @@ final class BtHooks {
                             if (AudioHooks.isModeB(config)) {
                                 return null;
                             }
-                        } catch (Throwable ignored) {
+                        } catch (Throwable t) {
+                            XposedKit.logError("sendVolumeChanged hook failed: " + t);
                         }
                         return chain.proceed();
                     }
