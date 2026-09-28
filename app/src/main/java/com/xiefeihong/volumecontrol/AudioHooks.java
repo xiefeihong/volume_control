@@ -32,12 +32,12 @@ import io.github.libxposed.api.XposedModule;
  * <p>对 AudioService 构造器与 createStreamStates 执行 {@code deoptimize}，防止调用点
  * 被内联后绕过对 SystemProperties.getInt 的拦截。</p>
  *
- * <p><b>模式B 双重衰减：</b></p>
+ * <p><b>模式B 双重衰减（均在 VolumeStreamState.setStreamVolumeIndex 内计算）：</b></p>
  * <ol>
  *   <li>第一重：Hook {@code VolumeStreamState#setStreamVolumeIndex} 把系统音量档位
- *       按「衰减乘数」百分比映射降低（低音量增强曲线）；</li>
- *   <li>第二重：Hook {@code AudioTrack#setVolume} 对系统软件衰减再乘「衰减乘数」，
- *       使最终输出音量 = 系统档位衰减 × 乘数。</li>
+ *       按 maxAbs 曲线映射降低（低音量增强曲线）；</li>
+ *   <li>第二重：在 curve 映射结果上再乘「衰减乘数」（0~200%），
+ *       使最终音量 = curve映射档位 × 乘数百分比。</li>
  * </ol>
  *
  * <p><b>模式B 保险：</b>{@code avrcpSupportsAbsoluteVolume} 强制上报"不支持"，
@@ -129,6 +129,7 @@ final class AudioHooks {
             hookSoftwareVolumeCurve(classLoader, module);
             // AudioSystem hook 可能导致音量不稳定，暂时禁用
             // hookAudioSystemVolumeIndex(classLoader, module);
+            // 衰减乘数已融入 SetStreamVolumeIndexHooker 的 curve 映射计算中
             hookAbsoluteVolumeSuppression(classLoader, module);
 
             // 立即读取配置填充属性拦截缓存（此时 SettingsProvider 未就绪，
@@ -715,14 +716,17 @@ final class AudioHooks {
                 }
                 // config[4] 是最大音量绝对值（0~127），用于 curve 映射
                 int maxAbs = config.length > 4 ? config[4] : Prefs.AVRCP_MAX_VOLUME;
+                // config[5] 是衰减乘数（0~200，100=不衰减）
+                int attenMultiplier = config.length > 5 ? config[5] : Prefs.ATTEN_MULTIPLIER_DEFAULT;
                 if (!sModeBLogged) {
                     sModeBLogged = true;
                     XposedKit.log("modeB setStreamVolumeIndex first fire: index=" + index
                             + " device=" + device + " maxAbs=" + maxAbs
+                            + " attenMultiplier=" + attenMultiplier
                             + " config=" + java.util.Arrays.toString(config));
                 }
-                // maxAbs = 127 时不衰减，直接放行
-                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME) {
+                // maxAbs=127 且乘数=100 时不衰减，直接放行
+                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && attenMultiplier == 100) {
                     return chain.proceed();
                 }
                 // mIndexMax 是内部档位（真实档位×10），还原为档位数
@@ -730,8 +734,13 @@ final class AudioHooks {
                 if (maxSteps <= 0) {
                     return chain.proceed();
                 }
-                int mapped = Avrcp.curveToSystemIndex(
-                        index, maxSteps, 0, maxAbs);
+                // 第一层：curve 映射（maxAbs 控制范围）
+                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, 0, maxAbs);
+                // 第二层：衰减乘数（在 curve 结果上再缩放）
+                if (attenMultiplier != 100 && attenMultiplier >= 0) {
+                    mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
+                    mapped = Math.max(0, Math.min(maxSteps, mapped));
+                }
                 if (mapped >= index) {
                     return chain.proceed();
                 }
@@ -739,6 +748,7 @@ final class AudioHooks {
                     sLastLoggedSystemIndex = index;
                     XposedKit.log("modeB remap: " + index + "/" + maxSteps
                             + " -> " + mapped + " (maxAbs=" + maxAbs
+                            + " mul=" + attenMultiplier + "%"
                             + " device=" + device + ")");
                 }
                 Object[] newArgs = args.toArray();
@@ -789,7 +799,9 @@ final class AudioHooks {
                 }
                 // config[4] 是最大音量绝对值（0~127），用于 curve 映射
                 int maxAbs = config.length > 4 ? config[4] : Prefs.AVRCP_MAX_VOLUME;
-                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME) {
+                // config[5] 是衰减乘数（0~200，100=不衰减）
+                int attenMultiplier = config.length > 5 ? config[5] : Prefs.ATTEN_MULTIPLIER_DEFAULT;
+                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && attenMultiplier == 100) {
                     return chain.proceed();
                 }
                 int index = (Integer) args.get(1);
@@ -800,8 +812,13 @@ final class AudioHooks {
                 if (maxSteps <= 0) {
                     return chain.proceed();
                 }
-                int mapped = Avrcp.curveToSystemIndex(
-                        index, maxSteps, 0, maxAbs);
+                // 第一层：curve 映射（maxAbs 控制范围）
+                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, 0, maxAbs);
+                // 第二层：衰减乘数（在 curve 结果上再缩放）
+                if (attenMultiplier != 100 && attenMultiplier >= 0) {
+                    mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
+                    mapped = Math.max(0, Math.min(maxSteps, mapped));
+                }
                 if (mapped >= index) {
                     return chain.proceed();
                 }
@@ -809,7 +826,7 @@ final class AudioHooks {
                     sLastLoggedSystemIndex = index;
                     XposedKit.log("modeB setStreamVolume cap: " + index
                             + " -> " + mapped + "/" + maxSteps
-                            + " (maxAbs=" + maxAbs + ")");
+                            + " (maxAbs=" + maxAbs + " mul=" + attenMultiplier + "%)");
                 }
                 Object[] newArgs = args.toArray();
                 newArgs[1] = mapped;

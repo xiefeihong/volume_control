@@ -26,7 +26,7 @@ public final class Prefs {
     public static final String KEY_MIN_ABS = "min_abs_volume";
     public static final String KEY_MAX_ABS = "max_abs_volume";
 
-    /** 模式B 衰减乘数（0~100，100=不衰减）。 */
+    /** 模式B 衰减乘数（0~200，100=不衰减）。 */
     public static final String KEY_ATTEN_MULTIPLIER = "atten_multiplier";
 
     /**

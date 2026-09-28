@@ -254,8 +254,14 @@ public final class Shell {
             Result diag = su("ls -la /data/adb/lspd/log/ 2>&1 | head -n 30; echo; "
                     + "ls -la /data/system/volumecontrol_sys.log 2>&1; "
                     + "ls -la /data/data/com.android.bluetooth/files/volumecontrol_bt.log 2>&1");
-            report.append("[诊断] 未找到任何日志，请检查以下输出：\n")
-                    .append(diag.output == null ? "" : diag.output.trim());
+            report.append("未找到任何日志。\n")
+                    .append("请检查以下路径的文件是否存在：\n")
+                    .append("• /data/system/volumecontrol_sys.log\n")
+                    .append("• /data/adb/lspd/log/\n")
+                    .append("• /data/data/com.android.bluetooth/files/volumecontrol_bt.log\n\n");
+            if (diag.output != null && !diag.output.trim().isEmpty()) {
+                report.append("[诊断信息]\n").append(diag.output.trim());
+            }
         }
         return report.toString().trim();
     }

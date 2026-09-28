@@ -94,6 +94,22 @@ public final class Avrcp {
         return Math.max(0, Math.min(maxSteps, value));
     }
 
+    /**
+     * 模式B 综合映射：曲线映射 + 衰减乘数。
+     *
+     * <p>先按 maxAbs 做曲线映射得到系统音量档位，再乘衰减乘数百分比。
+     * 例如：maxAbs=62, multiplier=50% → 滑块 100% 时实际音量约 24%。</p>
+     */
+    public static int curveToEffectiveIndex(int step, int maxSteps, int minAbs, int maxAbs,
+            int attenMultiplier) {
+        int mapped = curveToSystemIndex(step, maxSteps, minAbs, maxAbs);
+        if (attenMultiplier != 100 && attenMultiplier >= 0) {
+            mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
+            mapped = Math.max(0, Math.min(maxSteps, mapped));
+        }
+        return mapped;
+    }
+
     /** 统计模式A 曲线映射后「相邻档位数值相同」的档位对数量（不含静音档 0）。 */
     public static int countDuplicatePairs(int maxSteps, int minAbs, int maxAbs) {
         int duplicates = 0;
@@ -113,7 +129,7 @@ public final class Avrcp {
      * @param btMode           {@link Prefs#BT_MODE_ABSOLUTE} 或 {@link Prefs#BT_MODE_SOFTWARE}
      * @param minAbs           最小绝对音量（模式A）
      * @param maxAbs           最大绝对音量（模式A）
-     * @param attenMultiplier  模式B 衰减乘数（0~100，100=不衰减）
+     * @param attenMultiplier  模式B 衰减乘数（0~200，100=不衰减）
      */
     public static String buildPreview(int maxSteps, int btMode, int minAbs, int maxAbs,
             int attenMultiplier) {
@@ -147,11 +163,15 @@ public final class Avrcp {
             sb.append("最大音量 127：不限制，滑块可达 100%\n");
         }
         if (attenMultiplier != 100) {
+            int effectiveMax = (int) Math.round(maxAbs * attenMultiplier / 100.0);
+            int effectivePercent = (int) Math.round(effectiveMax * 100.0 / Prefs.AVRCP_MAX_VOLUME);
             sb.append("衰减乘数：").append(attenMultiplier).append("%");
             if (attenMultiplier < 100) {
-                sb.append("（降低音量）\n");
+                sb.append("（降低音量，有效最大音量 ").append(effectiveMax)
+                        .append(" ≈ ").append(effectivePercent).append("%）\n");
             } else {
-                sb.append("（放大音量）\n");
+                sb.append("（放大音量，有效最大音量 ").append(effectiveMax)
+                        .append(" ≈ ").append(effectivePercent).append("%）\n");
             }
         }
         sb.append("· 耳机音量请用耳机自身的音量键调整\n");
@@ -204,7 +224,7 @@ public final class Avrcp {
         int stepWidth = String.valueOf(maxSteps).length();
         int avrcpWidth = String.valueOf(Prefs.AVRCP_MAX_VOLUME).length();
         String entryFmt = "%" + stepWidth + "d→%-" + avrcpWidth + "d";
-        int perLine = 5;
+        int perLine = 6;
         StringBuilder line = new StringBuilder();
         for (int step = 0; step <= maxSteps; step++) {
             int pos = step % perLine;
