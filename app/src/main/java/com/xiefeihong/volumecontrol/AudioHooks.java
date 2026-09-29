@@ -666,7 +666,7 @@ final class AudioHooks {
      * {@code VolumeStreamState#setStreamVolumeIndex(index, device)} 是档位应用必经点。
      *
      * <p>仅模式B 在 system_server 侧修改音量（curve + 衰减乘数），
-     * 模式A 保持绝对音量，不在 system_server 干预（曲线映射仅在蓝牙进程 BtHooks 处理）。</p>
+     * 模式A 保持绝对音量，不在 system_server 干预。</p>
      */
     private static final class SetStreamVolumeIndexHooker implements XposedInterface.Hooker {
         private static boolean sAnyFireLogged;
@@ -674,19 +674,6 @@ final class AudioHooks {
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
             List<Object> args = chain.getArgs();
             try {
-                // 首次触发诊断
-                if (!sAnyFireLogged) {
-                    sAnyFireLogged = true;
-                    int diagIndex = (args.size() >= 1 && args.get(0) instanceof Integer)
-                            ? (Integer) args.get(0) : -1;
-                    int diagDevice = (args.size() >= 2 && args.get(1) instanceof Integer)
-                            ? (Integer) args.get(1) : -1;
-                    int[] diagConfig = XposedKit.readConfig(XposedKit.systemServerContext(null));
-                    XposedKit.log("setStreamVolumeIndex first fire: index="
-                            + diagIndex + " device=" + diagDevice
-                            + " config=" + (diagConfig != null
-                                    ? java.util.Arrays.toString(diagConfig) : "null"));
-                }
                 if (args.size() < 2 || !(args.get(0) instanceof Integer)
                         || !(args.get(1) instanceof Integer)) {
                     return chain.proceed();
@@ -695,6 +682,15 @@ final class AudioHooks {
                 int device = (Integer) args.get(1);
                 if (index <= 0) {
                     return chain.proceed();
+                }
+                // 首次触发诊断
+                if (!sAnyFireLogged) {
+                    sAnyFireLogged = true;
+                    int[] diagConfig = XposedKit.readConfig(XposedKit.systemServerContext(null));
+                    XposedKit.log("setStreamVolumeIndex first fire: index="
+                            + index + " device=" + device
+                            + " config=" + (diagConfig != null
+                                    ? java.util.Arrays.toString(diagConfig) : "null"));
                 }
                 Object state = chain.getThisObject();
                 if (XposedKit.getIntField(state, FIELD_STREAM_TYPE)
@@ -715,11 +711,8 @@ final class AudioHooks {
                 if (config == null || config[0] == 0) {
                     return chain.proceed();
                 }
-                // 仅模式B 在 system_server 衰减；模式A 保持绝对音量，直接放行
-                if (!isModeB(config)) {
-                    return chain.proceed();
-                }
-                if (config.length < 9) {
+                // 仅模式B；模式A 保持绝对音量，不在 system_server 修改
+                if (!isModeB(config) || config.length < 9) {
                     return chain.proceed();
                 }
                 int minAbs = config[6];

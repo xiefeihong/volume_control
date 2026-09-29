@@ -32,7 +32,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="@string/label_enable" />
+            android:text="@string/label_enable"
+            android:textStyle="bold"
+            android:gravity="end|center_vertical"
+            android:layoutDirection="rtl" />
 
         <!-- ============ 运行状态 ============ -->
         <com.google.android.material.card.MaterialCardView

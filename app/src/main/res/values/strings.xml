@@ -18,7 +18,7 @@
 
     <string name="label_enable">启用模块</string>
     <string name="label_media_steps_default">媒体档位：默认（范围 16~29）</string>
-    <string name="label_media_steps_sys_default">媒体档位：系统默认（不修改）</string>
+    <string name="label_media_steps_sys_default">媒体档位：默认</string>
     <string name="label_media_steps_fmt">媒体档位：%1$d 档（范围 16~29）</string>
     <string name="media_hint">滑块拉到最左边为“默认”（不修改档位数）。向右依次为 16、17…29 档。修改自动保存，点「重启系统框架」生效。</string>
 
