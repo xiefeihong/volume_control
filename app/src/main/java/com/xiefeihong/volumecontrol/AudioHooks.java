@@ -40,9 +40,9 @@ import io.github.libxposed.api.XposedModule;
  *       使最终音量 = curve映射档位 × 乘数百分比。</li>
  * </ol>
  *
- * <p><b>模式B 保险：</b>{@code postSetAvrcpAbsoluteVolumeIndex} 直接拦截发往蓝牙栈的音量值
- * （配合蓝牙进程 {@code sendVolumeChanged} 阻断）。不修改 {@code avrcpSupportsAbsoluteVolume}
- * 缓存字段，因此 Mode A↔B 切换后下一次音量调整即生效，无需重启蓝牙。</p>
+ * <p><b>模式B 保险：</b>{@code avrcpSupportsAbsoluteVolume} 强制上报"不支持"，
+ * {@code postSetAvrcpAbsoluteVolumeIndex} 拦截发往蓝牙栈的音量值。
+ * 配合蓝牙进程 {@code getAbsoluteVolumeSupported} 动态覆盖，实现 Mode A↔B 切换无需重启蓝牙。</p>
  */
 final class AudioHooks {
 
@@ -50,6 +50,7 @@ final class AudioHooks {
     private static final String METHOD_GET_STREAM_MAX_VOLUME = "getStreamMaxVolume";
     private static final String METHOD_SET_STREAM_VOLUME_INDEX = "setStreamVolumeIndex";
     private static final String METHOD_SET_STREAM_VOLUME = "setStreamVolume";
+    private static final String METHOD_AVRCP_SUPPORTS_ABS_VOLUME = "avrcpSupportsAbsoluteVolume";
     private static final String METHOD_POST_AVRCP_VOLUME = "postSetAvrcpAbsoluteVolumeIndex";
     private static final String PROP_MEDIA_VOL_STEPS = "ro.config.media_vol_steps";
     private static final String FIELD_MAX_STREAM_VOLUME = "MAX_STREAM_VOLUME";
@@ -516,12 +517,22 @@ final class AudioHooks {
     // ==================== 模式B：软件衰减范围 + 绝对音量压制 ====================
 
     /**
-     * 模式B 的系统框架侧保险：
-     * {@code postSetAvrcpAbsoluteVolumeIndex}：拦截音量转发，耳机固定自身硬件音量。
-     * 不再修改 avrcpSupportsAbsoluteVolume 缓存字段，模式切换即时生效。
+     * 模式B 的系统框架侧保险（双通道拦截）：
+     * 1. {@code avrcpSupportsAbsoluteVolume}：强制上报"不支持绝对音量"，使 AudioService
+     *    对 A2DP 设备走软件衰减路径（否则音量仅通过 AVRCP 发送，被 sendVolumeChanged 阻断）；
+     * 2. {@code postSetAvrcpAbsoluteVolumeIndex}：拦截音量转发。
      */
     private static void hookAbsoluteVolumeSuppression(ClassLoader classLoader,
             XposedModule module) {
+        try {
+            Class<?> audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
+            int hooked = XposedKit.hookAllMethodsNamed(module, audioService,
+                    METHOD_AVRCP_SUPPORTS_ABS_VOLUME, new AvrcpSupportsHooker());
+            XposedKit.log(audioService.getName() + "#" + METHOD_AVRCP_SUPPORTS_ABS_VOLUME
+                    + " hooked: " + hooked);
+        } catch (Throwable t) {
+            XposedKit.logError("hook " + METHOD_AVRCP_SUPPORTS_ABS_VOLUME + " failed: " + t);
+        }
         try {
             Class<?> deviceBroker = classLoader.loadClass(XposedKit.AUDIO_DEVICE_BROKER_CLASS);
             int hooked = XposedKit.hookAllMethodsNamed(module, deviceBroker,
@@ -533,7 +544,30 @@ final class AudioHooks {
         }
     }
 
-    
+    /** 上报入口：模式B 下强制"不支持绝对音量"（使 AudioService 走软件衰减路径）。 */
+    private static final class AvrcpSupportsHooker implements XposedInterface.Hooker {
+        @Override
+        public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            try {
+                List<Object> args = chain.getArgs();
+                if (args.size() < 2 || !Boolean.TRUE.equals(args.get(1))) {
+                    return chain.proceed();
+                }
+                int[] config = XposedKit.readConfig(
+                        XposedKit.systemServerContext(chain.getThisObject()));
+                if (!isModeB(config)) {
+                    return chain.proceed();
+                }
+                XposedKit.logOnce("modeb-support", "modeB: force avrcp support=false");
+                Object[] newArgs = args.toArray();
+                newArgs[1] = Boolean.FALSE;
+                return chain.proceed(newArgs);
+            } catch (Throwable t) {
+                XposedKit.logError("avrcpSupports hook failed: " + t);
+                return chain.proceed();
+            }
+        }
+    }
 
     /** 发送入口：模式B 下拦截音量转发（耳机端固定）。 */
     private static final class PostAvrcpVolumeHooker implements XposedInterface.Hooker {
@@ -708,7 +742,20 @@ final class AudioHooks {
                 }
                 Object[] newArgs = args.toArray();
                 newArgs[0] = mapped;
-                return chain.proceed(newArgs);
+                chain.proceed(newArgs); // HAL 应用降低后的增益
+                // 恢复 mIndexMap 中的原始档位，避免 getStreamVolume 读回 remapped
+                // 后二次映射导致音量卡死（VOL_UP 无效）
+                try {
+                    Object map = XposedKit.getField(state, "mIndexMap");
+                    if (map instanceof java.util.Map) {
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<Integer, Integer> indexMap =
+                                (java.util.Map<Integer, Integer>) map;
+                        indexMap.put(device, index * 10);
+                    }
+                } catch (Throwable ignored) {
+                }
+                return null;
             } catch (Throwable t) {
                 XposedKit.logOnce("vol-index-err",
                         "setStreamVolumeIndex hook error: " + t);

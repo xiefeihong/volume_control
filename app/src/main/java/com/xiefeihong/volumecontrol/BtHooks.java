@@ -1,5 +1,7 @@
 package com.xiefeihong.volumecontrol;
 
+import java.util.List;
+
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 
@@ -11,10 +13,13 @@ import io.github.libxposed.api.XposedModule;
  *   <li>模式A（保持绝对音量，默认）：{@code systemToAvrcpVolume()} 使用低音量增强曲线
  *       （sqrt 映射），与 UI 预览保持一致；{@code avrcpToSystemVolume()}（耳机音量键回调）
  *       使用曲线反函数保持双向一致；</li>
- *   <li>模式B（停用绝对音量）：仅屏蔽发往耳机的 AVRCP 音量（{@code sendVolumeChanged}），
- *       耳机固定于自身硬件音量。不修改 deviceConnected / getAbsoluteVolumeSupported
- *       缓存字段，因此模式切换后下一次音量调整即生效（无需重启蓝牙）。</li>
+ *   <li>模式B（停用绝对音量）：{@code deviceConnected} 强制上报不支持 + {@code sendVolumeChanged}
+ *       阻断 AVRCP 发送。耳机固定于自身硬件音量，手机端通过 AudioService 软件衰减控制音量。</li>
  * </ul>
+ *
+ * <p>模式切换通过 {@code getAbsoluteVolumeSupported} 动态覆盖实现即时生效：
+ * Mode A → TRUE（覆盖连接时缓存的 false），Mode B → FALSE。
+ * 切换后下一次音量调整即可听到效果，无需重启蓝牙。</p>
  */
 final class BtHooks {
 
@@ -26,6 +31,7 @@ final class BtHooks {
 
     /** 日志节流：避免音量调节时高频刷屏。 */
     private static int sLastLoggedCurveValue = -1;
+    private static boolean sModeBLogged;
 
     private BtHooks() {
     }
@@ -49,6 +55,14 @@ final class BtHooks {
         int toSystem = XposedKit.hookAllMethodsNamed(module, volumeManager,
                 "avrcpToSystemVolume", new AvrcpToSystemHooker(volumeManager));
         XposedKit.log("avrcpToSystemVolume hooked: " + toSystem);
+
+        // 模式B：设备连接上报改为"不支持绝对音量"（使 AudioService 走软件衰减路径）
+        int connected = hookDeviceConnected(module, volumeManager);
+        XposedKit.log("deviceConnected hooked: " + connected);
+
+        // 查询接口动态覆盖：Mode A=TRUE（覆盖缓存 false），Mode B=FALSE
+        int supported = hookAbsoluteVolumeSupported(module, volumeManager);
+        XposedKit.log("getAbsoluteVolumeSupported hooked: " + supported);
 
         // 模式B：屏蔽发往耳机的 AVRCP 音量（避免双重衰减，耳机固定自身音量）
         int sendChanged = hookSendVolumeChanged(module, volumeManager);
@@ -164,6 +178,81 @@ final class BtHooks {
             }
             return result;
         }
+    }
+
+    /** 模式B：设备连接时上报"不支持绝对音量"，使 AudioService 走本地软件衰减路径。 */
+    private static int hookDeviceConnected(XposedModule module, Class<?> volumeManager) {
+        int count = 0;
+        for (java.lang.reflect.Method method : volumeManager.getDeclaredMethods()) {
+            if (!"deviceConnected".equals(method.getName())) {
+                continue;
+            }
+            try {
+                module.hook(method).intercept(new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        try {
+                            List<Object> args = chain.getArgs();
+                            if (args.size() >= 2 && Boolean.TRUE.equals(args.get(1))) {
+                                int[] config = XposedKit.readConfig(
+                                        XposedKit.bluetoothContext());
+                                if (AudioHooks.isModeB(config)) {
+                                    if (!sModeBLogged) {
+                                        sModeBLogged = true;
+                                        XposedKit.log("modeB: force absoluteVolume=false");
+                                    }
+                                    Object[] newArgs = args.toArray();
+                                    newArgs[1] = Boolean.FALSE;
+                                    return chain.proceed(newArgs);
+                                }
+                            }
+                        } catch (Throwable t) {
+                            XposedKit.logError("deviceConnected hook failed: " + t);
+                        }
+                        return chain.proceed();
+                    }
+                });
+                count++;
+            } catch (Throwable t) {
+                XposedKit.logError("hook deviceConnected failed: " + t);
+            }
+        }
+        return count;
+    }
+
+    /** 查询接口动态覆盖：Mode A→TRUE（覆盖缓存 false），Mode B→FALSE。 */
+    private static int hookAbsoluteVolumeSupported(XposedModule module, Class<?> volumeManager) {
+        int count = 0;
+        for (java.lang.reflect.Method method : volumeManager.getDeclaredMethods()) {
+            if (!"getAbsoluteVolumeSupported".equals(method.getName())) {
+                continue;
+            }
+            try {
+                module.hook(method).intercept(new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        try {
+                            int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
+                            if (config == null || config[0] == 0) {
+                                return chain.proceed(); // 模块禁用，使用原始值
+                            }
+                            if (AudioHooks.isModeB(config)) {
+                                return Boolean.FALSE;
+                            }
+                            // 模式A：强制报告支持绝对音量（覆盖连接时缓存的 false）
+                            return Boolean.TRUE;
+                        } catch (Throwable t) {
+                            XposedKit.logError("getAbsoluteVolumeSupported hook failed: " + t);
+                        }
+                        return chain.proceed();
+                    }
+                });
+                count++;
+            } catch (Throwable t) {
+                XposedKit.logError("hook getAbsoluteVolumeSupported failed: " + t);
+            }
+        }
+        return count;
     }
 
     /** 模式B：屏蔽发往耳机的 AVRCP 音量命令（耳机固定自身硬件音量）。 */
