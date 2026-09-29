@@ -90,7 +90,6 @@ public class MainActivity extends AppCompatActivity {
         binding.seekMediaSteps.setOnSeekBarChangeListener(listener);
         binding.seekMinAbs.setOnSeekBarChangeListener(listener);
         binding.seekMaxAbs.setOnSeekBarChangeListener(listener);
-        binding.seekAttenMultiplier.setOnSeekBarChangeListener(listener);
 
         binding.radioBtMode.setOnCheckedChangeListener((group, checkedId) -> {
             int newMode = checkedId == R.id.radioModeSoftware
@@ -101,19 +100,15 @@ public class MainActivity extends AppCompatActivity {
                 // 先保存旧模式的值
                 String oldMinKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
                 String oldMaxKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
-                String oldMulKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_ATTEN_MULTIPLIER_B : Prefs.KEY_ATTEN_MULTIPLIER_A;
                 prefs.edit()
                         .putInt(oldMinKey, currentMinAbs())
                         .putInt(oldMaxKey, currentMaxAbs())
-                        .putInt(oldMulKey, binding.seekAttenMultiplier.getProgress())
                         .apply();
                 // 加载新模式保存的值
                 String newMinKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
                 String newMaxKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
-                String newMulKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_ATTEN_MULTIPLIER_B : Prefs.KEY_ATTEN_MULTIPLIER_A;
                 binding.seekMinAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMinKey, Prefs.ABS_VOLUME_MIN_DEFAULT)));
                 binding.seekMaxAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMaxKey, Prefs.ABS_VOLUME_MAX_DEFAULT)));
-                binding.seekAttenMultiplier.setProgress(Prefs.clampMul(prefs.getInt(newMulKey, Prefs.ATTEN_MULTIPLIER_DEFAULT)));
             }
             onConfigChanged();
         });
@@ -145,7 +140,6 @@ public class MainActivity extends AppCompatActivity {
                     binding.radioBtMode.check(R.id.radioModeAbsolute);
                     binding.seekMinAbs.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
                     binding.seekMaxAbs.setProgress(Prefs.ABS_VOLUME_MAX_DEFAULT);
-                    binding.seekAttenMultiplier.setProgress(Prefs.ATTEN_MULTIPLIER_DEFAULT);
                     mainHandler.removeCallbacks(autoSaveRunnable);
                     saveToSystem(() -> Toast.makeText(this, R.string.toast_reset_done,
                             Toast.LENGTH_LONG).show());
@@ -164,10 +158,8 @@ public class MainActivity extends AppCompatActivity {
         // 根据当前模式加载对应的音量范围
         String minKey = btMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
         String maxKey = btMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
-        String mulKey = btMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_ATTEN_MULTIPLIER_B : Prefs.KEY_ATTEN_MULTIPLIER_A;
         int minAbs = Prefs.clampAbs(prefs.getInt(minKey, Prefs.ABS_VOLUME_MIN_DEFAULT));
         int maxAbs = Prefs.clampAbs(prefs.getInt(maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT));
-        int attenMultiplier = Prefs.clampMul(prefs.getInt(mulKey, Prefs.ATTEN_MULTIPLIER_DEFAULT));
 
         binding.switchEnable.setChecked(enabled);
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
@@ -175,7 +167,6 @@ public class MainActivity extends AppCompatActivity {
                 ? R.id.radioModeSoftware : R.id.radioModeAbsolute);
         binding.seekMinAbs.setProgress(minAbs);
         binding.seekMaxAbs.setProgress(maxAbs);
-        binding.seekAttenMultiplier.setProgress(attenMultiplier);
     }
 
     // ==================== 配置计算与预览 ====================
@@ -223,29 +214,15 @@ public class MainActivity extends AppCompatActivity {
         int mediaSteps = currentMediaSteps();
         binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
 
-        boolean isModeB = currentBtMode() == Prefs.BT_MODE_SOFTWARE;
-        int attenMultiplier = binding.seekAttenMultiplier.getProgress();
-
-        // 模式B 专属：衰减乘数滑条仅模式B 下可见
-        binding.tvAttenMultiplier.setVisibility(isModeB ? android.view.View.VISIBLE : android.view.View.GONE);
-        binding.seekAttenMultiplier.setVisibility(isModeB ? android.view.View.VISIBLE : android.view.View.GONE);
-
         int minAbs = currentMinAbs();
         int maxAbs = currentMaxAbs();
         binding.tvMinAbs.setText(getString(R.string.label_min_abs_fmt, minAbs,
                 Math.round(minAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
         binding.tvMaxAbs.setText(getString(R.string.label_max_abs_fmt, maxAbs,
                 Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
+        binding.tvRangeHint.setText(getString(R.string.range_hint));
 
-        if (isModeB) {
-            binding.tvAttenMultiplier.setText(getString(R.string.label_atten_multiplier_fmt, attenMultiplier));
-            binding.tvRangeHint.setText(getString(R.string.range_hint_modeb));
-        } else {
-            binding.tvRangeHint.setText(getString(R.string.range_hint));
-        }
-
-        String preview = Avrcp.buildPreview(mediaSteps,
-                currentBtMode(), minAbs, maxAbs, attenMultiplier);
+        String preview = Avrcp.buildPreview(mediaSteps, currentBtMode(), minAbs, maxAbs);
         int split = preview.indexOf("\n\n");
         if (split > 0) {
             binding.tvAvrcpSummary.setText(preview.substring(0, split));
@@ -262,14 +239,12 @@ public class MainActivity extends AppCompatActivity {
         int mode = currentBtMode();
         String minKey = mode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
         String maxKey = mode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
-        String mulKey = mode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_ATTEN_MULTIPLIER_B : Prefs.KEY_ATTEN_MULTIPLIER_A;
         SharedPreferences.Editor editor = prefs.edit()
                 .putBoolean(Prefs.KEY_ENABLED, binding.switchEnable.isChecked())
                 .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
                 .putInt(Prefs.KEY_BT_MODE, mode)
                 .putInt(minKey, currentMinAbs())
-                .putInt(maxKey, currentMaxAbs())
-                .putInt(mulKey, binding.seekAttenMultiplier.getProgress());
+                .putInt(maxKey, currentMaxAbs());
         if (synchronous) {
             editor.commit();
         } else {
@@ -282,18 +257,16 @@ public class MainActivity extends AppCompatActivity {
         // 读取两个模式各自的范围值
         int minA = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MIN_ABS_A, Prefs.ABS_VOLUME_MIN_DEFAULT));
         int maxA = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MAX_ABS_A, Prefs.ABS_VOLUME_MAX_DEFAULT));
-        int mulA = Prefs.clampMul(prefs.getInt(Prefs.KEY_ATTEN_MULTIPLIER_A, Prefs.ATTEN_MULTIPLIER_DEFAULT));
         int minB = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MIN_ABS_B, Prefs.ABS_VOLUME_MIN_DEFAULT));
         int maxB = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MAX_ABS_B, Prefs.ABS_VOLUME_MAX_DEFAULT));
-        int mulB = Prefs.clampMul(prefs.getInt(Prefs.KEY_ATTEN_MULTIPLIER_B, Prefs.ATTEN_MULTIPLIER_DEFAULT));
         // 当前模式的值用 seekbar 实时值（可能尚未保存到 prefs）
         if (mode == Prefs.BT_MODE_SOFTWARE) {
-            minB = currentMinAbs(); maxB = currentMaxAbs(); mulB = binding.seekAttenMultiplier.getProgress();
+            minB = currentMinAbs(); maxB = currentMaxAbs();
         } else {
             minA = currentMinAbs(); maxA = currentMaxAbs();
         }
         return Prefs.encodeConfig(binding.switchEnable.isChecked(), currentMediaSteps(),
-                mode, minA, maxA, mulA, minB, maxB, mulB);
+                mode, minA, maxA, minB, maxB);
     }
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
@@ -408,17 +381,15 @@ public class MainActivity extends AppCompatActivity {
             if (root && !prefs.contains(Prefs.KEY_ENABLED)) {
                 int[] globalConfig = Prefs.decodeConfig(
                         Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output);
-                if (globalConfig != null && globalConfig.length >= 9) {
+                if (globalConfig != null && globalConfig.length >= 7) {
                     prefs.edit()
                             .putBoolean(Prefs.KEY_ENABLED, globalConfig[0] != 0)
                             .putInt(Prefs.KEY_MEDIA_STEPS, globalConfig[1])
                             .putInt(Prefs.KEY_BT_MODE, globalConfig[2])
                             .putInt(Prefs.KEY_MIN_ABS_A, globalConfig[3])
                             .putInt(Prefs.KEY_MAX_ABS_A, globalConfig[4])
-                            .putInt(Prefs.KEY_ATTEN_MULTIPLIER_A, globalConfig[5])
-                            .putInt(Prefs.KEY_MIN_ABS_B, globalConfig[6])
-                            .putInt(Prefs.KEY_MAX_ABS_B, globalConfig[7])
-                            .putInt(Prefs.KEY_ATTEN_MULTIPLIER_B, globalConfig[8])
+                            .putInt(Prefs.KEY_MIN_ABS_B, globalConfig[5])
+                            .putInt(Prefs.KEY_MAX_ABS_B, globalConfig[6])
                             .commit();
                     adopted = true;
                 }

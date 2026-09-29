@@ -27,12 +27,10 @@ public final class Prefs {
     /** 模式A 音量范围 SharedPreferences 键。 */
     public static final String KEY_MIN_ABS_A = "min_abs_volume_a";
     public static final String KEY_MAX_ABS_A = "max_abs_volume_a";
-    public static final String KEY_ATTEN_MULTIPLIER_A = "atten_multiplier_a";
 
     /** 模式B 音量范围 SharedPreferences 键。 */
     public static final String KEY_MIN_ABS_B = "min_abs_volume_b";
     public static final String KEY_MAX_ABS_B = "max_abs_volume_b";
-    public static final String KEY_ATTEN_MULTIPLIER_B = "atten_multiplier_b";
 
     /** @deprecated 使用 KEY_MIN_ABS_A / KEY_MIN_ABS_B 代替。 */
     @Deprecated
@@ -40,9 +38,6 @@ public final class Prefs {
     /** @deprecated 使用 KEY_MAX_ABS_A / KEY_MAX_ABS_B 代替。 */
     @Deprecated
     public static final String KEY_MAX_ABS = "max_abs_volume";
-    /** @deprecated 使用 KEY_ATTEN_MULTIPLIER_A / KEY_ATTEN_MULTIPLIER_B 代替。 */
-    @Deprecated
-    public static final String KEY_ATTEN_MULTIPLIER = "atten_multiplier";
 
     /**
      * 蓝牙音量控制模式 A：保持绝对音量（默认）。
@@ -67,9 +62,6 @@ public final class Prefs {
     /** 模式A 下绝对音量范围（0~127）的默认上下限。 */
     public static final int ABS_VOLUME_MIN_DEFAULT = 0;
     public static final int ABS_VOLUME_MAX_DEFAULT = AVRCP_MAX_VOLUME;
-
-    /** 模式B 衰减乘数默认值（100% = 不衰减，对应 0~100 滑条的 100）。 */
-    public static final int ATTEN_MULTIPLIER_DEFAULT = 100;
 
     /** 媒体档位数的可选范围（10~29）。 */
     public static final int MEDIA_STEPS_MIN = 10;
@@ -97,30 +89,28 @@ public final class Prefs {
     }
 
     /**
-     * 序列化为可写入 Settings.Global 的字符串（9 字段）：
-     * {启用};{媒体档位};{模式};{A最小};{A最大};{A乘数};{B最小};{B最大};{B乘数}。
+     * 序列化为可写入 Settings.Global 的字符串（7 字段）：
+     * {启用};{媒体档位};{模式};{A最小};{A最大};{B最小};{B最大}。
      */
     public static String encodeConfig(boolean enabled, int mediaSteps, int mode,
-            int minAbsA, int maxAbsA, int mulA,
-            int minAbsB, int maxAbsB, int mulB) {
+            int minAbsA, int maxAbsA,
+            int minAbsB, int maxAbsB) {
         return (enabled ? 1 : 0) + ";" + clampMediaSteps(mediaSteps)
                 + ";" + mode
-                + ";" + clampAbs(minAbsA) + ";" + clampAbs(maxAbsA) + ";" + clampMul(mulA)
-                + ";" + clampAbs(minAbsB) + ";" + clampAbs(maxAbsB) + ";" + clampMul(mulB);
+                + ";" + clampAbs(minAbsA) + ";" + clampAbs(maxAbsA)
+                + ";" + clampAbs(minAbsB) + ";" + clampAbs(maxAbsB);
     }
 
     /** 绝对音量值限制在 0~127。 */
     public static int clampAbs(int v) { return Math.max(0, Math.min(AVRCP_MAX_VOLUME, v)); }
-    /** 衰减乘数限制在 0~200。 */
-    public static int clampMul(int v) { return Math.max(0, Math.min(200, v)); }
 
     /**
      * 解析配置字符串。
      *
-     * <p>兼容历史格式：3/5/6 字段旧格式与 9 字段新格式。
-     * 旧格式的范围值迁移到模式B（新格式字段 6~8），模式A 使用默认值。</p>
+     * <p>兼容历史格式：3/5/6/9 字段旧格式与 7 字段新格式。
+     * 旧格式的衰减乘数字段被忽略，旧范围值迁移到对应模式。</p>
      *
-     * @return int[]{enabled, mediaSteps, mode, minAbsA, maxAbsA, mulA, minAbsB, maxAbsB, mulB}；
+     * @return int[]{enabled, mediaSteps, mode, minAbsA, maxAbsA, minAbsB, maxAbsB}；
      *         非法内容返回 null。
      */
     public static int[] decodeConfig(String raw) {
@@ -128,34 +118,36 @@ public final class Prefs {
             return null;
         }
         String[] parts = raw.trim().split(";");
-        if (parts.length != 9 && parts.length != 6 && parts.length != 5 && parts.length != 3) {
+        if (parts.length != 7 && parts.length != 9 && parts.length != 6
+                && parts.length != 5 && parts.length != 3) {
             return null;
         }
         try {
             int enabled = Integer.parseInt(parts[0].trim()) != 0 ? 1 : 0;
             int mediaSteps;
             int mode = BT_MODE_ABSOLUTE;
-            // 默认值：两个模式各自独立
-            int minA = ABS_VOLUME_MIN_DEFAULT, maxA = ABS_VOLUME_MAX_DEFAULT, mulA = ATTEN_MULTIPLIER_DEFAULT;
-            int minB = ABS_VOLUME_MIN_DEFAULT, maxB = ABS_VOLUME_MAX_DEFAULT, mulB = ATTEN_MULTIPLIER_DEFAULT;
+            int minA = ABS_VOLUME_MIN_DEFAULT, maxA = ABS_VOLUME_MAX_DEFAULT;
+            int minB = ABS_VOLUME_MIN_DEFAULT, maxB = ABS_VOLUME_MAX_DEFAULT;
 
-            if (parts.length == 9) {
-                // 新格式：启用;档位;模式;A最小;A最大;A乘数;B最小;B最大;B乘数
+            if (parts.length >= 7) {
+                // 7 字段新格式，或 9 字段旧格式（忽略乘数字段 parts[5]/[8]）
                 mediaSteps = Integer.parseInt(parts[1].trim());
                 mode = Integer.parseInt(parts[2].trim());
                 minA = Integer.parseInt(parts[3].trim());
                 maxA = Integer.parseInt(parts[4].trim());
-                mulA = Integer.parseInt(parts[5].trim());
-                minB = Integer.parseInt(parts[6].trim());
-                maxB = Integer.parseInt(parts[7].trim());
-                mulB = Integer.parseInt(parts[8].trim());
+                if (parts.length == 9) {
+                    minB = Integer.parseInt(parts[6].trim());
+                    maxB = Integer.parseInt(parts[7].trim());
+                } else {
+                    minB = Integer.parseInt(parts[5].trim());
+                    maxB = Integer.parseInt(parts[6].trim());
+                }
             } else if (parts.length == 6) {
                 // 旧 6 字段：范围值迁移到模式B
                 mediaSteps = Integer.parseInt(parts[1].trim());
                 mode = Integer.parseInt(parts[2].trim());
                 minB = Integer.parseInt(parts[3].trim());
                 maxB = Integer.parseInt(parts[4].trim());
-                mulB = Integer.parseInt(parts[5].trim());
             } else if (parts.length == 5) {
                 mediaSteps = Integer.parseInt(parts[1].trim());
                 mode = Integer.parseInt(parts[2].trim());
@@ -170,12 +162,12 @@ public final class Prefs {
             }
             if (mode != BT_MODE_SOFTWARE) mode = BT_MODE_ABSOLUTE;
             mediaSteps = clampMediaSteps(mediaSteps);
-            minA = clampAbs(minA); maxA = clampAbs(maxA); mulA = clampMul(mulA);
-            minB = clampAbs(minB); maxB = clampAbs(maxB); mulB = clampMul(mulB);
+            minA = clampAbs(minA); maxA = clampAbs(maxA);
+            minB = clampAbs(minB); maxB = clampAbs(maxB);
             if (minA > maxA) { int t = minA; minA = maxA; maxA = t; }
             if (minB > maxB) { int t = minB; minB = maxB; maxB = t; }
             return new int[]{enabled, mediaSteps, mode,
-                    minA, maxA, mulA, minB, maxB, mulB};
+                    minA, maxA, minB, maxB};
         } catch (NumberFormatException e) {
             return null;
         }

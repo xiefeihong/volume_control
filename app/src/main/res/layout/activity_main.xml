@@ -49,7 +49,7 @@
 
                 <com.google.android.material.materialswitch.MaterialSwitch
                     android:id="@+id/switchEnable"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="@string/label_enable"
@@ -294,23 +294,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:max="127" />
-
-                <!-- 模式B 专属：衰减乘数滑条 -->
-                <TextView
-                    android:id="@+id/tvAttenMultiplier"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textSize="14sp"
-                    android:visibility="gone" />
-
-                <SeekBar
-                    android:id="@+id/seekAttenMultiplier"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="200"
-                    android:progress="100"
-                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/tvRangeHint"

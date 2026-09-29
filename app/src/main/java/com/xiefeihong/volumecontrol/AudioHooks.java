@@ -30,13 +30,10 @@ import io.github.libxposed.api.XposedModule;
  * <p>对 AudioService 构造器与 createStreamStates 执行 {@code deoptimize}，防止调用点
  * 被内联后绕过对 SystemProperties.getInt 的拦截。</p>
  *
- * <p><b>模式B 双重衰减（均在 VolumeStreamState.setStreamVolumeIndex 内计算）：</b></p>
- * <ol>
- *   <li>第一重：Hook {@code VolumeStreamState#setStreamVolumeIndex} 把系统音量档位
- *       按 maxAbs 曲线映射降低（低音量增强曲线）；</li>
- *   <li>第二重：在 curve 映射结果上再乘「衰减乘数」（0~200%），
- *       使最终音量 = curve映射档位 × 乘数百分比。</li>
- * </ol>
+ * <p><b>模式B 软件衰减（VolumeStreamState.setStreamVolumeIndex 内计算）：</b></p>
+ * <p>Hook {@code VolumeStreamState#setStreamVolumeIndex} 把系统音量档位
+ * 按 minAbs~maxAbs 曲线映射降低（低音量增强曲线）；并通过反射恢复
+ * mIndexMap 原始档位，避免 getStreamVolume 读回 remapped 二次映射导致音量卡死。</p>
  *
  * <p><b>模式B 保险：</b>{@code avrcpSupportsAbsoluteVolume} 强制上报"不支持"，
  * {@code postSetAvrcpAbsoluteVolumeIndex} 拦截发往蓝牙栈的音量值。
@@ -660,28 +657,21 @@ final class AudioHooks {
                     return chain.proceed();
                 }
                 // 仅模式B；模式A 保持绝对音量，不在 system_server 修改
-                if (!isModeB(config) || config.length < 9) {
+                if (!isModeB(config) || config.length < 7) {
                     return chain.proceed();
                 }
-                int minAbs = config[6];
-                int maxAbs = config[7];
-                int attenMultiplier = config[8];
+                int minAbs = config[5];
+                int maxAbs = config[6];
                 // 无需衰减时直接放行
-                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0
-                        && attenMultiplier == 100) {
+                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0) {
                     return chain.proceed();
                 }
                 int maxSteps = XposedKit.getIntField(state, FIELD_INDEX_MAX) / 10;
                 if (maxSteps <= 0) {
                     return chain.proceed();
                 }
-                // 第一层：curve 映射
+                // curve 映射（低音量增强曲线）
                 int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs);
-                // 第二层：衰减乘数
-                if (attenMultiplier != 100 && attenMultiplier >= 0) {
-                    mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
-                    mapped = Math.max(0, Math.min(maxSteps, mapped));
-                }
                 if (mapped >= index) {
                     return chain.proceed();
                 }
@@ -689,7 +679,6 @@ final class AudioHooks {
                     sLastLoggedSystemIndex = index;
                     XposedKit.log("modeB remap: " + index + "/" + maxSteps
                             + " -> " + mapped + " (range=" + minAbs + "~" + maxAbs
-                            + " mul=" + attenMultiplier + "%"
                             + " device=" + device + ")");
                 }
                 Object[] newArgs = args.toArray();

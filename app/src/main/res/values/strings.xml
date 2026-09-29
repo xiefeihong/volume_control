@@ -25,12 +25,9 @@
     <string name="mode_absolute">模式A：保持绝对音量（默认）</string>
     <string name="mode_software">模式B：停用绝对音量（手机端衰减）</string>
     <string name="mode_hint" formatted="false">模式A：保持蓝牙耳机绝对音量控制，手机系统音量线性不变。模式B：停用蓝牙绝对音量，由手机端软件衰减音频，耳机固定自身硬件音量。两种模式的音量范围均对所有音频设备（有线 + 蓝牙）立即生效。</string>
-    <string name="range_hint" formatted="false">两种模式分别保存独立的音量范围。模式A：仅对蓝牙耳机 AVRCP 映射生效（「最小」抬高第 1 档，「最大」限制最高音量）。模式B：对有线+蓝牙均生效，额外提供「衰减乘数」。</string>
+    <string name="range_hint" formatted="false">两种模式分别保存独立的音量范围。模式A：仅对蓝牙耳机 AVRCP 映射生效（「最小」抬高第 1 档，「最大」限制最高音量）。模式B：对有线+蓝牙均生效，由手机端软件曲线衰减。</string>
     <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
-    <string name="label_max_abs_atten_fmt">最大音量：%1$d · 约 %2$d%%</string>
-    <string name="label_atten_multiplier_fmt">衰减乘数：%1$d%%</string>
-    <string name="range_hint_modeb" formatted="false">模式B 额外提供「衰减乘数」滑条（0~200%），100%=不衰减。两种模式的音量范围分别保存、互不影响。</string>
 
     <string name="status_root_ok">Root：可用（su 已授权）</string>
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>
@@ -97,9 +94,9 @@
 
 3. 模式A（默认，保持绝对音量）：蓝牙耳机保持绝对音量控制，手机系统音量线性不变。档位经 sqrt 低音量增强曲线映射为 AVRCP 音量（0~127）。
 
-4. 模式B（低音量问题首选）：停用蓝牙绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量；音量范围和衰减乘数对有线+蓝牙均生效。
+4. 模式B（低音量问题首选）：停用蓝牙绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量；音量范围对有线+蓝牙均生效。
 
-5. 音量范围：两种模式分别保存独立的音量范围（最小/最大/衰减乘数）。
+5. 音量范围：两种模式分别保存独立的音量范围（最小/最大）。
 
 6. 生效方式：修改自动保存。切换模式或调整音量范围后需点「重启蓝牙」生效；仅媒体档位数修改后需点「重启系统框架」。
 

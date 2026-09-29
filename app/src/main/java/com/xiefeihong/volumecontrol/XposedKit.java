@@ -351,7 +351,7 @@ public final class XposedKit {
      * → 通道2 配置镜像文件（App 以 root 写入 /data/system，不依赖 SettingsProvider，
      * 开机全程可读——冷启动构造期的关键通道）。</p>
      *
-     * @return int[]{enabled, mediaSteps, btMode, minAbs, maxAbs, attenMultiplier} 或 null
+     * @return int[]{enabled, mediaSteps, btMode, minAbsA, maxAbsA, minAbsB, maxAbsB} 或 null
      */
     static int[] readConfig(Context context) {
         // 通道1：Settings.Global

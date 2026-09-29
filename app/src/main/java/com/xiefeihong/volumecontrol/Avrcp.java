@@ -101,32 +101,28 @@ public final class Avrcp {
     /**
      * 生成蓝牙音量预览文本（供界面直接显示）。
      *
-     * @param maxSteps         生效后的媒体档位数
-     * @param btMode           {@link Prefs#BT_MODE_ABSOLUTE} 或 {@link Prefs#BT_MODE_SOFTWARE}
-     * @param minAbs           最小绝对音量（模式A）
-     * @param maxAbs           最大绝对音量（模式A）
-     * @param attenMultiplier  模式B 衰减乘数（0~200，100=不衰减）
+     * @param maxSteps  生效后的媒体档位数
+     * @param btMode    {@link Prefs#BT_MODE_ABSOLUTE} 或 {@link Prefs#BT_MODE_SOFTWARE}
+     * @param minAbs    最小音量（当前模式）
+     * @param maxAbs    最大音量（当前模式）
      */
-    public static String buildPreview(int maxSteps, int btMode, int minAbs, int maxAbs,
-            int attenMultiplier) {
+    public static String buildPreview(int maxSteps, int btMode, int minAbs, int maxAbs) {
         if (maxSteps <= 0) {
             return "暂无数据";
         }
         if (btMode == Prefs.BT_MODE_SOFTWARE) {
-            return buildSoftwarePreview(maxSteps, minAbs, maxAbs, attenMultiplier);
+            return buildSoftwarePreview(maxSteps, minAbs, maxAbs);
         }
         return buildAbsolutePreview(maxSteps, minAbs, maxAbs);
     }
 
-    /** 模式B：手机端软件衰减（衰减乘数 0~200）。 */
-    private static String buildSoftwarePreview(int maxSteps, int minAbs, int maxAbs,
-            int attenMultiplier) {
+    /** 模式B：手机端软件衰减。 */
+    private static String buildSoftwarePreview(int maxSteps, int minAbs, int maxAbs) {
         int lowest = curveToSystemIndex(1, maxSteps, minAbs, maxAbs);
         int maxPercent = (int) Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("模式B：停用绝对音量（最大音量 ").append(maxAbs)
-                .append(" · 衰减乘数 ").append(attenMultiplier).append("%）\n");
+        sb.append("模式B：停用绝对音量（最大音量 ").append(maxAbs).append("）\n");
         sb.append("✓ 音量由手机软件曲线平滑控制，不经过耳机内部档位量化\n");
         sb.append("✓ 从根本上避免「相邻档位听感相同」与「低档位无声」\n");
         if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
@@ -135,18 +131,6 @@ public final class Avrcp {
             sb.append("第 1 档 → ").append(lowest).append("/").append(maxSteps).append("\n");
         } else {
             sb.append("最大音量 127：不限制，滑块可达 100%\n");
-        }
-        if (attenMultiplier != 100) {
-            int effectiveMax = (int) Math.round(maxAbs * attenMultiplier / 100.0);
-            int effectivePercent = (int) Math.round(effectiveMax * 100.0 / Prefs.AVRCP_MAX_VOLUME);
-            sb.append("衰减乘数：").append(attenMultiplier).append("%");
-            if (attenMultiplier < 100) {
-                sb.append("（降低音量，有效最大音量 ").append(effectiveMax)
-                        .append(" ≈ ").append(effectivePercent).append("%）\n");
-            } else {
-                sb.append("（放大音量，有效最大音量 ").append(effectiveMax)
-                        .append(" ≈ ").append(effectivePercent).append("%）\n");
-            }
         }
         sb.append("· 耳机音量请用耳机自身的音量键调整\n");
         sb.append("· 耳机端音量同步显示会失效（正常现象）\n");
