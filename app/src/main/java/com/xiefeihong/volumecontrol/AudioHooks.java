@@ -657,12 +657,11 @@ final class AudioHooks {
     }
 
     /**
-     * 模式B：音量范围对所有音频输出设备生效（蓝牙 + 有线）。
-     * {@code VolumeStreamState#setStreamVolumeIndex(index, device)} 是档位应用必经点，
-     * 档位按「最小~最大」范围重映射（低音量增强曲线）。
+     * 音量范围曲线映射（双模式通用）：
+     * {@code VolumeStreamState#setStreamVolumeIndex(index, device)} 是档位应用必经点。
      *
-     * <p>「音量范围」在模式B 下表示软件衰减百分比（127 = 100% 不衰减）：
-     * 档位经曲线映射后降低系统音量档位，实现手动控制软件衰减的效果。</p>
+     * <p>模式A：按 minA~maxA 曲线映射（有线/蓝牙均生效）；
+     * 模式B：按 minB~maxB 曲线映射 + 衰减乘数。</p>
      */
     private static final class SetStreamVolumeIndexHooker implements XposedInterface.Hooker {
         private static boolean sAnyFireLogged;
@@ -678,7 +677,7 @@ final class AudioHooks {
                     int diagDevice = (args.size() >= 2 && args.get(1) instanceof Integer)
                             ? (Integer) args.get(1) : -1;
                     int[] diagConfig = XposedKit.readConfig(XposedKit.systemServerContext(null));
-                    XposedKit.log("setStreamVolumeIndex first fire (any mode): index="
+                    XposedKit.log("setStreamVolumeIndex first fire: index="
                             + diagIndex + " device=" + diagDevice
                             + " config=" + (diagConfig != null
                                     ? java.util.Arrays.toString(diagConfig) : "null"));
@@ -708,36 +707,32 @@ final class AudioHooks {
                 }
                 int[] config = XposedKit.readConfig(
                         XposedKit.systemServerContext(audioService));
-                if (!isModeB(config)) {
-                    XposedKit.logOnce("modeB-not-active-idx",
-                            "setStreamVolumeIndex: not modeB, config="
-                                    + (config != null ? java.util.Arrays.toString(config) : "null"));
+                if (config == null || config[0] == 0) {
                     return chain.proceed();
                 }
-                // config[4] 是最大音量绝对值（0~127），用于 curve 映射
-                int maxAbs = config.length > 4 ? config[4] : Prefs.AVRCP_MAX_VOLUME;
-                // config[5] 是衰减乘数（0~200，100=不衰减）
-                int attenMultiplier = config.length > 5 ? config[5] : Prefs.ATTEN_MULTIPLIER_DEFAULT;
-                if (!sModeBLogged) {
-                    sModeBLogged = true;
-                    XposedKit.log("modeB setStreamVolumeIndex first fire: index=" + index
-                            + " device=" + device + " maxAbs=" + maxAbs
-                            + " attenMultiplier=" + attenMultiplier
-                            + " config=" + java.util.Arrays.toString(config));
-                }
-                // maxAbs=127 且乘数=100 时不衰减，直接放行
-                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && attenMultiplier == 100) {
+                boolean modeB = isModeB(config);
+                // 根据模式选取对应的音量范围参数
+                int minAbs, maxAbs, attenMultiplier;
+                if (modeB && config.length >= 9) {
+                    minAbs = config[6]; maxAbs = config[7]; attenMultiplier = config[8];
+                } else if (config.length >= 9) {
+                    minAbs = config[3]; maxAbs = config[4]; attenMultiplier = 100;
+                } else {
                     return chain.proceed();
                 }
-                // mIndexMax 是内部档位（真实档位×10），还原为档位数
+                // 无需衰减时直接放行
+                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0
+                        && attenMultiplier == 100) {
+                    return chain.proceed();
+                }
                 int maxSteps = XposedKit.getIntField(state, FIELD_INDEX_MAX) / 10;
                 if (maxSteps <= 0) {
                     return chain.proceed();
                 }
-                // 第一层：curve 映射（maxAbs 控制范围）
-                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, 0, maxAbs);
-                // 第二层：衰减乘数（在 curve 结果上再缩放）
-                if (attenMultiplier != 100 && attenMultiplier >= 0) {
+                // 第一层：curve 映射
+                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs);
+                // 第二层：衰减乘数（仅模式B）
+                if (modeB && attenMultiplier != 100 && attenMultiplier >= 0) {
                     mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
                     mapped = Math.max(0, Math.min(maxSteps, mapped));
                 }
@@ -746,26 +741,26 @@ final class AudioHooks {
                 }
                 if (index != sLastLoggedSystemIndex) {
                     sLastLoggedSystemIndex = index;
-                    XposedKit.log("modeB remap: " + index + "/" + maxSteps
-                            + " -> " + mapped + " (maxAbs=" + maxAbs
-                            + " mul=" + attenMultiplier + "%"
+                    String modeTag = modeB ? "modeB" : "modeA";
+                    XposedKit.log(modeTag + " remap: " + index + "/" + maxSteps
+                            + " -> " + mapped + " (range=" + minAbs + "~" + maxAbs
+                            + (modeB ? " mul=" + attenMultiplier + "%" : "")
                             + " device=" + device + ")");
                 }
                 Object[] newArgs = args.toArray();
                 newArgs[0] = mapped;
                 return chain.proceed(newArgs);
             } catch (Throwable t) {
-                XposedKit.logOnce("modeB-index-err",
-                        "modeB setStreamVolumeIndex hook error: " + t);
+                XposedKit.logOnce("vol-index-err",
+                        "setStreamVolumeIndex hook error: " + t);
                 return chain.proceed();
             }
         }
     }
 
     /**
-     * 模式B 备份保险：Hook {@code AudioService#setStreamVolume}，
-     * 在更上层拦截音量设置。当 {@code setStreamVolumeIndex} Hook 未生效时，
-     * 此 Hook 作为第二道防线直接限制传入的音量档位。
+     * 模式A/B 备份保险：Hook {@code AudioService#setStreamVolume}，
+     * 当 {@code setStreamVolumeIndex} Hook 未生效时作为第二道防线。
      */
     private static final class SetStreamVolumeHooker implements XposedInterface.Hooker {
         private static boolean sFirstFireLogged;
@@ -773,7 +768,6 @@ final class AudioHooks {
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
             List<Object> args = chain.getArgs();
             try {
-                // 至少需要 streamType + index 两个 int 参数
                 if (args.size() < 2 || !(args.get(0) instanceof Integer)
                         || !(args.get(1) instanceof Integer)) {
                     return chain.proceed();
@@ -791,17 +785,20 @@ final class AudioHooks {
                 }
                 int[] config = XposedKit.readConfig(
                         XposedKit.systemServerContext(audioService));
-                if (!isModeB(config)) {
-                    XposedKit.logOnce("modeB-not-active-sv",
-                            "setStreamVolume backup: not modeB, config="
-                                    + (config != null ? java.util.Arrays.toString(config) : "null"));
+                if (config == null || config[0] == 0) {
                     return chain.proceed();
                 }
-                // config[4] 是最大音量绝对值（0~127），用于 curve 映射
-                int maxAbs = config.length > 4 ? config[4] : Prefs.AVRCP_MAX_VOLUME;
-                // config[5] 是衰减乘数（0~200，100=不衰减）
-                int attenMultiplier = config.length > 5 ? config[5] : Prefs.ATTEN_MULTIPLIER_DEFAULT;
-                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && attenMultiplier == 100) {
+                boolean modeB = isModeB(config);
+                int minAbs, maxAbs, attenMultiplier;
+                if (modeB && config.length >= 9) {
+                    minAbs = config[6]; maxAbs = config[7]; attenMultiplier = config[8];
+                } else if (config.length >= 9) {
+                    minAbs = config[3]; maxAbs = config[4]; attenMultiplier = 100;
+                } else {
+                    return chain.proceed();
+                }
+                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0
+                        && attenMultiplier == 100) {
                     return chain.proceed();
                 }
                 int index = (Integer) args.get(1);
@@ -812,10 +809,8 @@ final class AudioHooks {
                 if (maxSteps <= 0) {
                     return chain.proceed();
                 }
-                // 第一层：curve 映射（maxAbs 控制范围）
-                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, 0, maxAbs);
-                // 第二层：衰减乘数（在 curve 结果上再缩放）
-                if (attenMultiplier != 100 && attenMultiplier >= 0) {
+                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs);
+                if (modeB && attenMultiplier != 100 && attenMultiplier >= 0) {
                     mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
                     mapped = Math.max(0, Math.min(maxSteps, mapped));
                 }
@@ -824,16 +819,18 @@ final class AudioHooks {
                 }
                 if (index != sLastLoggedSystemIndex) {
                     sLastLoggedSystemIndex = index;
-                    XposedKit.log("modeB setStreamVolume cap: " + index
+                    String modeTag = modeB ? "modeB" : "modeA";
+                    XposedKit.log(modeTag + " setStreamVolume cap: " + index
                             + " -> " + mapped + "/" + maxSteps
-                            + " (maxAbs=" + maxAbs + " mul=" + attenMultiplier + "%)");
+                            + " (range=" + minAbs + "~" + maxAbs
+                            + (modeB ? " mul=" + attenMultiplier + "%" : "") + ")");
                 }
                 Object[] newArgs = args.toArray();
                 newArgs[1] = mapped;
                 return chain.proceed(newArgs);
             } catch (Throwable t) {
-                XposedKit.logOnce("modeB-sv-err",
-                        "modeB setStreamVolume hook error: " + t);
+                XposedKit.logOnce("vol-sv-err",
+                        "setStreamVolume hook error: " + t);
                 return chain.proceed();
             }
         }
@@ -948,6 +945,11 @@ final class AudioHooks {
             return cached.contains(device);
         }
         return (device & 0x380) != 0;  // BLUETOOTH_A2DP | _A2DP_HEADPHONES | _A2DP_SPEAKER
+    }
+
+    /** 模式A 生效条件：模块启用且选择保持绝对音量。 */
+    static boolean isModeA(int[] config) {
+        return config != null && config[0] != 0 && config[2] == Prefs.BT_MODE_ABSOLUTE;
     }
 
     /** 模式B 生效条件：模块启用且选择停用绝对音量。 */

@@ -23,10 +23,25 @@ public final class Prefs {
     public static final String KEY_ENABLED = "enabled";
     public static final String KEY_MEDIA_STEPS = "media_steps";
     public static final String KEY_BT_MODE = "bt_volume_mode";
-    public static final String KEY_MIN_ABS = "min_abs_volume";
-    public static final String KEY_MAX_ABS = "max_abs_volume";
 
-    /** 模式B 衰减乘数（0~200，100=不衰减）。 */
+    /** 模式A 音量范围 SharedPreferences 键。 */
+    public static final String KEY_MIN_ABS_A = "min_abs_volume_a";
+    public static final String KEY_MAX_ABS_A = "max_abs_volume_a";
+    public static final String KEY_ATTEN_MULTIPLIER_A = "atten_multiplier_a";
+
+    /** 模式B 音量范围 SharedPreferences 键。 */
+    public static final String KEY_MIN_ABS_B = "min_abs_volume_b";
+    public static final String KEY_MAX_ABS_B = "max_abs_volume_b";
+    public static final String KEY_ATTEN_MULTIPLIER_B = "atten_multiplier_b";
+
+    /** @deprecated 使用 KEY_MIN_ABS_A / KEY_MIN_ABS_B 代替。 */
+    @Deprecated
+    public static final String KEY_MIN_ABS = "min_abs_volume";
+    /** @deprecated 使用 KEY_MAX_ABS_A / KEY_MAX_ABS_B 代替。 */
+    @Deprecated
+    public static final String KEY_MAX_ABS = "max_abs_volume";
+    /** @deprecated 使用 KEY_ATTEN_MULTIPLIER_A / KEY_ATTEN_MULTIPLIER_B 代替。 */
+    @Deprecated
     public static final String KEY_ATTEN_MULTIPLIER = "atten_multiplier";
 
     /**
@@ -77,76 +92,85 @@ public final class Prefs {
     }
 
     /**
-     * 序列化为可写入 Settings.Global 的字符串：
-     * {启用};{媒体档位};{蓝牙模式};{最小绝对音量};{最大绝对音量};{衰减乘数}。
+     * 序列化为可写入 Settings.Global 的字符串（9 字段）：
+     * {启用};{媒体档位};{模式};{A最小};{A最大};{A乘数};{B最小};{B最大};{B乘数}。
      */
-    public static String encodeConfig(boolean enabled, int mediaSteps,
-            int btMode, int minAbs, int maxAbs, int attenMultiplier) {
+    public static String encodeConfig(boolean enabled, int mediaSteps, int mode,
+            int minAbsA, int maxAbsA, int mulA,
+            int minAbsB, int maxAbsB, int mulB) {
         return (enabled ? 1 : 0) + ";" + clampMediaSteps(mediaSteps)
-                + ";" + btMode + ";" + minAbs + ";" + maxAbs
-                + ";" + Math.max(0, Math.min(200, attenMultiplier));
+                + ";" + mode
+                + ";" + clampAbs(minAbsA) + ";" + clampAbs(maxAbsA) + ";" + clampMul(mulA)
+                + ";" + clampAbs(minAbsB) + ";" + clampAbs(maxAbsB) + ";" + clampMul(mulB);
     }
+
+    /** 绝对音量值限制在 0~127。 */
+    public static int clampAbs(int v) { return Math.max(0, Math.min(AVRCP_MAX_VOLUME, v)); }
+    /** 衰减乘数限制在 0~200。 */
+    public static int clampMul(int v) { return Math.max(0, Math.min(200, v)); }
 
     /**
      * 解析配置字符串。
      *
-     * <p>兼容历史格式：v1.0/v1.1 的三字段（启用;百分比;媒体覆盖）与
-     * v1.2 的五字段（启用;媒体档位;模式;最小;最大）及六字段（加衰减乘数），
-     * 旧百分比换算为媒体档位后统一收敛到 15~29。</p>
+     * <p>兼容历史格式：3/5/6 字段旧格式与 9 字段新格式。
+     * 旧格式的范围值迁移到模式B（新格式字段 6~8），模式A 使用默认值。</p>
      *
-     * @return int[]{enabled(0/1), mediaSteps, btMode, minAbs, maxAbs, attenMultiplier}；非法内容返回 null。
+     * @return int[]{enabled, mediaSteps, mode, minAbsA, maxAbsA, mulA, minAbsB, maxAbsB, mulB}；
+     *         非法内容返回 null。
      */
     public static int[] decodeConfig(String raw) {
         if (raw == null) {
             return null;
         }
         String[] parts = raw.trim().split(";");
-        if (parts.length != 5 && parts.length != 3 && parts.length != 6) {
+        if (parts.length != 9 && parts.length != 6 && parts.length != 5 && parts.length != 3) {
             return null;
         }
         try {
             int enabled = Integer.parseInt(parts[0].trim()) != 0 ? 1 : 0;
             int mediaSteps;
             int mode = BT_MODE_ABSOLUTE;
-            int minAbs = ABS_VOLUME_MIN_DEFAULT;
-            int maxAbs = ABS_VOLUME_MAX_DEFAULT;
-            int attenMultiplier = ATTEN_MULTIPLIER_DEFAULT;
-            if (parts.length == 5) {
-                // 五字段格式：启用;媒体档位;模式;最小;最大
+            // 默认值：两个模式各自独立
+            int minA = ABS_VOLUME_MIN_DEFAULT, maxA = ABS_VOLUME_MAX_DEFAULT, mulA = ATTEN_MULTIPLIER_DEFAULT;
+            int minB = ABS_VOLUME_MIN_DEFAULT, maxB = ABS_VOLUME_MAX_DEFAULT, mulB = ATTEN_MULTIPLIER_DEFAULT;
+
+            if (parts.length == 9) {
+                // 新格式：启用;档位;模式;A最小;A最大;A乘数;B最小;B最大;B乘数
                 mediaSteps = Integer.parseInt(parts[1].trim());
                 mode = Integer.parseInt(parts[2].trim());
-                minAbs = Integer.parseInt(parts[3].trim());
-                maxAbs = Integer.parseInt(parts[4].trim());
+                minA = Integer.parseInt(parts[3].trim());
+                maxA = Integer.parseInt(parts[4].trim());
+                mulA = Integer.parseInt(parts[5].trim());
+                minB = Integer.parseInt(parts[6].trim());
+                maxB = Integer.parseInt(parts[7].trim());
+                mulB = Integer.parseInt(parts[8].trim());
             } else if (parts.length == 6) {
-                // 六字段格式：启用;媒体档位;模式;最小;最大;衰减乘数
+                // 旧 6 字段：范围值迁移到模式B
                 mediaSteps = Integer.parseInt(parts[1].trim());
                 mode = Integer.parseInt(parts[2].trim());
-                minAbs = Integer.parseInt(parts[3].trim());
-                maxAbs = Integer.parseInt(parts[4].trim());
-                attenMultiplier = Integer.parseInt(parts[5].trim());
+                minB = Integer.parseInt(parts[3].trim());
+                maxB = Integer.parseInt(parts[4].trim());
+                mulB = Integer.parseInt(parts[5].trim());
+            } else if (parts.length == 5) {
+                mediaSteps = Integer.parseInt(parts[1].trim());
+                mode = Integer.parseInt(parts[2].trim());
+                minB = Integer.parseInt(parts[3].trim());
+                maxB = Integer.parseInt(parts[4].trim());
             } else {
-                // 旧格式：启用;百分比;媒体覆盖
+                // 旧 3 字段格式
                 int percent = Integer.parseInt(parts[1].trim());
                 int legacyMedia = Integer.parseInt(parts[2].trim());
-                if (legacyMedia > 0) {
-                    mediaSteps = legacyMedia;
-                } else {
-                    mediaSteps = (int) Math.round(percent * 15 / 100.0);
-                }
+                mediaSteps = legacyMedia > 0 ? legacyMedia
+                        : (int) Math.round(percent * 15 / 100.0);
             }
-            if (mode != BT_MODE_SOFTWARE) {
-                mode = BT_MODE_ABSOLUTE;
-            }
+            if (mode != BT_MODE_SOFTWARE) mode = BT_MODE_ABSOLUTE;
             mediaSteps = clampMediaSteps(mediaSteps);
-            minAbs = Math.max(0, Math.min(AVRCP_MAX_VOLUME, minAbs));
-            maxAbs = Math.max(0, Math.min(AVRCP_MAX_VOLUME, maxAbs));
-            if (minAbs > maxAbs) {
-                int tmp = minAbs;
-                minAbs = maxAbs;
-                maxAbs = tmp;
-            }
-            attenMultiplier = Math.max(0, Math.min(200, attenMultiplier));
-            return new int[]{enabled, mediaSteps, mode, minAbs, maxAbs, attenMultiplier};
+            minA = clampAbs(minA); maxA = clampAbs(maxA); mulA = clampMul(mulA);
+            minB = clampAbs(minB); maxB = clampAbs(maxB); mulB = clampMul(mulB);
+            if (minA > maxA) { int t = minA; minA = maxA; maxA = t; }
+            if (minB > maxB) { int t = minB; minB = maxB; maxB = t; }
+            return new int[]{enabled, mediaSteps, mode,
+                    minA, maxA, mulA, minB, maxB, mulB};
         } catch (NumberFormatException e) {
             return null;
         }
