@@ -29,14 +29,6 @@ public final class Avrcp {
     private Avrcp() {
     }
 
-    /** AOSP 原生线性换算公式（保持系统行为时使用）。 */
-    public static int toAbsoluteVolume(int step, int maxSteps) {
-        if (maxSteps <= 0) {
-            return 0;
-        }
-        return (int) Math.round((double) step * Prefs.AVRCP_MAX_VOLUME / maxSteps);
-    }
-
     /** 规范化绝对音量范围：值域 0~127，且 最小值 &lt;= 最大值。 */
     private static int[] normalizedRange(int minAbs, int maxAbs) {
         int lo = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, Math.min(minAbs, maxAbs)));
@@ -94,22 +86,6 @@ public final class Avrcp {
         return Math.max(0, Math.min(maxSteps, value));
     }
 
-    /**
-     * 模式B 综合映射：曲线映射 + 衰减乘数。
-     *
-     * <p>先按 maxAbs 做曲线映射得到系统音量档位，再乘衰减乘数百分比。
-     * 例如：maxAbs=62, multiplier=50% → 滑块 100% 时实际音量约 24%。</p>
-     */
-    public static int curveToEffectiveIndex(int step, int maxSteps, int minAbs, int maxAbs,
-            int attenMultiplier) {
-        int mapped = curveToSystemIndex(step, maxSteps, minAbs, maxAbs);
-        if (attenMultiplier != 100 && attenMultiplier >= 0) {
-            mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
-            mapped = Math.max(0, Math.min(maxSteps, mapped));
-        }
-        return mapped;
-    }
-
     /** 统计模式A 曲线映射后「相邻档位数值相同」的档位对数量（不含静音档 0）。 */
     public static int countDuplicatePairs(int maxSteps, int minAbs, int maxAbs) {
         int duplicates = 0;
@@ -145,9 +121,7 @@ public final class Avrcp {
     /** 模式B：手机端软件衰减（衰减乘数 0~200）。 */
     private static String buildSoftwarePreview(int maxSteps, int minAbs, int maxAbs,
             int attenMultiplier) {
-        // maxAbs 控制 curve 映射范围
-        int[] range = normalizedRange(minAbs, maxAbs);
-        int lowest = curveToSystemIndex(1, maxSteps, 0, maxAbs);
+        int lowest = curveToSystemIndex(1, maxSteps, minAbs, maxAbs);
         int maxPercent = (int) Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME);
 
         StringBuilder sb = new StringBuilder();
