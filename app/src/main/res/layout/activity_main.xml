@@ -27,6 +27,13 @@
             android:text="@string/app_subtitle"
             android:textSize="13sp" />
 
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchEnable"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/label_enable" />
+
         <!-- ============ 运行状态 ============ -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -150,13 +157,6 @@
                     android:layout_height="wrap_content"
                     android:text="@string/sec_media"
                     android:textStyle="bold" />
-
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/switchEnable"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/label_enable" />
 
                 <TextView
                     android:id="@+id/tvMediaSteps"

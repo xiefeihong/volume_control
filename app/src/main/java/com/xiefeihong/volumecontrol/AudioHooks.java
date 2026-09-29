@@ -219,11 +219,11 @@ final class AudioHooks {
         }
     }
 
-    /** 读取配置并刷新属性拦截缓存（未就绪 / 停用置 -1，不拦截）；返回缓存的档位数。 */
+    /** 读取配置并刷新属性拦截缓存（未就绪 / 停用 / 系统默认置 -1，不拦截）；返回缓存的档位数。 */
     private static int refreshMediaStepsOverride() {
         int[] config = XposedKit.readConfig(XposedKit.systemServerContext(null));
         int steps = -1;
-        if (config != null && config[0] != 0) {
+        if (config != null && config[0] != 0 && config[1] > 0) {
             steps = Prefs.clampMediaSteps(config[1]);
         }
         sMediaStepsOverride = steps;
@@ -292,9 +292,9 @@ final class AudioHooks {
             XposedKit.log("no config found, keep system defaults");
             return;
         }
-        if (config[0] == 0) {
+        if (config[0] == 0 || config[1] == 0) {
             sMediaStepsOverride = -1;
-            XposedKit.log("disabled, keep system defaults");
+            XposedKit.log("disabled or default, keep system steps");
             return;
         }
         int[] maxStreamVolumes = XposedKit.getStaticIntArrayField(
@@ -332,6 +332,11 @@ final class AudioHooks {
         if (config[0] == 0) {
             sMediaStepsOverride = -1;
             XposedKit.log(tag + ": disabled, keep system defaults");
+            return -1;
+        }
+        if (config[1] == 0) {
+            sMediaStepsOverride = -1;
+            XposedKit.log(tag + ": user chose default steps, no override");
             return -1;
         }
         int target = Prefs.clampMediaSteps(config[1]);
@@ -657,11 +662,11 @@ final class AudioHooks {
     }
 
     /**
-     * 音量范围曲线映射（双模式通用）：
+     * 模式B 软件衰减曲线映射：
      * {@code VolumeStreamState#setStreamVolumeIndex(index, device)} 是档位应用必经点。
      *
-     * <p>模式A：按 minA~maxA 曲线映射（有线/蓝牙均生效）；
-     * 模式B：按 minB~maxB 曲线映射 + 衰减乘数。</p>
+     * <p>仅模式B 在 system_server 侧修改音量（curve + 衰减乘数），
+     * 模式A 保持绝对音量，不在 system_server 干预（曲线映射仅在蓝牙进程 BtHooks 处理）。</p>
      */
     private static final class SetStreamVolumeIndexHooker implements XposedInterface.Hooker {
         private static boolean sAnyFireLogged;
@@ -710,16 +715,16 @@ final class AudioHooks {
                 if (config == null || config[0] == 0) {
                     return chain.proceed();
                 }
-                boolean modeB = isModeB(config);
-                // 根据模式选取对应的音量范围参数
-                int minAbs, maxAbs, attenMultiplier;
-                if (modeB && config.length >= 9) {
-                    minAbs = config[6]; maxAbs = config[7]; attenMultiplier = config[8];
-                } else if (config.length >= 9) {
-                    minAbs = config[3]; maxAbs = config[4]; attenMultiplier = 100;
-                } else {
+                // 仅模式B 在 system_server 衰减；模式A 保持绝对音量，直接放行
+                if (!isModeB(config)) {
                     return chain.proceed();
                 }
+                if (config.length < 9) {
+                    return chain.proceed();
+                }
+                int minAbs = config[6];
+                int maxAbs = config[7];
+                int attenMultiplier = config[8];
                 // 无需衰减时直接放行
                 if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0
                         && attenMultiplier == 100) {
@@ -731,8 +736,8 @@ final class AudioHooks {
                 }
                 // 第一层：curve 映射
                 int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs);
-                // 第二层：衰减乘数（仅模式B）
-                if (modeB && attenMultiplier != 100 && attenMultiplier >= 0) {
+                // 第二层：衰减乘数
+                if (attenMultiplier != 100 && attenMultiplier >= 0) {
                     mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
                     mapped = Math.max(0, Math.min(maxSteps, mapped));
                 }
@@ -741,10 +746,9 @@ final class AudioHooks {
                 }
                 if (index != sLastLoggedSystemIndex) {
                     sLastLoggedSystemIndex = index;
-                    String modeTag = modeB ? "modeB" : "modeA";
-                    XposedKit.log(modeTag + " remap: " + index + "/" + maxSteps
+                    XposedKit.log("modeB remap: " + index + "/" + maxSteps
                             + " -> " + mapped + " (range=" + minAbs + "~" + maxAbs
-                            + (modeB ? " mul=" + attenMultiplier + "%" : "")
+                            + " mul=" + attenMultiplier + "%"
                             + " device=" + device + ")");
                 }
                 Object[] newArgs = args.toArray();
@@ -759,8 +763,9 @@ final class AudioHooks {
     }
 
     /**
-     * 模式A/B 备份保险：Hook {@code AudioService#setStreamVolume}，
+     * 模式B 备份保险：Hook {@code AudioService#setStreamVolume}，
      * 当 {@code setStreamVolumeIndex} Hook 未生效时作为第二道防线。
+     * 仅处理模式B，模式A 直接放行。
      */
     private static final class SetStreamVolumeHooker implements XposedInterface.Hooker {
         private static boolean sFirstFireLogged;
@@ -788,15 +793,13 @@ final class AudioHooks {
                 if (config == null || config[0] == 0) {
                     return chain.proceed();
                 }
-                boolean modeB = isModeB(config);
-                int minAbs, maxAbs, attenMultiplier;
-                if (modeB && config.length >= 9) {
-                    minAbs = config[6]; maxAbs = config[7]; attenMultiplier = config[8];
-                } else if (config.length >= 9) {
-                    minAbs = config[3]; maxAbs = config[4]; attenMultiplier = 100;
-                } else {
+                // 仅模式B；模式A 直接放行
+                if (!isModeB(config) || config.length < 9) {
                     return chain.proceed();
                 }
+                int minAbs = config[6];
+                int maxAbs = config[7];
+                int attenMultiplier = config[8];
                 if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0
                         && attenMultiplier == 100) {
                     return chain.proceed();
@@ -810,7 +813,7 @@ final class AudioHooks {
                     return chain.proceed();
                 }
                 int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs);
-                if (modeB && attenMultiplier != 100 && attenMultiplier >= 0) {
+                if (attenMultiplier != 100 && attenMultiplier >= 0) {
                     mapped = (int) Math.round(mapped * attenMultiplier / 100.0);
                     mapped = Math.max(0, Math.min(maxSteps, mapped));
                 }
@@ -819,11 +822,10 @@ final class AudioHooks {
                 }
                 if (index != sLastLoggedSystemIndex) {
                     sLastLoggedSystemIndex = index;
-                    String modeTag = modeB ? "modeB" : "modeA";
-                    XposedKit.log(modeTag + " setStreamVolume cap: " + index
+                    XposedKit.log("modeB setStreamVolume cap: " + index
                             + " -> " + mapped + "/" + maxSteps
                             + " (range=" + minAbs + "~" + maxAbs
-                            + (modeB ? " mul=" + attenMultiplier + "%" : "") + ")");
+                            + " mul=" + attenMultiplier + "%)");
                 }
                 Object[] newArgs = args.toArray();
                 newArgs[1] = mapped;

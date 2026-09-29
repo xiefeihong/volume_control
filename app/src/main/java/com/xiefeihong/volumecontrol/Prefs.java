@@ -71,9 +71,12 @@ public final class Prefs {
     /** 模式B 衰减乘数默认值（100% = 不衰减，对应 0~100 滑条的 100）。 */
     public static final int ATTEN_MULTIPLIER_DEFAULT = 100;
 
-    /** 媒体档位数的可选范围（16~29，HyperOS 默认 15）。 */
+    /** 媒体档位数的可选范围（16~29）。0 表示使用系统默认（不修改）。 */
+    public static final int MEDIA_STEPS_DEFAULT_VAL = 0; // 0 = 系统默认
     public static final int MEDIA_STEPS_MIN = 16;
     public static final int MEDIA_STEPS_MAX = 29;
+    /** @deprecated 使用 MEDIA_STEPS_DEFAULT_VAL 代替。 */
+    @Deprecated
     public static final int MEDIA_STEPS_DEFAULT = 16;
 
     /** 媒体流索引（android.media.AudioSystem.STREAM_MUSIC 的稳定取值）。 */
@@ -86,8 +89,9 @@ public final class Prefs {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
 
-    /** 把媒体档位数限制在可选范围内。 */
+    /** 把媒体档位数限制在可选范围内；0 = 系统默认，不夹持。 */
     public static int clampMediaSteps(int steps) {
+        if (steps == 0) return 0;
         return Math.max(MEDIA_STEPS_MIN, Math.min(MEDIA_STEPS_MAX, steps));
     }
 
@@ -98,7 +102,7 @@ public final class Prefs {
     public static String encodeConfig(boolean enabled, int mediaSteps, int mode,
             int minAbsA, int maxAbsA, int mulA,
             int minAbsB, int maxAbsB, int mulB) {
-        return (enabled ? 1 : 0) + ";" + clampMediaSteps(mediaSteps)
+        return (enabled ? 1 : 0) + ";" + (mediaSteps == 0 ? 0 : clampMediaSteps(mediaSteps))
                 + ";" + mode
                 + ";" + clampAbs(minAbsA) + ";" + clampAbs(maxAbsA) + ";" + clampMul(mulA)
                 + ";" + clampAbs(minAbsB) + ";" + clampAbs(maxAbsB) + ";" + clampMul(mulB);
@@ -164,7 +168,8 @@ public final class Prefs {
                         : (int) Math.round(percent * 15 / 100.0);
             }
             if (mode != BT_MODE_SOFTWARE) mode = BT_MODE_ABSOLUTE;
-            mediaSteps = clampMediaSteps(mediaSteps);
+            // 0 = 系统默认，不夹持
+            if (mediaSteps != 0) mediaSteps = clampMediaSteps(mediaSteps);
             minA = clampAbs(minA); maxA = clampAbs(maxA); mulA = clampMul(mulA);
             minB = clampAbs(minB); maxB = clampAbs(maxB); mulB = clampMul(mulB);
             if (minA > maxA) { int t = minA; minA = maxA; maxA = t; }

@@ -141,7 +141,7 @@ public class MainActivity extends AppCompatActivity {
                 .setMessage(R.string.dlg_reset_msg)
                 .setPositiveButton(R.string.dlg_ok, (dialog, which) -> {
                     binding.switchEnable.setChecked(false);
-                    setMediaSteps(Prefs.MEDIA_STEPS_DEFAULT);
+                    setMediaSteps(Prefs.MEDIA_STEPS_DEFAULT_VAL);
                     binding.radioBtMode.check(R.id.radioModeAbsolute);
                     binding.seekMinAbs.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
                     binding.seekMaxAbs.setProgress(Prefs.ABS_VOLUME_MAX_DEFAULT);
@@ -156,8 +156,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadConfigIntoUi() {
         boolean enabled = prefs.getBoolean(Prefs.KEY_ENABLED, false);
-        int mediaSteps = Prefs.clampMediaSteps(
-                prefs.getInt(Prefs.KEY_MEDIA_STEPS, Prefs.MEDIA_STEPS_DEFAULT));
+        int mediaSteps = prefs.getInt(Prefs.KEY_MEDIA_STEPS, Prefs.MEDIA_STEPS_DEFAULT_VAL);
         int btMode = prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE);
         if (btMode != Prefs.BT_MODE_SOFTWARE) btMode = Prefs.BT_MODE_ABSOLUTE;
 
@@ -170,7 +169,9 @@ public class MainActivity extends AppCompatActivity {
         int attenMultiplier = Prefs.clampMul(prefs.getInt(mulKey, Prefs.ATTEN_MULTIPLIER_DEFAULT));
 
         binding.switchEnable.setChecked(enabled);
-        binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
+        // Slider: position 0 = default, position 1~13 = 16~29
+        binding.seekMediaSteps.setProgress(mediaSteps == 0 ? 0
+                : mediaSteps - Prefs.MEDIA_STEPS_MIN + 1);
         binding.radioBtMode.check(btMode == Prefs.BT_MODE_SOFTWARE
                 ? R.id.radioModeSoftware : R.id.radioModeAbsolute);
         binding.seekMinAbs.setProgress(minAbs);
@@ -180,10 +181,11 @@ public class MainActivity extends AppCompatActivity {
 
     // ==================== 配置计算与预览 ====================
 
-    /** 当前选择的媒体档位数（15~29）。 */
+    /** 当前选择的媒体档位数（0=系统默认，16~29）。 */
     private int currentMediaSteps() {
-        int steps = Prefs.MEDIA_STEPS_MIN + binding.seekMediaSteps.getProgress();
-        return Prefs.clampMediaSteps(steps);
+        int pos = binding.seekMediaSteps.getProgress();
+        if (pos == 0) return 0; // 系统默认
+        return Prefs.MEDIA_STEPS_MIN + pos - 1;
     }
 
     /** 当前选择的蓝牙音量控制模式。 */
@@ -203,7 +205,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void setMediaSteps(int steps) {
-        binding.seekMediaSteps.setProgress(Prefs.clampMediaSteps(steps) - Prefs.MEDIA_STEPS_MIN);
+        if (steps == 0) {
+            binding.seekMediaSteps.setProgress(0);
+        } else {
+            binding.seekMediaSteps.setProgress(
+                    Prefs.clampMediaSteps(steps) - Prefs.MEDIA_STEPS_MIN + 1);
+        }
     }
 
     /** 读取媒体流当前生效的档位上限（读取失败返回 0）。 */
@@ -221,7 +228,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void updatePreview() {
         int mediaSteps = currentMediaSteps();
-        binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
+        if (mediaSteps == 0) {
+            binding.tvMediaSteps.setText(R.string.label_media_steps_sys_default);
+        } else {
+            binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
+        }
 
         boolean isModeB = currentBtMode() == Prefs.BT_MODE_SOFTWARE;
         int attenMultiplier = binding.seekAttenMultiplier.getProgress();
@@ -244,7 +255,8 @@ public class MainActivity extends AppCompatActivity {
             binding.tvRangeHint.setText(getString(R.string.range_hint));
         }
 
-        String preview = Avrcp.buildPreview(mediaSteps, currentBtMode(), minAbs, maxAbs, attenMultiplier);
+        String preview = Avrcp.buildPreview(mediaSteps == 0 ? readStreamMaxSafe(Prefs.STREAM_MUSIC_INDEX) : mediaSteps,
+                currentBtMode(), minAbs, maxAbs, attenMultiplier);
         int split = preview.indexOf("\n\n");
         if (split > 0) {
             binding.tvAvrcpSummary.setText(preview.substring(0, split));
@@ -457,24 +469,28 @@ public class MainActivity extends AppCompatActivity {
                         ? R.string.mode_name_software : R.string.mode_name_absolute)));
 
         boolean enabled = binding.switchEnable.isChecked();
-        int targetMedia = enabled ? currentMediaSteps() : actualMedia;
+        int targetMedia = enabled ? currentMediaSteps() : 0;
+        boolean isDefault = targetMedia == 0;
+        // 当用户选择默认时，目标等于当前实际（状态总是一致）
+        int effectiveTarget = isDefault ? actualMedia : targetMedia;
 
         binding.tvStatusVolume.setText(getString(R.string.status_volume_line,
-                actualMedia, targetMedia));
+                actualMedia, effectiveTarget));
 
-        if (enabled) {
-            if (actualMedia == targetMedia) {
-                binding.tvStatusModule.setText(getString(R.string.status_module_on_fmt, targetMedia));
+        if (enabled && !isDefault) {
+            if (actualMedia == effectiveTarget) {
+                binding.tvStatusModule.setText(getString(R.string.status_module_on_fmt, effectiveTarget));
             } else {
                 binding.tvStatusModule.setText(
-                        getString(R.string.status_module_pending_fmt, targetMedia));
+                        getString(R.string.status_module_pending_fmt, effectiveTarget));
             }
-        } else if (actualMedia == Prefs.MEDIA_STEPS_DEFAULT
-                || actualMedia == targetMedia) {
-            binding.tvStatusModule.setText(R.string.status_module_off);
-        } else {
+        } else if (!enabled && actualMedia != Prefs.MEDIA_STEPS_MIN - 1
+                && actualMedia != Prefs.MEDIA_STEPS_MIN) {
+            // 未启用但系统仍为修改后的档位
             binding.tvStatusModule.setText(
                     getString(R.string.status_module_off_pending_fmt, actualMedia));
+        } else {
+            binding.tvStatusModule.setText(R.string.status_module_off);
         }
 
         if (btSummary == null) {
@@ -483,10 +499,10 @@ public class MainActivity extends AppCompatActivity {
             binding.tvStatusBt.setText(getString(R.string.status_bt_fmt, btSummary));
         }
 
-        boolean effective = actualMedia == targetMedia;
+        boolean effective = isDefault || actualMedia == effectiveTarget;
         binding.tvPending.setText(effective
                 ? getString(R.string.pending_no)
-                : getString(R.string.pending_yes_fmt, actualMedia, targetMedia));
+                : getString(R.string.pending_yes_fmt, actualMedia, effectiveTarget));
     }
 
     // ==================== 模块日志 ====================
