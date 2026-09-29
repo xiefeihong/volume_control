@@ -219,11 +219,11 @@ final class AudioHooks {
         }
     }
 
-    /** 读取配置并刷新属性拦截缓存（未就绪 / 停用 / 系统默认置 -1，不拦截）；返回缓存的档位数。 */
+    /** 读取配置并刷新属性拦截缓存（未就绪 / 停用置 -1，不拦截）；返回缓存的档位数。 */
     private static int refreshMediaStepsOverride() {
         int[] config = XposedKit.readConfig(XposedKit.systemServerContext(null));
         int steps = -1;
-        if (config != null && config[0] != 0 && config[1] > 0) {
+        if (config != null && config[0] != 0) {
             steps = Prefs.clampMediaSteps(config[1]);
         }
         sMediaStepsOverride = steps;
@@ -292,9 +292,9 @@ final class AudioHooks {
             XposedKit.log("no config found, keep system defaults");
             return;
         }
-        if (config[0] == 0 || config[1] == 0) {
+        if (config[0] == 0) {
             sMediaStepsOverride = -1;
-            XposedKit.log("disabled or default, keep system steps");
+            XposedKit.log("disabled, keep system defaults");
             return;
         }
         int[] maxStreamVolumes = XposedKit.getStaticIntArrayField(
@@ -332,11 +332,6 @@ final class AudioHooks {
         if (config[0] == 0) {
             sMediaStepsOverride = -1;
             XposedKit.log(tag + ": disabled, keep system defaults");
-            return -1;
-        }
-        if (config[1] == 0) {
-            sMediaStepsOverride = -1;
-            XposedKit.log(tag + ": user chose default steps, no override");
             return -1;
         }
         int target = Prefs.clampMediaSteps(config[1]);

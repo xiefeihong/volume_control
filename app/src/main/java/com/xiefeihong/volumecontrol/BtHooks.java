@@ -110,16 +110,21 @@ final class BtHooks {
                 int step = (Integer) arg0;
                 int minA = config[3];
                 int maxA = config[4];
-                // 线性映射：保持绝对音量语义，低档不会无声
+                // 线性映射：minA>0 时 step 1 对应 minA；minA==0 时保持系统默认线性换算
                 int curved;
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
                     // 无范围限制时使用系统原始线性换算
                     return result;
+                } else if (minA > 0) {
+                    // step 1 → minA，step maxSteps → maxA
+                    if (step == 0) return result;
+                    curved = (int) Math.round(minA
+                            + (maxA - minA) * (double) (step - 1) / Math.max(1, maxSteps - 1));
                 } else {
-                    curved = (int) Math.round(
-                            minA + (maxA - minA) * (double) step / maxSteps);
-                    curved = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, curved));
+                    // minA==0 但 maxA < 127：默认线性
+                    curved = (int) Math.round(step * (double) maxA / maxSteps);
                 }
+                curved = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, curved));
                 if (curved != (Integer) result) {
                     if (curved != sLastLoggedCurveValue) {
                         sLastLoggedCurveValue = curved;
@@ -166,10 +171,18 @@ final class BtHooks {
                     return result; // 无反向映射需要
                 }
                 int avrcp = (Integer) arg0;
-                // 线性反函数：step = (avrcp - minA) * maxSteps / (maxA - minA)
-                int range = maxA - minA;
-                if (range <= 0) return result;
-                int step = (int) Math.round((avrcp - minA) * (double) maxSteps / range);
+                int step;
+                if (minA > 0) {
+                    // 反函数：minA>0 时 step 1 对应 minA
+                    int range = maxA - minA;
+                    if (range <= 0) return result;
+                    step = (int) Math.round(
+                            1 + (avrcp - minA) * (double) (maxSteps - 1) / range);
+                } else {
+                    // minA==0, maxA < 127：默认线性反函数
+                    if (maxA <= 0) return result;
+                    step = (int) Math.round(avrcp * (double) maxSteps / maxA);
+                }
                 return Math.max(0, Math.min(maxSteps, step));
             } catch (Throwable t) {
                 XposedKit.logError("modeA avrcpToSystem hook failed: " + t);
