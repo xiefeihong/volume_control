@@ -1,7 +1,5 @@
 package com.xiefeihong.volumecontrol;
 
-import java.util.List;
-
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 
@@ -10,13 +8,12 @@ import io.github.libxposed.api.XposedModule;
  *
  * <p>Hook {@code com.android.bluetooth.avrcp.AvrcpVolumeManager}：</p>
  * <ul>
- *   <li>模式A（保持绝对音量，默认）：{@code systemToAvrcpVolume()} 原本按
- *       {@code round(档位*127/最大档位)} 线性换算，替换为低音量增强曲线，
- *       低音量区每档跨度更大，避免「第 1 档无声」与「5% 和 10% 听感相同」；
- *       {@code avrcpToSystemVolume()}（耳机音量键回调）使用反函数保持一致；</li>
- *   <li>模式B（停用绝对音量）：强制 {@code deviceConnected(device, false)} 让框架以
- *       变量音量行为处理该设备（手机端软件衰减），并屏蔽发往耳机的 AVRCP 音量，
- *       耳机固定于自身硬件音量。</li>
+ *   <li>模式A（保持绝对音量，默认）：{@code systemToAvrcpVolume()} 使用低音量增强曲线
+ *       （sqrt 映射），与 UI 预览保持一致；{@code avrcpToSystemVolume()}（耳机音量键回调）
+ *       使用曲线反函数保持双向一致；</li>
+ *   <li>模式B（停用绝对音量）：仅屏蔽发往耳机的 AVRCP 音量（{@code sendVolumeChanged}），
+ *       耳机固定于自身硬件音量。不修改 deviceConnected / getAbsoluteVolumeSupported
+ *       缓存字段，因此模式切换后下一次音量调整即生效（无需重启蓝牙）。</li>
  * </ul>
  */
 final class BtHooks {
@@ -29,7 +26,6 @@ final class BtHooks {
 
     /** 日志节流：避免音量调节时高频刷屏。 */
     private static int sLastLoggedCurveValue = -1;
-    private static boolean sModeBLogged;
 
     private BtHooks() {
     }
@@ -44,23 +40,15 @@ final class BtHooks {
             return;
         }
 
-        // 模式A：手机档位 → AVRCP 绝对音量（低音量增强曲线），连接与音量变化两条路径都会经过
+        // 模式A：手机档位 → AVRCP 绝对音量（sqrt 低音量增强曲线）
         int toAvrcp = XposedKit.hookAllMethodsNamed(module, volumeManager,
                 "systemToAvrcpVolume", new SystemToAvrcpHooker(volumeManager));
         XposedKit.log("systemToAvrcpVolume hooked: " + toAvrcp);
 
-        // 模式A：耳机音量键回调（AVRCP → 手机档位）使用反函数，保持映射一致
+        // 模式A：耳机音量键回调（AVRCP → 手机档位）使用曲线反函数，保持映射一致
         int toSystem = XposedKit.hookAllMethodsNamed(module, volumeManager,
                 "avrcpToSystemVolume", new AvrcpToSystemHooker(volumeManager));
         XposedKit.log("avrcpToSystemVolume hooked: " + toSystem);
-
-        // 模式B：上报设备不支持绝对音量 → 框架按软件衰减处理
-        int connected = hookDeviceConnected(module, volumeManager);
-        XposedKit.log("deviceConnected hooked: " + connected);
-
-        // 查询接口：模式B 返回 false，模式A 返回 true（覆盖缓存实现即时切换）
-        int supported = hookAbsoluteVolumeSupported(module, volumeManager);
-        XposedKit.log("getAbsoluteVolumeSupported hooked: " + supported);
 
         // 模式B：屏蔽发往耳机的 AVRCP 音量（避免双重衰减，耳机固定自身音量）
         int sendChanged = hookSendVolumeChanged(module, volumeManager);
@@ -83,7 +71,10 @@ final class BtHooks {
         }
     }
 
-    /** 模式A：换算结果替换为线性范围映射（保持绝对音量语义）。 */
+    /**
+     * 模式A：系统档位 → AVRCP 绝对音量。
+     * 使用 {@link Avrcp#curveToAbsoluteVolume} sqrt 增强曲线，与预览完全一致。
+     */
     private static final class SystemToAvrcpHooker implements XposedInterface.Hooker {
         private final Class<?> volumeManager;
 
@@ -110,27 +101,18 @@ final class BtHooks {
                 int step = (Integer) arg0;
                 int minA = config[3];
                 int maxA = config[4];
-                // 线性映射：minA>0 时 step 1 对应 minA；minA==0 时保持系统默认线性换算
-                int curved;
+                // 无范围限制时保持系统原始线性换算
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
-                    // 无范围限制时使用系统原始线性换算
                     return result;
-                } else if (minA > 0) {
-                    // step 1 → minA，step maxSteps → maxA
-                    if (step == 0) return result;
-                    curved = (int) Math.round(minA
-                            + (maxA - minA) * (double) (step - 1) / Math.max(1, maxSteps - 1));
-                } else {
-                    // minA==0 但 maxA < 127：默认线性
-                    curved = (int) Math.round(step * (double) maxA / maxSteps);
                 }
-                curved = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, curved));
+                // sqrt 增强曲线（与 Avrcp.curveToAbsoluteVolume 一致）
+                int curved = Avrcp.curveToAbsoluteVolume(step, maxSteps, minA, maxA);
                 if (curved != (Integer) result) {
                     if (curved != sLastLoggedCurveValue) {
                         sLastLoggedCurveValue = curved;
                         XposedKit.log("modeA: step " + step + "/" + maxSteps
                                 + " avrcp " + result + " -> " + curved
-                                + " (range=" + minA + "~" + maxA + ")");
+                                + " (range=" + minA + "~" + maxA + " sqrt)");
                     }
                     return curved;
                 }
@@ -141,7 +123,10 @@ final class BtHooks {
         }
     }
 
-    /** 模式A：耳机音量键回调按线性反函数映射。 */
+    /**
+     * 模式A：耳机 AVRCP 音量 → 系统档位。
+     * 使用 {@link Avrcp#curveToSystemStep} 反函数，与正向 sqrt 曲线保持一致。
+     */
     private static final class AvrcpToSystemHooker implements XposedInterface.Hooker {
         private final Class<?> volumeManager;
 
@@ -168,21 +153,11 @@ final class BtHooks {
                 int minA = config[3];
                 int maxA = config[4];
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
-                    return result; // 无反向映射需要
+                    return result; // 无范围限制时无需反算
                 }
                 int avrcp = (Integer) arg0;
-                int step;
-                if (minA > 0) {
-                    // 反函数：minA>0 时 step 1 对应 minA
-                    int range = maxA - minA;
-                    if (range <= 0) return result;
-                    step = (int) Math.round(
-                            1 + (avrcp - minA) * (double) (maxSteps - 1) / range);
-                } else {
-                    // minA==0, maxA < 127：默认线性反函数
-                    if (maxA <= 0) return result;
-                    step = (int) Math.round(avrcp * (double) maxSteps / maxA);
-                }
+                // sqrt 反函数
+                int step = Avrcp.curveToSystemStep(avrcp, maxSteps, minA, maxA);
                 return Math.max(0, Math.min(maxSteps, step));
             } catch (Throwable t) {
                 XposedKit.logError("modeA avrcpToSystem hook failed: " + t);
@@ -191,82 +166,7 @@ final class BtHooks {
         }
     }
 
-    /** 模式B：设备连接上报改为“不支持绝对音量”。 */
-    private static int hookDeviceConnected(XposedModule module, Class<?> volumeManager) {
-        int count = 0;
-        for (java.lang.reflect.Method method : volumeManager.getDeclaredMethods()) {
-            if (!"deviceConnected".equals(method.getName())) {
-                continue;
-            }
-            try {
-                module.hook(method).intercept(new XposedInterface.Hooker() {
-                    @Override
-                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                        try {
-                            List<Object> args = chain.getArgs();
-                            if (args.size() >= 2 && Boolean.TRUE.equals(args.get(1))) {
-                                int[] config = XposedKit.readConfig(
-                                        XposedKit.bluetoothContext());
-                                if (AudioHooks.isModeB(config)) {
-                                    if (!sModeBLogged) {
-                                        sModeBLogged = true;
-                                        XposedKit.log("modeB: force absoluteVolume=false");
-                                    }
-                                    Object[] newArgs = args.toArray();
-                                    newArgs[1] = Boolean.FALSE;
-                                    return chain.proceed(newArgs);
-                                }
-                            }
-                        } catch (Throwable t) {
-                            XposedKit.logError("deviceConnected hook failed: " + t);
-                        }
-                        return chain.proceed();
-                    }
-                });
-                count++;
-            } catch (Throwable t) {
-                XposedKit.logError("hook deviceConnected failed: " + t);
-            }
-        }
-        return count;
-    }
-
-    /** 查询接口：模式B 返回 false，模式A 返回 true（覆盖缓存状态，实现即时切换）。 */
-    private static int hookAbsoluteVolumeSupported(XposedModule module, Class<?> volumeManager) {
-        int count = 0;
-        for (java.lang.reflect.Method method : volumeManager.getDeclaredMethods()) {
-            if (!"getAbsoluteVolumeSupported".equals(method.getName())) {
-                continue;
-            }
-            try {
-                module.hook(method).intercept(new XposedInterface.Hooker() {
-                    @Override
-                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                        try {
-                            int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                            if (config == null || config[0] == 0) {
-                                return chain.proceed(); // 模块禁用，使用原始值
-                            }
-                            if (AudioHooks.isModeB(config)) {
-                                return Boolean.FALSE;
-                            }
-                            // 模式A：强制报告支持绝对音量（覆盖连接时缓存的 false）
-                            return Boolean.TRUE;
-                        } catch (Throwable t) {
-                            XposedKit.logError("getAbsoluteVolumeSupported hook failed: " + t);
-                        }
-                        return chain.proceed();
-                    }
-                });
-                count++;
-            } catch (Throwable t) {
-                XposedKit.logError("hook getAbsoluteVolumeSupported failed: " + t);
-            }
-        }
-        return count;
-    }
-
-    /** 模式B：屏蔽发往耳机的 AVRCP 音量。 */
+    /** 模式B：屏蔽发往耳机的 AVRCP 音量命令（耳机固定自身硬件音量）。 */
     private static int hookSendVolumeChanged(XposedModule module, Class<?> volumeManager) {
         int count = 0;
         for (java.lang.reflect.Method method : volumeManager.getDeclaredMethods()) {
@@ -280,7 +180,7 @@ final class BtHooks {
                         try {
                             int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
                             if (AudioHooks.isModeB(config)) {
-                                return null;
+                                return null; // 模式B：阻止发送 AVRCP
                             }
                         } catch (Throwable t) {
                             XposedKit.logError("sendVolumeChanged hook failed: " + t);
