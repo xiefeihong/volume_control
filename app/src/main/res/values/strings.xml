@@ -70,16 +70,14 @@
 
     <string name="toast_push_fail">写入系统配置失败，请确认 su 已授权</string>
     <string name="toast_auto_save_fail">自动保存失败：无法写入系统配置，请确认 su 已授权</string>
-    <string name="toast_apply_done">已推送当前配置。模式与音量范围将在下一次音量变化时立即生效。</string>
     <string name="toast_reset_done">已恢复默认设置并保存。媒体档位数请点「重启系统框架」生效；音量模式 / 范围已立即生效。</string>
     <string name="toast_config_adopted">已从系统读取现有配置并恢复界面</string>
     <string name="toast_bt_restarting">正在重启蓝牙…耳机将断开，请稍后重新连接</string>
     <string name="toast_bt_restart_fail">蓝牙重启命令执行失败（svc / cmd 均不可用）</string>
     <string name="toast_sys_restarting">正在重启系统框架…屏幕将短暂黑屏，本应用会被关闭</string>
 
-    <string name="btn_restart_bt">重启蓝牙 (模式和音量范围调整后)</string>
-    <string name="btn_apply_changes">应用修改（模式/音量范围）</string>
-    <string name="ops_hint">修改后自动保存；点「应用修改」可手动推送。模式与音量范围切换不需重启蓝牙，仅媒体档位数修改后需点「重启系统框架」。</string>
+    <string name="btn_restart_bt">重启蓝牙 (模式/音量范围调整后)</string>
+    <string name="ops_hint">修改后自动保存。切换模式或调整音量范围后需点「重启蓝牙」；仅媒体档位数修改后需点「重启系统框架」。</string>
 
     <string name="log_title">模块日志（VolumeControl）</string>
     <string name="btn_logs">查看模块日志</string>
@@ -97,13 +95,13 @@
 
 2. 媒体音量档位：可设置 10~29 档（HyperOS 默认 15），只影响媒体流（音乐/视频）。修改档位数后点「重启系统框架」，期间黑屏属正常现象。
 
-3. 模式A（默认，保持绝对音量）：蓝牙耳机保持绝对音量控制，手机系统音量线性不变。minA>0 时第 1 档的 AVRCP 音量 = 已设置的最小音量；minA=0 时保持系统默认线性。
+3. 模式A（默认，保持绝对音量）：蓝牙耳机保持绝对音量控制，手机系统音量线性不变。档位经 sqrt 低音量增强曲线映射为 AVRCP 音量（0~127）。
 
 4. 模式B（低音量问题首选）：停用蓝牙绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量；音量范围和衰减乘数对有线+蓝牙均生效。
 
 5. 音量范围：两种模式分别保存独立的音量范围（最小/最大/衰减乘数）。
 
-6. 生效方式：修改自动保存；切换模式或调整音量范围后点【应用修改】推送配置，下一次音量变化时即时生效，无需重启蓝牙。
+6. 生效方式：修改自动保存。切换模式或调整音量范围后需点「重启蓝牙」生效；仅媒体档位数修改后需点「重启系统框架」。
 
 7. 恢复默认：点「恢复系统默认」并重启生效；或在 LSPosed 中停用模块后重启手机。
 

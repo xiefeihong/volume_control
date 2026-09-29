@@ -42,7 +42,7 @@ import io.github.libxposed.api.XposedModule;
  *
  * <p><b>模式B 保险：</b>{@code avrcpSupportsAbsoluteVolume} 强制上报"不支持"，
  * {@code postSetAvrcpAbsoluteVolumeIndex} 拦截发往蓝牙栈的音量值。
- * 配合蓝牙进程 {@code getAbsoluteVolumeSupported} 动态覆盖，实现 Mode A↔B 切换无需重启蓝牙。</p>
+ * 切换模式后需重启蓝牙使 {@code deviceConnected} 重新触发。</p>
  */
 final class AudioHooks {
 

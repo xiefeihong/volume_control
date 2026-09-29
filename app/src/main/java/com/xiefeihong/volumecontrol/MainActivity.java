@@ -120,11 +120,6 @@ public class MainActivity extends AppCompatActivity {
 
         binding.btnRefresh.setOnClickListener(v -> refreshStatus());
 
-        binding.btnApplyChanges.setOnClickListener(v -> {
-            saveToSystem(() -> mainHandler.post(() -> Toast.makeText(this,
-                    R.string.toast_apply_done, Toast.LENGTH_SHORT).show()));
-        });
-
         binding.btnLogs.setOnClickListener(v -> showModuleLogs());
 
         binding.btnRestartBt.setOnClickListener(v -> new AlertDialog.Builder(this)

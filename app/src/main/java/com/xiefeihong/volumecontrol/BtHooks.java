@@ -17,9 +17,7 @@ import io.github.libxposed.api.XposedModule;
  *       阻断 AVRCP 发送。耳机固定于自身硬件音量，手机端通过 AudioService 软件衰减控制音量。</li>
  * </ul>
  *
- * <p>模式切换通过 {@code getAbsoluteVolumeSupported} 动态覆盖实现即时生效：
- * Mode A → TRUE（覆盖连接时缓存的 false），Mode B → FALSE。
- * 切换后下一次音量调整即可听到效果，无需重启蓝牙。</p>
+ * <p>切换模式（A↔B）后需重启蓝牙使 {@code deviceConnected} 重新触发。</p>
  */
 final class BtHooks {
 
@@ -59,10 +57,6 @@ final class BtHooks {
         // 模式B：设备连接上报改为"不支持绝对音量"（使 AudioService 走软件衰减路径）
         int connected = hookDeviceConnected(module, volumeManager);
         XposedKit.log("deviceConnected hooked: " + connected);
-
-        // 查询接口动态覆盖：Mode A=TRUE（覆盖缓存 false），Mode B=FALSE
-        int supported = hookAbsoluteVolumeSupported(module, volumeManager);
-        XposedKit.log("getAbsoluteVolumeSupported hooked: " + supported);
 
         // 模式B：屏蔽发往耳机的 AVRCP 音量（避免双重衰减，耳机固定自身音量）
         int sendChanged = hookSendVolumeChanged(module, volumeManager);
@@ -215,41 +209,6 @@ final class BtHooks {
                 count++;
             } catch (Throwable t) {
                 XposedKit.logError("hook deviceConnected failed: " + t);
-            }
-        }
-        return count;
-    }
-
-    /** 查询接口动态覆盖：Mode A→TRUE（覆盖缓存 false），Mode B→FALSE。 */
-    private static int hookAbsoluteVolumeSupported(XposedModule module, Class<?> volumeManager) {
-        int count = 0;
-        for (java.lang.reflect.Method method : volumeManager.getDeclaredMethods()) {
-            if (!"getAbsoluteVolumeSupported".equals(method.getName())) {
-                continue;
-            }
-            try {
-                module.hook(method).intercept(new XposedInterface.Hooker() {
-                    @Override
-                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                        try {
-                            int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                            if (config == null || config[0] == 0) {
-                                return chain.proceed(); // 模块禁用，使用原始值
-                            }
-                            if (AudioHooks.isModeB(config)) {
-                                return Boolean.FALSE;
-                            }
-                            // 模式A：强制报告支持绝对音量（覆盖连接时缓存的 false）
-                            return Boolean.TRUE;
-                        } catch (Throwable t) {
-                            XposedKit.logError("getAbsoluteVolumeSupported hook failed: " + t);
-                        }
-                        return chain.proceed();
-                    }
-                });
-                count++;
-            } catch (Throwable t) {
-                XposedKit.logError("hook getAbsoluteVolumeSupported failed: " + t);
             }
         }
         return count;

@@ -27,15 +27,6 @@
             android:text="@string/app_subtitle"
             android:textSize="13sp" />
 
-        <com.google.android.material.materialswitch.MaterialSwitch
-            android:id="@+id/switchEnable"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:layout_marginTop="10dp"
-            android:text="@string/label_enable"
-            android:textStyle="bold" />
-
         <!-- ============ 运行状态 ============ -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -54,6 +45,15 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/sec_status"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchEnable"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/label_enable"
                     android:textStyle="bold" />
 
                 <TextView
@@ -349,14 +349,6 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:textSize="13sp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnApplyChanges"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/btn_apply_changes" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnRestartBt"
