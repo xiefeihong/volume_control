@@ -251,10 +251,27 @@ public final class Avrcp {
             return "";
         }
         boolean software = (btMode == Prefs.BT_MODE_SOFTWARE);
-        StringBuilder sb = new StringBuilder();
-        sb.append(software
+        String title = software
                 ? "档位 → 软件衰减音量（0~127）：\n"
-                : "档位 → AVRCP 音量（0~127）：\n");
+                : "档位 → AVRCP 音量（0~127）：\n";
+        return renderMappingTable(title, maxSteps, minAbs, maxAbs, curveType);
+    }
+
+    /** 耳机模式（有线+外放）逐档映射表：显示 0~127、落在 minW~maxW 之间。 */
+    public static String buildWiredMappingTable(int maxSteps, int minAbs, int maxAbs,
+            int curveType) {
+        if (maxSteps <= 0) {
+            return "";
+        }
+        return renderMappingTable("耳机模式 · 档位 → 音量（0~127）：\n",
+                maxSteps, minAbs, maxAbs, curveType);
+    }
+
+    /** 按所选曲线渲染「档位 → 音量(0~127)」等宽行，6 列/行。 */
+    private static String renderMappingTable(String title, int maxSteps, int minAbs, int maxAbs,
+            int curveType) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(title);
         int stepWidth = String.valueOf(maxSteps).length();
         int valWidth = String.valueOf(Prefs.AVRCP_MAX_VOLUME).length();
         String entryFmt = "%" + stepWidth + "d→%" + valWidth + "d";

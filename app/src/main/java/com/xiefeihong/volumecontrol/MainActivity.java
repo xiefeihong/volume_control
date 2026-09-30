@@ -97,6 +97,8 @@ public class MainActivity extends AppCompatActivity {
         binding.seekMediaSteps.setOnSeekBarChangeListener(listener);
         binding.seekMinAbs.setOnSeekBarChangeListener(listener);
         binding.seekMaxAbs.setOnSeekBarChangeListener(listener);
+        binding.seekMinW.setOnSeekBarChangeListener(listener);
+        binding.seekMaxW.setOnSeekBarChangeListener(listener);
 
         binding.radioBtMode.setOnCheckedChangeListener((group, checkedId) -> {
             if (suppressListeners) {
@@ -133,16 +135,14 @@ public class MainActivity extends AppCompatActivity {
 
         binding.radioCurveType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
+        binding.radioCurveWType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
+
         binding.btnRefresh.setOnClickListener(v -> refreshStatus());
 
         binding.btnLogs.setOnClickListener(v -> showModuleLogs());
 
-        binding.btnRestartBt.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle(R.string.dlg_restart_bt_title)
-                .setMessage(R.string.dlg_restart_bt_msg)
-                .setPositiveButton(R.string.dlg_ok, (dialog, which) -> restartBluetoothNow())
-                .setNegativeButton(R.string.dlg_cancel, null)
-                .show());
+        // 重启蓝牙：无需确认弹窗，直接保存并重启
+        binding.btnRestartBt.setOnClickListener(v -> restartBluetoothNow());
 
         binding.btnApplyRestart.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle(R.string.dlg_restart_title)
@@ -161,6 +161,9 @@ public class MainActivity extends AppCompatActivity {
                     binding.radioCurveType.check(R.id.radioCurveLog);
                     binding.seekMinAbs.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
                     binding.seekMaxAbs.setProgress(Prefs.ABS_VOLUME_MAX_DEFAULT);
+                    binding.radioCurveWType.check(R.id.radioCurveWLog);
+                    binding.seekMinW.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
+                    binding.seekMaxW.setProgress(Prefs.ABS_VOLUME_MAX_DEFAULT);
                     mainHandler.removeCallbacks(autoSaveRunnable);
                     saveToSystem(() -> Toast.makeText(this, R.string.toast_reset_done,
                             Toast.LENGTH_LONG).show());
@@ -193,6 +196,14 @@ public class MainActivity extends AppCompatActivity {
                 ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
         int curveType = Prefs.clampCurve(prefs.getInt(curveKey, Prefs.CURVE_TYPE_DEFAULT));
         binding.radioCurveType.check(curveRadioId(curveType));
+
+        // 耳机模式（有线+外放）独立范围与曲线
+        int minW = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MIN_ABS_W, Prefs.ABS_VOLUME_MIN_DEFAULT));
+        int maxW = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MAX_ABS_W, Prefs.ABS_VOLUME_MAX_DEFAULT));
+        binding.seekMinW.setProgress(minW);
+        binding.seekMaxW.setProgress(maxW);
+        int curveW = Prefs.clampCurve(prefs.getInt(Prefs.KEY_CURVE_TYPE_W, Prefs.CURVE_TYPE_DEFAULT));
+        binding.radioCurveWType.check(curveWRadioId(curveW));
         suppressListeners = false;
     }
 
@@ -234,6 +245,31 @@ public class MainActivity extends AppCompatActivity {
         return Math.max(binding.seekMinAbs.getProgress(), binding.seekMaxAbs.getProgress());
     }
 
+    /** 耳机模式当前映射曲线类型（独立于 A/B）。 */
+    private int currentCurveW() {
+        int id = binding.radioCurveWType.getCheckedRadioButtonId();
+        if (id == R.id.radioCurveWLinear) return Prefs.CURVE_LINEAR;
+        if (id == R.id.radioCurveWSqrt) return Prefs.CURVE_SQRT;
+        return Prefs.CURVE_LOG;
+    }
+
+    /** 耳机模式曲线类型 → RadioButton id。 */
+    private int curveWRadioId(int curveType) {
+        if (curveType == Prefs.CURVE_LINEAR) return R.id.radioCurveWLinear;
+        if (curveType == Prefs.CURVE_SQRT) return R.id.radioCurveWSqrt;
+        return R.id.radioCurveWLog;
+    }
+
+    /** 耳机模式当前音量范围下限（自动保证 下限 <= 上限）。 */
+    private int currentMinW() {
+        return Math.min(binding.seekMinW.getProgress(), binding.seekMaxW.getProgress());
+    }
+
+    /** 耳机模式当前音量范围上限（自动保证 上限 >= 下限）。 */
+    private int currentMaxW() {
+        return Math.max(binding.seekMinW.getProgress(), binding.seekMaxW.getProgress());
+    }
+
     private void setMediaSteps(int steps) {
         binding.seekMediaSteps.setProgress(
                 Prefs.clampMediaSteps(steps) - Prefs.MEDIA_STEPS_MIN);
@@ -270,6 +306,16 @@ public class MainActivity extends AppCompatActivity {
                 Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType));
         binding.tvRangeMapping.setText(
                 Avrcp.buildMappingTable(mediaSteps, btMode, minAbs, maxAbs, curveType));
+
+        // 耳机模式（有线+外放）范围标签与映射表
+        int minW = currentMinW();
+        int maxW = currentMaxW();
+        binding.tvMinW.setText(getString(R.string.label_min_abs_fmt, minW,
+                Math.round(minW * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
+        binding.tvMaxW.setText(getString(R.string.label_max_abs_fmt, maxW,
+                Math.round(maxW * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
+        binding.tvWMapping.setText(
+                Avrcp.buildWiredMappingTable(mediaSteps, minW, maxW, currentCurveW()));
     }
 
     // ==================== 持久化与写入系统 ====================
@@ -285,7 +331,10 @@ public class MainActivity extends AppCompatActivity {
                 .putInt(minKey, currentMinAbs())
                 .putInt(maxKey, currentMaxAbs())
                 .putInt(mode == Prefs.BT_MODE_SOFTWARE
-                        ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A, currentCurveType());
+                        ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A, currentCurveType())
+                .putInt(Prefs.KEY_MIN_ABS_W, currentMinW())
+                .putInt(Prefs.KEY_MAX_ABS_W, currentMaxW())
+                .putInt(Prefs.KEY_CURVE_TYPE_W, currentCurveW());
         if (synchronous) {
             editor.commit();
         } else {
@@ -312,8 +361,12 @@ public class MainActivity extends AppCompatActivity {
             minA = currentMinAbs(); maxA = currentMaxAbs();
             curveA = currentCurveType();
         }
+        // 耳机模式（有线+外放）恒独立，直接用界面实时值
+        int minW = currentMinW();
+        int maxW = currentMaxW();
+        int curveW = currentCurveW();
         return Prefs.encodeConfig(binding.switchEnable.isChecked(), currentMediaSteps(),
-                mode, minA, maxA, minB, maxB, curveA, curveB);
+                mode, minA, maxA, minB, maxB, curveA, curveB, minW, maxW, curveW);
     }
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
@@ -401,7 +454,6 @@ public class MainActivity extends AppCompatActivity {
 
     /** 保存配置并软重启系统框架（媒体档位数修改后的生效方式）。 */
     private void restartSystemServerNow() {
-        Toast.makeText(this, R.string.toast_sys_restarting, Toast.LENGTH_LONG).show();
         saveToSystem(() -> {
             try {
                 executor.execute(Shell::restartSystemServer);
@@ -446,6 +498,12 @@ public class MainActivity extends AppCompatActivity {
                                     ? globalConfig[8]
                                     : (globalConfig.length >= 8 ? globalConfig[7]
                                             : Prefs.CURVE_TYPE_DEFAULT))
+                            .putInt(Prefs.KEY_MIN_ABS_W, globalConfig.length >= 12
+                                    ? globalConfig[9] : Prefs.ABS_VOLUME_MIN_DEFAULT)
+                            .putInt(Prefs.KEY_MAX_ABS_W, globalConfig.length >= 12
+                                    ? globalConfig[10] : Prefs.ABS_VOLUME_MAX_DEFAULT)
+                            .putInt(Prefs.KEY_CURVE_TYPE_W, globalConfig.length >= 12
+                                    ? globalConfig[11] : Prefs.CURVE_TYPE_DEFAULT)
                             .commit();
                     adopted = true;
                 }
