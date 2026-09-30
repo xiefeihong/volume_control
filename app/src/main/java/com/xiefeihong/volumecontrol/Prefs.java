@@ -44,13 +44,6 @@ public final class Prefs {
     /** 耳机模式映射曲线类型 SharedPreferences 键。 */
     public static final String KEY_CURVE_TYPE_W = "curve_type_w";
 
-    /** @deprecated 使用 KEY_MIN_ABS_A / KEY_MIN_ABS_B 代替。 */
-    @Deprecated
-    public static final String KEY_MIN_ABS = "min_abs_volume";
-    /** @deprecated 使用 KEY_MAX_ABS_A / KEY_MAX_ABS_B 代替。 */
-    @Deprecated
-    public static final String KEY_MAX_ABS = "max_abs_volume";
-
     /**
      * 蓝牙音量控制模式 A：保持绝对音量（默认）。
      * 手机档位经低音量增强曲线映射为 0~127 的绝对音量发送给耳机。
@@ -70,7 +63,7 @@ public final class Prefs {
     public static final int CURVE_LOG = 0;
     public static final int CURVE_LINEAR = 1;
     public static final int CURVE_SQRT = 2;
-    /** 曲线类型默认值（向后兼容旧配置，沿用对数曲线行为）。 */
+    /** 曲线类型默认值（默认对数曲线）。 */
     public static final int CURVE_TYPE_DEFAULT = CURVE_LOG;
 
     /**
@@ -90,9 +83,6 @@ public final class Prefs {
     public static final int MEDIA_STEPS_MAX = 29;
     /** 兜底默认媒体档位数（仅在无法探测系统原生档位时使用）。 */
     public static final int MEDIA_STEPS_DEFAULT = 20;
-    /** @deprecated 已删除“默认档位”选项，范围从 10 开始。 */
-    @Deprecated
-    public static final int MEDIA_STEPS_DEFAULT_VAL = 0;
 
     /** 媒体流索引（android.media.AudioSystem.STREAM_MUSIC 的稳定取值）。 */
     public static final int STREAM_MUSIC_INDEX = 3;
