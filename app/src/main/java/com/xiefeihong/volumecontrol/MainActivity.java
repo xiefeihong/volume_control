@@ -138,7 +138,7 @@ public class MainActivity extends AppCompatActivity {
                 .setMessage(R.string.dlg_reset_msg)
                 .setPositiveButton(R.string.dlg_ok, (dialog, which) -> {
                     binding.switchEnable.setChecked(false);
-                    setMediaSteps(Prefs.MEDIA_STEPS_MIN);
+                    setMediaSteps(Prefs.MEDIA_STEPS_DEFAULT);
                     binding.radioBtMode.check(R.id.radioModeAbsolute);
                     binding.radioCurveType.check(R.id.radioCurveLog);
                     binding.seekMinAbs.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
@@ -154,7 +154,7 @@ public class MainActivity extends AppCompatActivity {
     private void loadConfigIntoUi() {
         boolean enabled = prefs.getBoolean(Prefs.KEY_ENABLED, false);
         int mediaSteps = Prefs.clampMediaSteps(
-                prefs.getInt(Prefs.KEY_MEDIA_STEPS, Prefs.MEDIA_STEPS_MIN));
+                prefs.getInt(Prefs.KEY_MEDIA_STEPS, Prefs.MEDIA_STEPS_DEFAULT));
         int btMode = prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE);
         if (btMode != Prefs.BT_MODE_SOFTWARE) btMode = Prefs.BT_MODE_ABSOLUTE;
 
@@ -243,16 +243,12 @@ public class MainActivity extends AppCompatActivity {
                 Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
         binding.tvRangeHint.setText(getString(R.string.range_hint));
 
-        String preview = Avrcp.buildPreview(mediaSteps, currentBtMode(), minAbs, maxAbs,
-                currentCurveType());
-        int split = preview.indexOf("\n\n");
-        if (split > 0) {
-            binding.tvAvrcpSummary.setText(preview.substring(0, split));
-            binding.tvAvrcpDetail.setText(preview.substring(split + 2));
-        } else {
-            binding.tvAvrcpSummary.setText(preview);
-            binding.tvAvrcpDetail.setText("");
-        }
+        int btMode = currentBtMode();
+        int curveType = currentCurveType();
+        binding.tvAvrcpSummary.setText(
+                Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType));
+        binding.tvRangeMapping.setText(
+                Avrcp.buildMappingTable(mediaSteps, btMode, minAbs, maxAbs, curveType));
     }
 
     // ==================== 持久化与写入系统 ====================
@@ -466,7 +462,7 @@ public class MainActivity extends AppCompatActivity {
                 binding.tvStatusModule.setText(
                         getString(R.string.status_module_pending_fmt, targetMedia));
             }
-        } else if (actualMedia == Prefs.MEDIA_STEPS_MIN
+        } else if (actualMedia == Prefs.MEDIA_STEPS_DEFAULT
                 || actualMedia < Prefs.MEDIA_STEPS_MIN
                 || actualMedia > Prefs.MEDIA_STEPS_MAX) {
             binding.tvStatusModule.setText(R.string.status_module_off);

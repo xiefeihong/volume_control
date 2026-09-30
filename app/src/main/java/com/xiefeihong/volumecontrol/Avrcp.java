@@ -237,22 +237,39 @@ public final class Avrcp {
         }
         sb.append("最高档（第 ").append(maxSteps).append(" 档）→ AVRCP ")
                 .append(range[1]).append("\n");
-        sb.append("提示：耳机内部有效档位较少时（常见 8~19），手机档位多于它仍会重复；模式B 可彻底解决\n\n");
+        sb.append("提示：耳机内部有效档位较少时（常见 8~19），手机档位多于它仍会重复；模式B 可彻底解决");
+        return sb.toString();
+    }
 
-        sb.append("档位 → AVRCP 音量：\n");
-        // 计算每个条目所需宽度（最大档位数 + "→" + 最大 AVRCP 值）
+    /**
+     * 生成「档位 → 音量」逐档映射表（等宽文本，显示在音量范围卡片内，便于调整时就地查看结果）。
+     * 模式A 显示 AVRCP 绝对音量（0~127）；模式B 显示软件衰减后的系统档位（与模式A 同曲线换算）。
+     */
+    public static String buildMappingTable(int maxSteps, int btMode, int minAbs, int maxAbs,
+            int curveType) {
+        if (maxSteps <= 0) {
+            return "";
+        }
+        boolean software = (btMode == Prefs.BT_MODE_SOFTWARE);
+        int valueMax = software ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
+        StringBuilder sb = new StringBuilder();
+        sb.append(software
+                ? "档位 → 系统音量（软件衰减，0~" + maxSteps + "）：\n"
+                : "档位 → AVRCP 音量（0~127）：\n");
         int stepWidth = String.valueOf(maxSteps).length();
-        int avrcpWidth = String.valueOf(Prefs.AVRCP_MAX_VOLUME).length();
-        String entryFmt = "%" + stepWidth + "d→%-" + avrcpWidth + "d";
+        int valWidth = String.valueOf(valueMax).length();
+        String entryFmt = "%" + stepWidth + "d→%" + valWidth + "d";
         int perLine = 6;
         StringBuilder line = new StringBuilder();
         for (int step = 0; step <= maxSteps; step++) {
+            int value = software
+                    ? curveToSystemIndex(step, maxSteps, minAbs, maxAbs, curveType)
+                    : curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
             int pos = step % perLine;
             if (pos == 0) {
                 line.setLength(0);
             }
-            line.append(String.format(entryFmt, step,
-                    curveToAbsoluteVolume(step, maxSteps, range[0], range[1], curveType)));
+            line.append(String.format(entryFmt, step, value));
             if (pos == perLine - 1 || step == maxSteps) {
                 sb.append(line).append('\n');
             } else {

@@ -78,9 +78,8 @@ public final class Prefs {
     /** 媒体档位数的可选范围（10~29）。 */
     public static final int MEDIA_STEPS_MIN = 10;
     public static final int MEDIA_STEPS_MAX = 29;
-    /** @deprecated 保留旧名称，新代码请直接使用 MEDIA_STEPS_MIN。 */
-    @Deprecated
-    public static final int MEDIA_STEPS_DEFAULT = MEDIA_STEPS_MIN;
+    /** HyperOS 默认媒体档位数（首次安装默认与「恢复默认」按钮的目标值）。 */
+    public static final int MEDIA_STEPS_DEFAULT = 15;
     /** @deprecated 已删除“默认档位”选项，范围从 10 开始。 */
     @Deprecated
     public static final int MEDIA_STEPS_DEFAULT_VAL = 0;
