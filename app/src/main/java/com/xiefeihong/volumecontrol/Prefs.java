@@ -23,6 +23,8 @@ public final class Prefs {
     public static final String KEY_ENABLED = "enabled";
     public static final String KEY_MEDIA_STEPS = "media_steps";
     public static final String KEY_BT_MODE = "bt_volume_mode";
+    /** 首次运行时捕获的系统原生媒体档位数（模块未覆盖时的 getStreamMaxVolume）。 */
+    public static final String KEY_SYSTEM_DEFAULT_STEPS = "system_default_steps";
     /** 模式A 映射曲线类型 SharedPreferences 键。 */
     public static final String KEY_CURVE_TYPE_A = "curve_type_a";
     /** 模式B 映射曲线类型 SharedPreferences 键。 */
@@ -86,7 +88,7 @@ public final class Prefs {
     /** 媒体档位数的可选范围（10~29）。 */
     public static final int MEDIA_STEPS_MIN = 10;
     public static final int MEDIA_STEPS_MAX = 29;
-    /** HyperOS 默认媒体档位数（首次安装默认与「恢复默认」按钮的目标值）。 */
+    /** 兜底默认媒体档位数（仅在无法探测系统原生档位时使用）。 */
     public static final int MEDIA_STEPS_DEFAULT = 15;
     /** @deprecated 已删除“默认档位”选项，范围从 10 开始。 */
     @Deprecated

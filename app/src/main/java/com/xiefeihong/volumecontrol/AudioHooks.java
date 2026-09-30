@@ -543,7 +543,7 @@ final class AudioHooks {
                 }
                 int[] config = XposedKit.readConfig(
                         XposedKit.systemServerContext(chain.getThisObject()));
-                if (!isModeB(config)) {
+                if (!VolumeMode.suppressAbsoluteVolume(config)) {
                     return chain.proceed();
                 }
                 XposedKit.logOnce("modeb-support", "modeB: force avrcp support=false");
@@ -568,7 +568,7 @@ final class AudioHooks {
                 }
                 int[] config = XposedKit.readConfig(
                         XposedKit.systemServerContext(chain.getThisObject()));
-                if (!isModeB(config)) {
+                if (!VolumeMode.suppressAbsoluteVolume(config)) {
                     return chain.proceed();
                 }
                 int index = (Integer) arg0;
@@ -656,28 +656,15 @@ final class AudioHooks {
                 if (config == null || config[0] == 0) {
                     return chain.proceed();
                 }
-                // 按输出设备分派：非蓝牙(有线+外放)走耳机模式；蓝牙按模式A/B（A 走 AVRCP 不改）
-                int minAbs;
-                int maxAbs;
-                int curveType;
-                if (isWiredOrSpeakerOutput(device)) {
-                    // 耳机模式：需 12 字段配置（含 [9]~[11]），否则视为未配置不衰减
-                    if (config.length < 12) {
-                        return chain.proceed();
-                    }
-                    minAbs = config[9];
-                    maxAbs = config[10];
-                    curveType = config[11];
-                } else if (isModeB(config) && config.length >= 7) {
-                    // 蓝牙 + 模式B：软件衰减，用 B 范围/曲线
-                    minAbs = config[5];
-                    maxAbs = config[6];
-                    curveType = config.length >= 9 ? config[8]
-                            : (config.length >= 8 ? config[7] : Prefs.CURVE_LOG);
-                } else {
-                    // 蓝牙 + 模式A(AVRCP) 或未识别设备：不在 system_server 修改
+                // 按输出设备分派：软件衰减模式（模式B/耳机模式）在 system_server 改写档位；
+                // 蓝牙模式A（AVRCP）与未识别设备返回 null → 放行。
+                VolumeMode mode = VolumeMode.forSystemServer(config, device);
+                if (mode == null) {
                     return chain.proceed();
                 }
+                int minAbs = mode.minAbs(config);
+                int maxAbs = mode.maxAbs(config);
+                int curveType = mode.curveType(config);
                 // 全量程无需衰减时直接放行
                 if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0) {
                     return chain.proceed();
@@ -721,32 +708,5 @@ final class AudioHooks {
                 return chain.proceed();
             }
         }
-    }
-
-    /** 模式B 生效条件：模块启用且选择停用绝对音量。 */
-    static boolean isModeB(int[] config) {
-        return config != null && config[0] != 0 && config[2] == Prefs.BT_MODE_SOFTWARE;
-    }
-
-    /**
-     * 判断 setStreamVolumeIndex 的 device 是否为蓝牙输出。
-     * 采用「白名单非蓝牙才 remap」策略：仅识别 AudioSystem DEVICE_OUT 位掩码的蓝牙段（SCO+A2DP+BLE）。
-     * 校验提示：若运行时日志显示 device 为小整数（如 speaker=2/wired=3~4、A2DP=8），
-     * 则 device 实为 AudioDeviceInfo type，需改用蓝牙类型集 {7,8,26,27,30}。
-     */
-    static boolean isBluetoothOutput(int device) {
-        // DEVICE_OUT: SCO 0x40/0x80/0x100 + A2DP 0x200/0x400/0x800 = 0xFC0；BLE 输出高位段
-        final int btMask = 0xFC0 | 0x1C000;
-        return (device & btMask) != 0;
-    }
-
-    /** 是否为可识别的有线耳机/外放扬声器 device-out（耳机模式白名单）。 */
-    static boolean isWiredOrSpeakerOutput(int device) {
-        if (isBluetoothOutput(device)) {
-            return false;
-        }
-        // EARPIECE 0x1 | SPEAKER 0x2 | WIRED_HEADPHONE 0x4 | HEADPHONES 0x8 | WIRED_HEADSET 0x10
-        final int wiredMask = 0x1 | 0x2 | 0x4 | 0x8 | 0x10;
-        return (device & wiredMask) != 0;
     }
 }

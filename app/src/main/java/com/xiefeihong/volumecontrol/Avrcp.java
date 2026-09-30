@@ -250,7 +250,7 @@ public final class Avrcp {
         if (maxSteps <= 0) {
             return "";
         }
-        boolean software = (btMode == Prefs.BT_MODE_SOFTWARE);
+        boolean software = VolumeMode.ofBtMode(btMode).attenuatesInSystemServer();
         String title = software
                 ? "档位 → 软件衰减音量（0~127）：\n"
                 : "档位 → AVRCP 音量（0~127）：\n";

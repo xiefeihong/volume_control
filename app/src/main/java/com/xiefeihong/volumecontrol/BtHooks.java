@@ -65,11 +65,6 @@ final class BtHooks {
         XposedKit.log(BT_VOLUME_MANAGER_CLASS + " hooks installed");
     }
 
-    /** 模式A 生效条件：模块启用且选择保持绝对音量。 */
-    private static boolean isModeA(int[] config) {
-        return config != null && config[0] != 0 && config[2] == Prefs.BT_MODE_ABSOLUTE;
-    }
-
     /** 读取音量管理器记录的系统最大档位（sDeviceMaxVolume）；失败返回 -1。 */
     private static int readDeviceMaxVolume(Class<?> volumeManager) {
         try {
@@ -95,8 +90,9 @@ final class BtHooks {
             Object result = chain.proceed();
             try {
                 int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                if (!isModeA(config)) {
-                    return result;
+                VolumeMode m = VolumeMode.forBluetoothAvrcp(config);
+                if (m == null) {
+                    return result; // 非模式A（含未启用/模式B）走系统原始换算
                 }
                 int maxSteps = readDeviceMaxVolume(volumeManager);
                 if (maxSteps <= 0) {
@@ -107,9 +103,9 @@ final class BtHooks {
                     return result;
                 }
                 int step = (Integer) arg0;
-                int minA = config[3];
-                int maxA = config[4];
-                int curveType = config.length >= 8 ? config[7] : Prefs.CURVE_LOG;
+                int minA = m.minAbs(config);
+                int maxA = m.maxAbs(config);
+                int curveType = m.curveType(config);
                 // 无范围限制时保持系统原始线性换算
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
                     return result;
@@ -149,8 +145,9 @@ final class BtHooks {
             Object result = chain.proceed();
             try {
                 int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                if (!isModeA(config)) {
-                    return result;
+                VolumeMode m = VolumeMode.forBluetoothAvrcp(config);
+                if (m == null) {
+                    return result; // 非模式A（含未启用/模式B）无需反算
                 }
                 int maxSteps = readDeviceMaxVolume(volumeManager);
                 if (maxSteps <= 0) {
@@ -160,9 +157,9 @@ final class BtHooks {
                 if (!(arg0 instanceof Integer)) {
                     return result;
                 }
-                int minA = config[3];
-                int maxA = config[4];
-                int curveType = config.length >= 8 ? config[7] : Prefs.CURVE_LOG;
+                int minA = m.minAbs(config);
+                int maxA = m.maxAbs(config);
+                int curveType = m.curveType(config);
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
                     return result; // 无范围限制时无需反算
                 }
@@ -193,7 +190,7 @@ final class BtHooks {
                             if (args.size() >= 2 && Boolean.TRUE.equals(args.get(1))) {
                                 int[] config = XposedKit.readConfig(
                                         XposedKit.bluetoothContext());
-                                if (AudioHooks.isModeB(config)) {
+                                if (VolumeMode.suppressAbsoluteVolume(config)) {
                                     if (!sModeBLogged) {
                                         sModeBLogged = true;
                                         XposedKit.log("modeB: force absoluteVolume=false");
@@ -230,7 +227,7 @@ final class BtHooks {
                     public Object intercept(XposedInterface.Chain chain) throws Throwable {
                         try {
                             int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                            if (AudioHooks.isModeB(config)) {
+                            if (VolumeMode.suppressAbsoluteVolume(config)) {
                                 return null; // 模式B：阻止发送 AVRCP
                             }
                         } catch (Throwable t) {

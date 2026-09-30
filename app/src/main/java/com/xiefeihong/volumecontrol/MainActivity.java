@@ -112,9 +112,10 @@ public class MainActivity extends AppCompatActivity {
             if (oldMode != Prefs.BT_MODE_SOFTWARE) oldMode = Prefs.BT_MODE_ABSOLUTE;
             if (newMode != oldMode) {
                 // 先保存旧模式的值（范围 + 曲线）
-                String oldMinKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
-                String oldMaxKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
-                String oldCurveKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
+                VolumeMode oldVm = VolumeMode.ofBtMode(oldMode);
+                String oldMinKey = oldVm.minKey();
+                String oldMaxKey = oldVm.maxKey();
+                String oldCurveKey = oldVm.curveKey();
                 prefs.edit()
                         .putInt(oldMinKey, currentMinAbs())
                         .putInt(oldMaxKey, currentMaxAbs())
@@ -122,9 +123,10 @@ public class MainActivity extends AppCompatActivity {
                         .apply();
                 // 加载新模式保存的值（范围 + 曲线）。抑制监听：否则 setProgress/check 会触发
                 // persistToPrefs，把此刻仍显示“旧模式曲线”的 radio 值写进新模式键，导致 A/B 曲线互相污染。
-                String newMinKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
-                String newMaxKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
-                String newCurveKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
+                VolumeMode newVm = VolumeMode.ofBtMode(newMode);
+                String newMinKey = newVm.minKey();
+                String newMaxKey = newVm.maxKey();
+                String newCurveKey = newVm.curveKey();
                 suppressListeners = true;
                 binding.seekMinAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMinKey, Prefs.ABS_VOLUME_MIN_DEFAULT)));
                 binding.seekMaxAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMaxKey, Prefs.ABS_VOLUME_MAX_DEFAULT)));
@@ -161,10 +163,10 @@ public class MainActivity extends AppCompatActivity {
 
         binding.btnReset.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle(R.string.dlg_reset_title)
-                .setMessage(R.string.dlg_reset_msg)
+                .setMessage(getString(R.string.dlg_reset_msg, systemDefaultStepsRaw()))
                 .setPositiveButton(R.string.dlg_ok, (dialog, which) -> {
                     binding.switchEnable.setChecked(false);
-                    setMediaSteps(Prefs.MEDIA_STEPS_DEFAULT);
+                    setMediaSteps(systemDefaultSteps());
                     binding.radioBtMode.check(R.id.radioModeAbsolute);
                     binding.radioCurveType.check(R.id.radioCurveLog);
                     binding.seekMinAbs.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
@@ -184,13 +186,14 @@ public class MainActivity extends AppCompatActivity {
         suppressListeners = true;
         boolean enabled = prefs.getBoolean(Prefs.KEY_ENABLED, false);
         int mediaSteps = Prefs.clampMediaSteps(
-                prefs.getInt(Prefs.KEY_MEDIA_STEPS, Prefs.MEDIA_STEPS_DEFAULT));
+                prefs.getInt(Prefs.KEY_MEDIA_STEPS, systemDefaultSteps()));
         int btMode = prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE);
         if (btMode != Prefs.BT_MODE_SOFTWARE) btMode = Prefs.BT_MODE_ABSOLUTE;
 
         // 根据当前模式加载对应的音量范围
-        String minKey = btMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
-        String maxKey = btMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
+        VolumeMode loadVm = VolumeMode.ofBtMode(btMode);
+        String minKey = loadVm.minKey();
+        String maxKey = loadVm.maxKey();
         int minAbs = Prefs.clampAbs(prefs.getInt(minKey, Prefs.ABS_VOLUME_MIN_DEFAULT));
         int maxAbs = Prefs.clampAbs(prefs.getInt(maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT));
 
@@ -200,8 +203,7 @@ public class MainActivity extends AppCompatActivity {
                 ? R.id.radioModeSoftware : R.id.radioModeAbsolute);
         binding.seekMinAbs.setProgress(minAbs);
         binding.seekMaxAbs.setProgress(maxAbs);
-        String curveKey = btMode == Prefs.BT_MODE_SOFTWARE
-                ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
+        String curveKey = loadVm.curveKey();
         int curveType = Prefs.clampCurve(prefs.getInt(curveKey, Prefs.CURVE_TYPE_DEFAULT));
         binding.radioCurveType.check(curveRadioId(curveType));
 
@@ -290,6 +292,16 @@ public class MainActivity extends AppCompatActivity {
         binding.groupWiredRange.setVisibility(wired ? View.VISIBLE : View.GONE);
     }
 
+    /** 系统原生媒体档位数（首次捕获值）；未捕获时回退 MEDIA_STEPS_DEFAULT。 */
+    private int systemDefaultStepsRaw() {
+        return prefs.getInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, Prefs.MEDIA_STEPS_DEFAULT);
+    }
+
+    /** 用作滑块默认/恢复目标的值（限制在合法区间）。 */
+    private int systemDefaultSteps() {
+        return Prefs.clampMediaSteps(systemDefaultStepsRaw());
+    }
+
     private void setMediaSteps(int steps) {
         binding.seekMediaSteps.setProgress(
                 Prefs.clampMediaSteps(steps) - Prefs.MEDIA_STEPS_MIN);
@@ -342,16 +354,16 @@ public class MainActivity extends AppCompatActivity {
 
     private void persistToPrefs(boolean synchronous) {
         int mode = currentBtMode();
-        String minKey = mode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
-        String maxKey = mode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
+        VolumeMode vm = VolumeMode.ofBtMode(mode);
+        String minKey = vm.minKey();
+        String maxKey = vm.maxKey();
         SharedPreferences.Editor editor = prefs.edit()
                 .putBoolean(Prefs.KEY_ENABLED, binding.switchEnable.isChecked())
                 .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
                 .putInt(Prefs.KEY_BT_MODE, mode)
                 .putInt(minKey, currentMinAbs())
                 .putInt(maxKey, currentMaxAbs())
-                .putInt(mode == Prefs.BT_MODE_SOFTWARE
-                        ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A, currentCurveType())
+                .putInt(vm.curveKey(), currentCurveType())
                 .putInt(Prefs.KEY_MIN_ABS_W, currentMinW())
                 .putInt(Prefs.KEY_MAX_ABS_W, currentMaxW())
                 .putInt(Prefs.KEY_CURVE_TYPE_W, currentCurveW());
@@ -531,6 +543,12 @@ public class MainActivity extends AppCompatActivity {
 
             String globalRaw = root ? Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output.trim() : "";
             int actualMedia = readStreamMaxSafe(Prefs.STREAM_MUSIC_INDEX);
+            // 首次捕获系统原生媒体档位数：仅在模块未启用（读到的即原生值）且从未记录过时写入一次
+            boolean enabledNow = prefs.getBoolean(Prefs.KEY_ENABLED, false);
+            if (!enabledNow && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)
+                    && actualMedia >= 1 && actualMedia <= 100) {
+                prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, actualMedia).commit();
+            }
             String btSummary = buildBluetoothSummary();
 
             final boolean adoptedConfig = adopted;
@@ -575,7 +593,7 @@ public class MainActivity extends AppCompatActivity {
                 binding.tvStatusModule.setText(
                         getString(R.string.status_module_pending_fmt, targetMedia));
             }
-        } else if (actualMedia == Prefs.MEDIA_STEPS_DEFAULT
+        } else if (actualMedia == systemDefaultStepsRaw()
                 || actualMedia < Prefs.MEDIA_STEPS_MIN
                 || actualMedia > Prefs.MEDIA_STEPS_MAX) {
             binding.tvStatusModule.setText(R.string.status_module_off);
