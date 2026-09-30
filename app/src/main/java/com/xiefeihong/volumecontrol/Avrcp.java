@@ -9,15 +9,22 @@ package com.xiefeihong.volumecontrol;
  *
  * <p>因此模式A 改用以 [minAbs, maxAbs] 为端点的对数（等比倍增）曲线：</p>
  *
- * <pre>absVolume = lo * (maxAbs / lo)^((档位 - 1) / (最大档位 - 1))，lo = max(1, minAbs)</pre>
+ * <pre>absVolume = lo * (maxAbs / lo)^((档位 - 1) / (最大档位 - 1))，lo = minAbs（minAbs=0 时取 0.15*maxAbs）</pre>
  *
- * <p>保证：档位 1 精确命中 minAbs（minAbs=0 时忽略最小值、lo 取 1），最大档位精确命中
- * maxAbs；每按一次音量键输出按恒定比例增长（符合百分比直觉）。档位 0 恒为静音。
+ * <p>保证：档位 1 精确命中 minAbs；minAbs=0 时按 maxAbs 的固定比例取自适应可闻下限
+ * （见 {@link #MIN_VOLUME_FLOOR_RATIO}），避免第 1 档接近无声；最大档位精确命中 maxAbs；
+ * 每按一次音量键输出按恒定比例增长（符合百分比直觉）。档位 0 恒为静音。
  * 预览与实际发送（{@code BtHooks.SystemToAvrcpHooker}）调用同一函数，天然一致。
  * 模式B 复用同一曲线（{@code curveToAbsoluteVolume}）再换算回系统档位
  * （{@code avrcp / 127 * maxSteps}）。</p>
  */
 public final class Avrcp {
+
+    /**
+     * 最小音量下限比例：当用户将「最小音量」设为 0 时，第 1 档自动取 {@code maxAbs} 的此比例
+     * 作为可闻下限（自适应耳机量程），而非退化为接近无声的 1。可据实机听感微调此常量。
+     */
+    public static final double MIN_VOLUME_FLOOR_RATIO = 0.15;
 
     private Avrcp() {
     }
@@ -30,18 +37,23 @@ public final class Avrcp {
     }
 
     /**
-     * 对数曲线使用的区间：{@code {lo, hi}}，其中 {@code lo = max(1, 归一下限)}。
-     * 对数曲线无法从 0 起，故 minAbs=0 时忽略该最小值，lo 回退为几何下限 1（仅锚定 maxAbs）。
+     * 对数曲线使用的区间：{@code {lo, hi}}，{@code hi = 归一上限}。
+     * 下限 {@code lo}：minAbs≥1 时精确=minAbs；minAbs=0 时按 {@link #MIN_VOLUME_FLOOR_RATIO}
+     * 取 hi 的比例作为自适应可闻下限（避免第 1 档接近无声），并保证 lo≤hi、lo≥1。
      */
     private static int[] logRange(int minAbs, int maxAbs) {
         int[] range = normalizedRange(minAbs, maxAbs);
-        return new int[]{Math.max(1, range[0]), range[1]};
+        int hi = range[1];
+        int lo = range[0] > 0
+                ? range[0]
+                : Math.max(1, (int) Math.round(MIN_VOLUME_FLOOR_RATIO * hi));
+        return new int[]{Math.min(lo, hi), hi};
     }
 
     /**
      * 模式A 映射：手机档位 → AVRCP 绝对音量（对数等比曲线）。
      *
-     * <p>档位 0 保持静音；step=1 精确命中 minAbs（minAbs=0 时取 1），
+     * <p>档位 0 保持静音；step=1 精确命中 minAbs（minAbs=0 时取 maxAbs 比例的自适应下限），
      * step=maxSteps 精确命中 maxAbs。</p>
      */
     public static int curveToAbsoluteVolume(int step, int maxSteps, int minAbs, int maxAbs) {
