@@ -7,8 +7,9 @@
     <string name="sec_status">运行状态</string>
     <string name="sec_media">媒体音量档位</string>
     <string name="sec_bt">音量控制模式（蓝牙）</string>
-    <string name="sec_bt_range">音量范围（蓝牙 A/B）</string>
-    <string name="sec_wired">耳机模式（有线/外放）</string>
+    <string name="sec_bt_range">音量范围</string>
+    <string name="target_bt">蓝牙</string>
+    <string name="target_wired">有线耳机</string>
     <string name="sec_actions">操作</string>
     <string name="sec_guide">使用说明</string>
 
@@ -25,8 +26,8 @@
 
     <string name="mode_absolute">模式A：保持绝对音量（默认）</string>
     <string name="mode_software">模式B：停用绝对音量（手机端衰减）</string>
-    <string name="mode_hint" formatted="false">模式A：保持蓝牙耳机绝对音量控制，手机系统音量线性不变。模式B：停用蓝牙绝对音量，由手机端软件衰减音频，耳机固定自身硬件音量。两种模式仅作用于蓝牙耳机；插入有线耳机或使用外放扬声器时自动切换到下方「耳机模式」。</string>
-    <string name="range_hint" formatted="false">两种模式分别保存独立的音量范围，今后仅对蓝牙生效。模式A：蓝牙 AVRCP 映射（「最小」抬高第 1 档，「最大」限制最高音量）。模式B：停用蓝牙绝对音量，由手机端软件曲线衰减（仅蓝牙）。有线/外放范围请在下方「耳机模式」单独设置。</string>
+    <string name="mode_hint" formatted="false">模式A：保持蓝牙耳机绝对音量控制，手机系统音量线性不变。模式B：停用蓝牙绝对音量，由手机端软件衰减音频，耳机固定自身硬件音量。两种模式仅作用于蓝牙耳机；插入有线耳机或使用外放扬声器时自动走「有线耳机」范围（在下方音量范围卡片切到该选项卡可调整）。</string>
+    <string name="range_hint" formatted="false">蓝牙与有线耳机在本卡片顶部的选项卡间切换，各自保存独立的范围/曲线。蓝牙下模式A/B 又分别保存：模式A 为 AVRCP 映射，模式B 为手机端软件曲线衰减（均仅蓝牙）。插入有线耳机或使用外放时自动走「有线耳机」范围。</string>
     <string name="wired_hint" formatted="false">插入有线耳机或使用外放扬声器时自动按此范围映射（与蓝牙模式A/B 无关）。默认 0~127 为不衰减。</string>
     
         <string name="sec_curve">映射曲线</string>

@@ -9,6 +9,7 @@ import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.View;
 import android.widget.SeekBar;
 import android.widget.Toast;
 
@@ -57,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
         prefs = Prefs.get(this);
         setupListeners();
         loadConfigIntoUi();
+        updateRangeTargetVisibility();
         updatePreview();
         // 状态刷新交给 onResume（onCreate 后紧随一次，避免重复执行）
     }
@@ -136,6 +138,12 @@ public class MainActivity extends AppCompatActivity {
         binding.radioCurveType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
         binding.radioCurveWType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
+
+        // 蓝牙 / 有线耳机 选项卡：仅切换音量范围卡片内两组控件的可见性，不改变任何配置值。
+        binding.radioRangeTarget.setOnCheckedChangeListener((group, checkedId) -> {
+            updateRangeTargetVisibility();
+            updatePreview();
+        });
 
         binding.btnRefresh.setOnClickListener(v -> refreshStatus());
 
@@ -268,6 +276,18 @@ public class MainActivity extends AppCompatActivity {
     /** 耳机模式当前音量范围上限（自动保证 上限 >= 下限）。 */
     private int currentMaxW() {
         return Math.max(binding.seekMinW.getProgress(), binding.seekMaxW.getProgress());
+    }
+
+    /** 当前选中的是「有线耳机」选项卡（否则为「蓝牙」）。 */
+    private boolean isWiredTarget() {
+        return binding.radioRangeTarget.getCheckedRadioButtonId() == R.id.radioTargetWired;
+    }
+
+    /** 根据选项卡切换蓝牙 / 有线两组音量范围控件的可见性。 */
+    private void updateRangeTargetVisibility() {
+        boolean wired = isWiredTarget();
+        binding.groupBtRange.setVisibility(wired ? View.GONE : View.VISIBLE);
+        binding.groupWiredRange.setVisibility(wired ? View.VISIBLE : View.GONE);
     }
 
     private void setMediaSteps(int steps) {
