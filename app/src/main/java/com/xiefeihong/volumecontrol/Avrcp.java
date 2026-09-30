@@ -262,28 +262,30 @@ public final class Avrcp {
 
     /**
      * 生成「档位 → 音量」逐档映射表（等宽文本，显示在音量范围卡片内，便于调整时就地查看结果）。
-     * 模式A 显示 AVRCP 绝对音量（0~127）；模式B 显示软件衰减音量（0~127，取本模式范围/曲线，值域落在 min~max 之间）。
+     * 模式A（AVRCP）显示 0~127 绝对音量；模式B（软件衰减）显示换算后的系统实际档位（0~maxSteps），
+     * 与「按系统档位判重」摘要口径一致（相邻两档数字相同即为听感无差别）。
      */
     public static String buildMappingTable(int maxSteps, int btMode, int minAbs, int maxAbs,
             int curveType) {
         if (maxSteps <= 0) {
             return "";
         }
-        boolean software = VolumeMode.ofBtMode(btMode).attenuatesInSystemServer();
-        String title = software
-                ? "档位 → 软件衰减音量（0~127）：\n"
-                : "档位 → AVRCP 音量（0~127）：\n";
-        return renderMappingTable(title, maxSteps, minAbs, maxAbs, curveType);
+        if (VolumeMode.ofBtMode(btMode).attenuatesInSystemServer()) {
+            return renderMappingTable("档位 → 系统音量档位（0~" + maxSteps + "）：\n",
+                    maxSteps, minAbs, maxAbs, curveType, true);
+        }
+        return renderMappingTable("档位 → AVRCP 音量（0~127）：\n",
+                maxSteps, minAbs, maxAbs, curveType, false);
     }
 
-    /** 耳机模式（有线+外放）逐档映射表：显示 0~127、落在 minW~maxW 之间。 */
+    /** 耳机模式（有线+外放）逐档映射表：显示换算后的系统实际档位（0~maxSteps）。 */
     public static String buildWiredMappingTable(int maxSteps, int minAbs, int maxAbs,
             int curveType) {
         if (maxSteps <= 0) {
             return "";
         }
-        return renderMappingTable("耳机模式 · 档位 → 音量（0~127）：\n",
-                maxSteps, minAbs, maxAbs, curveType);
+        return renderMappingTable("耳机模式 · 档位 → 系统音量档位（0~" + maxSteps + "）：\n",
+                maxSteps, minAbs, maxAbs, curveType, true);
     }
 
     /** 耳机模式（有线+外放）摘要：按系统实际档位判重 + 第 1 档落点。 */
@@ -308,18 +310,21 @@ public final class Avrcp {
         return sb.toString();
     }
 
-    /** 按所选曲线渲染「档位 → 音量(0~127)」等宽行，6 列/行。 */
+    /** 按所选曲线渲染「档位 → 音量」等宽行，6 列/行；useSystemIndex 时取系统档位（0~maxSteps），否则取 0~127。 */
     private static String renderMappingTable(String title, int maxSteps, int minAbs, int maxAbs,
-            int curveType) {
+            int curveType, boolean useSystemIndex) {
         StringBuilder sb = new StringBuilder();
         sb.append(title);
         int stepWidth = String.valueOf(maxSteps).length();
-        int valWidth = String.valueOf(Prefs.AVRCP_MAX_VOLUME).length();
+        int valueMax = useSystemIndex ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
+        int valWidth = String.valueOf(valueMax).length();
         String entryFmt = "%" + stepWidth + "d→%" + valWidth + "d";
         int perLine = 6;
         StringBuilder line = new StringBuilder();
         for (int step = 0; step <= maxSteps; step++) {
-            int value = curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
+            int value = useSystemIndex
+                    ? curveToSystemIndex(step, maxSteps, minAbs, maxAbs, curveType)
+                    : curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
             int pos = step % perLine;
             if (pos == 0) {
                 line.setLength(0);
