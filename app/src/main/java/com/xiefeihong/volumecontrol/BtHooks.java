@@ -81,7 +81,7 @@ final class BtHooks {
 
     /**
      * 模式A：系统档位 → AVRCP 绝对音量。
-     * 使用 {@link Avrcp#curveToAbsoluteVolume} sqrt 增强曲线，与预览完全一致。
+     * 使用 {@link Avrcp#curveToAbsoluteVolume} 可选曲线映射，与预览完全一致。
      */
     private static final class SystemToAvrcpHooker implements XposedInterface.Hooker {
         private final Class<?> volumeManager;
@@ -109,18 +109,20 @@ final class BtHooks {
                 int step = (Integer) arg0;
                 int minA = config[3];
                 int maxA = config[4];
+                int curveType = config.length >= 8 ? config[7] : Prefs.CURVE_LOG;
                 // 无范围限制时保持系统原始线性换算
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
                     return result;
                 }
-                // sqrt 增强曲线（与 Avrcp.curveToAbsoluteVolume 一致）
-                int curved = Avrcp.curveToAbsoluteVolume(step, maxSteps, minA, maxA);
+                // 按所选曲线映射（与 Avrcp.curveToAbsoluteVolume 一致）
+                int curved = Avrcp.curveToAbsoluteVolume(step, maxSteps, minA, maxA, curveType);
                 if (curved != (Integer) result) {
                     if (curved != sLastLoggedCurveValue) {
                         sLastLoggedCurveValue = curved;
                         XposedKit.log("modeA: step " + step + "/" + maxSteps
                                 + " avrcp " + result + " -> " + curved
-                                + " (range=" + minA + "~" + maxA + " sqrt)");
+                                + " (range=" + minA + "~" + maxA
+                                + " curve=" + Avrcp.curveLabel(curveType) + ")");
                     }
                     return curved;
                 }
@@ -133,7 +135,7 @@ final class BtHooks {
 
     /**
      * 模式A：耳机 AVRCP 音量 → 系统档位。
-     * 使用 {@link Avrcp#curveToSystemStep} 反函数，与正向 sqrt 曲线保持一致。
+     * 使用 {@link Avrcp#curveToSystemStep} 反函数，与正向所选曲线保持一致。
      */
     private static final class AvrcpToSystemHooker implements XposedInterface.Hooker {
         private final Class<?> volumeManager;
@@ -160,12 +162,13 @@ final class BtHooks {
                 }
                 int minA = config[3];
                 int maxA = config[4];
+                int curveType = config.length >= 8 ? config[7] : Prefs.CURVE_LOG;
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
                     return result; // 无范围限制时无需反算
                 }
                 int avrcp = (Integer) arg0;
-                // sqrt 反函数
-                int step = Avrcp.curveToSystemStep(avrcp, maxSteps, minA, maxA);
+                // 曲线反函数（按所选类型）
+                int step = Avrcp.curveToSystemStep(avrcp, maxSteps, minA, maxA, curveType);
                 return Math.max(0, Math.min(maxSteps, step));
             } catch (Throwable t) {
                 XposedKit.logError("modeA avrcpToSystem hook failed: " + t);

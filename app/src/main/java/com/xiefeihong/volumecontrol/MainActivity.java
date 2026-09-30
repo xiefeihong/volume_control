@@ -113,6 +113,8 @@ public class MainActivity extends AppCompatActivity {
             onConfigChanged();
         });
 
+        binding.radioCurveType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
+
         binding.btnRefresh.setOnClickListener(v -> refreshStatus());
 
         binding.btnLogs.setOnClickListener(v -> showModuleLogs());
@@ -138,6 +140,7 @@ public class MainActivity extends AppCompatActivity {
                     binding.switchEnable.setChecked(false);
                     setMediaSteps(Prefs.MEDIA_STEPS_MIN);
                     binding.radioBtMode.check(R.id.radioModeAbsolute);
+                    binding.radioCurveType.check(R.id.radioCurveLog);
                     binding.seekMinAbs.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
                     binding.seekMaxAbs.setProgress(Prefs.ABS_VOLUME_MAX_DEFAULT);
                     mainHandler.removeCallbacks(autoSaveRunnable);
@@ -167,6 +170,9 @@ public class MainActivity extends AppCompatActivity {
                 ? R.id.radioModeSoftware : R.id.radioModeAbsolute);
         binding.seekMinAbs.setProgress(minAbs);
         binding.seekMaxAbs.setProgress(maxAbs);
+        int curveType = Prefs.clampCurve(
+                prefs.getInt(Prefs.KEY_CURVE_TYPE, Prefs.CURVE_TYPE_DEFAULT));
+        binding.radioCurveType.check(curveRadioId(curveType));
     }
 
     // ==================== 配置计算与预览 ====================
@@ -180,6 +186,21 @@ public class MainActivity extends AppCompatActivity {
     private int currentBtMode() {
         return binding.radioBtMode.getCheckedRadioButtonId() == R.id.radioModeSoftware
                 ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
+    }
+
+    /** 当前选择的映射曲线类型（全局，A/B 共用）。 */
+    private int currentCurveType() {
+        int id = binding.radioCurveType.getCheckedRadioButtonId();
+        if (id == R.id.radioCurveLinear) return Prefs.CURVE_LINEAR;
+        if (id == R.id.radioCurveSqrt) return Prefs.CURVE_SQRT;
+        return Prefs.CURVE_LOG;
+    }
+
+    /** 曲线类型 → RadioButton id。 */
+    private int curveRadioId(int curveType) {
+        if (curveType == Prefs.CURVE_LINEAR) return R.id.radioCurveLinear;
+        if (curveType == Prefs.CURVE_SQRT) return R.id.radioCurveSqrt;
+        return R.id.radioCurveLog;
     }
 
     /** 当前音量范围下限（自动保证 下限 <= 上限）。 */
@@ -222,7 +243,8 @@ public class MainActivity extends AppCompatActivity {
                 Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
         binding.tvRangeHint.setText(getString(R.string.range_hint));
 
-        String preview = Avrcp.buildPreview(mediaSteps, currentBtMode(), minAbs, maxAbs);
+        String preview = Avrcp.buildPreview(mediaSteps, currentBtMode(), minAbs, maxAbs,
+                currentCurveType());
         int split = preview.indexOf("\n\n");
         if (split > 0) {
             binding.tvAvrcpSummary.setText(preview.substring(0, split));
@@ -244,7 +266,8 @@ public class MainActivity extends AppCompatActivity {
                 .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
                 .putInt(Prefs.KEY_BT_MODE, mode)
                 .putInt(minKey, currentMinAbs())
-                .putInt(maxKey, currentMaxAbs());
+                .putInt(maxKey, currentMaxAbs())
+                .putInt(Prefs.KEY_CURVE_TYPE, currentCurveType());
         if (synchronous) {
             editor.commit();
         } else {
@@ -266,7 +289,7 @@ public class MainActivity extends AppCompatActivity {
             minA = currentMinAbs(); maxA = currentMaxAbs();
         }
         return Prefs.encodeConfig(binding.switchEnable.isChecked(), currentMediaSteps(),
-                mode, minA, maxA, minB, maxB);
+                mode, minA, maxA, minB, maxB, currentCurveType());
     }
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
@@ -390,6 +413,8 @@ public class MainActivity extends AppCompatActivity {
                             .putInt(Prefs.KEY_MAX_ABS_A, globalConfig[4])
                             .putInt(Prefs.KEY_MIN_ABS_B, globalConfig[5])
                             .putInt(Prefs.KEY_MAX_ABS_B, globalConfig[6])
+                            .putInt(Prefs.KEY_CURVE_TYPE, globalConfig.length >= 8
+                                    ? globalConfig[7] : Prefs.CURVE_TYPE_DEFAULT)
                             .commit();
                     adopted = true;
                 }

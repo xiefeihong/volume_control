@@ -23,6 +23,8 @@ public final class Prefs {
     public static final String KEY_ENABLED = "enabled";
     public static final String KEY_MEDIA_STEPS = "media_steps";
     public static final String KEY_BT_MODE = "bt_volume_mode";
+    /** 映射曲线类型 SharedPreferences 键（全局，A/B 共用）。 */
+    public static final String KEY_CURVE_TYPE = "curve_type";
 
     /** 模式A 音量范围 SharedPreferences 键。 */
     public static final String KEY_MIN_ABS_A = "min_abs_volume_a";
@@ -50,6 +52,16 @@ public final class Prefs {
      * Hook 蓝牙栈使系统以手机端软件衰减控制音量，耳机固定于自身硬件音量。
      */
     public static final int BT_MODE_SOFTWARE = 1;
+
+    /**
+     * 映射曲线类型（全局，Mode A/B 共用）：step→音量范围的中间分布。
+     * 三者均保证 step=1 精确命中最小、maxSteps 精确命中最大。
+     */
+    public static final int CURVE_LOG = 0;
+    public static final int CURVE_LINEAR = 1;
+    public static final int CURVE_SQRT = 2;
+    /** 曲线类型默认值（向后兼容旧配置，沿用对数曲线行为）。 */
+    public static final int CURVE_TYPE_DEFAULT = CURVE_LOG;
 
     /**
      * 蓝牙 AVRCP 绝对音量上限。
@@ -89,28 +101,32 @@ public final class Prefs {
     }
 
     /**
-     * 序列化为可写入 Settings.Global 的字符串（7 字段）：
-     * {启用};{媒体档位};{模式};{A最小};{A最大};{B最小};{B最大}。
+     * 序列化为可写入 Settings.Global 的字符串（8 字段）：
+     * {启用};{媒体档位};{模式};{A最小};{A最大};{B最小};{B最大};{曲线类型}。
      */
     public static String encodeConfig(boolean enabled, int mediaSteps, int mode,
             int minAbsA, int maxAbsA,
-            int minAbsB, int maxAbsB) {
+            int minAbsB, int maxAbsB, int curveType) {
         return (enabled ? 1 : 0) + ";" + clampMediaSteps(mediaSteps)
                 + ";" + mode
                 + ";" + clampAbs(minAbsA) + ";" + clampAbs(maxAbsA)
-                + ";" + clampAbs(minAbsB) + ";" + clampAbs(maxAbsB);
+                + ";" + clampAbs(minAbsB) + ";" + clampAbs(maxAbsB)
+                + ";" + clampCurve(curveType);
     }
 
     /** 绝对音量值限制在 0~127。 */
     public static int clampAbs(int v) { return Math.max(0, Math.min(AVRCP_MAX_VOLUME, v)); }
 
+    /** 曲线类型限制在 0~2。 */
+    public static int clampCurve(int v) { return Math.max(0, Math.min(CURVE_SQRT, v)); }
+
     /**
      * 解析配置字符串。
      *
-     * <p>兼容历史格式：3/5/6/9 字段旧格式与 7 字段新格式。
-     * 旧格式的衰减乘数字段被忽略，旧范围值迁移到对应模式。</p>
+     * <p>兼容历史格式：3/5/6/7/9 字段旧格式与 8 字段新格式。
+     * 旧格式的衰减乘数字段被忽略；旧格式无曲线字段时默认 {@link #CURVE_LOG}。</p>
      *
-     * @return int[]{enabled, mediaSteps, mode, minAbsA, maxAbsA, minAbsB, maxAbsB}；
+     * @return int[]{enabled, mediaSteps, mode, minAbsA, maxAbsA, minAbsB, maxAbsB, curveType}；
      *         非法内容返回 null。
      */
     public static int[] decodeConfig(String raw) {
@@ -118,8 +134,8 @@ public final class Prefs {
             return null;
         }
         String[] parts = raw.trim().split(";");
-        if (parts.length != 7 && parts.length != 9 && parts.length != 6
-                && parts.length != 5 && parts.length != 3) {
+        if (parts.length != 8 && parts.length != 7 && parts.length != 9
+                && parts.length != 6 && parts.length != 5 && parts.length != 3) {
             return null;
         }
         try {
@@ -128,9 +144,10 @@ public final class Prefs {
             int mode = BT_MODE_ABSOLUTE;
             int minA = ABS_VOLUME_MIN_DEFAULT, maxA = ABS_VOLUME_MAX_DEFAULT;
             int minB = ABS_VOLUME_MIN_DEFAULT, maxB = ABS_VOLUME_MAX_DEFAULT;
+            int curveType = CURVE_TYPE_DEFAULT;
 
             if (parts.length >= 7) {
-                // 7 字段新格式，或 9 字段旧格式（忽略乘数字段 parts[5]/[8]）
+                // 7/8/9 字段：[3][4]=A 范围、[5][6]=B 范围（旧 9 字段 B 在 [6][7]，忽略乘数）
                 mediaSteps = Integer.parseInt(parts[1].trim());
                 mode = Integer.parseInt(parts[2].trim());
                 minA = Integer.parseInt(parts[3].trim());
@@ -141,6 +158,9 @@ public final class Prefs {
                 } else {
                     minB = Integer.parseInt(parts[5].trim());
                     maxB = Integer.parseInt(parts[6].trim());
+                }
+                if (parts.length == 8) {
+                    curveType = Integer.parseInt(parts[7].trim());
                 }
             } else if (parts.length == 6) {
                 // 旧 6 字段：范围值迁移到模式B
@@ -164,10 +184,11 @@ public final class Prefs {
             mediaSteps = clampMediaSteps(mediaSteps);
             minA = clampAbs(minA); maxA = clampAbs(maxA);
             minB = clampAbs(minB); maxB = clampAbs(maxB);
+            curveType = clampCurve(curveType);
             if (minA > maxA) { int t = minA; minA = maxA; maxA = t; }
             if (minB > maxB) { int t = minB; minB = maxB; maxB = t; }
             return new int[]{enabled, mediaSteps, mode,
-                    minA, maxA, minB, maxB};
+                    minA, maxA, minB, maxB, curveType};
         } catch (NumberFormatException e) {
             return null;
         }

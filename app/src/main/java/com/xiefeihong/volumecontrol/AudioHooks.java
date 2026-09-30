@@ -662,6 +662,7 @@ final class AudioHooks {
                 }
                 int minAbs = config[5];
                 int maxAbs = config[6];
+                int curveType = config.length >= 8 ? config[7] : Prefs.CURVE_LOG;
                 // 无需衰减时直接放行
                 if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0) {
                     return chain.proceed();
@@ -670,8 +671,8 @@ final class AudioHooks {
                 if (maxSteps <= 0) {
                     return chain.proceed();
                 }
-                // curve 映射（低音量增强曲线）
-                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs);
+                // curve 映射（按所选曲线，与模式A 同算法）
+                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs, curveType);
                 if (mapped >= index) {
                     return chain.proceed();
                 }
