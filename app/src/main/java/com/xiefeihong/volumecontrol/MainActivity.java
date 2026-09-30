@@ -56,6 +56,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         prefs = Prefs.get(this);
+        // 设备切换分段按钮无 XML checked 属性，显式初始化默认「蓝牙」（先于监听注册，避免多余回调）。
+        binding.toggleRangeTarget.check(R.id.toggleTargetBt);
         setupListeners();
         loadConfigIntoUi();
         updateRangeTargetVisibility();
@@ -141,8 +143,11 @@ public class MainActivity extends AppCompatActivity {
 
         binding.radioCurveWType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
-        // 蓝牙 / 有线耳机 选项卡：仅切换音量范围卡片内两组控件的可见性，不改变任何配置值。
-        binding.radioRangeTarget.setOnCheckedChangeListener((group, checkedId) -> {
+        // 蓝牙 / 有线耳机 分段按钮：仅切换音量范围卡片内两组控件的可见性，不改变任何配置值。
+        binding.toggleRangeTarget.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (!isChecked) {
+                return;
+            }
             updateRangeTargetVisibility();
             updatePreview();
         });
@@ -282,7 +287,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 当前选中的是「有线耳机」选项卡（否则为「蓝牙」）。 */
     private boolean isWiredTarget() {
-        return binding.radioRangeTarget.getCheckedRadioButtonId() == R.id.radioTargetWired;
+        return binding.toggleRangeTarget.getCheckedButtonId() == R.id.toggleTargetWired;
     }
 
     /** 根据选项卡切换蓝牙 / 有线两组音量范围控件的可见性。 */
@@ -346,6 +351,8 @@ public class MainActivity extends AppCompatActivity {
                 Math.round(minW * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
         binding.tvMaxW.setText(getString(R.string.label_max_abs_fmt, maxW,
                 Math.round(maxW * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
+        binding.tvWiredSummary.setText(
+                Avrcp.buildWiredPreview(mediaSteps, minW, maxW, currentCurveW()));
         binding.tvWMapping.setText(
                 Avrcp.buildWiredMappingTable(mediaSteps, minW, maxW, currentCurveW()));
     }

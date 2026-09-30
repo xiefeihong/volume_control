@@ -203,29 +203,30 @@
                     android:text="@string/sec_bt_range"
                     android:textStyle="bold" />
 
-                <RadioGroup
-                    android:id="@+id/radioRangeTarget"
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/toggleRangeTarget"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:orientation="horizontal">
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
 
-                    <RadioButton
-                        android:id="@+id/radioTargetBt"
-                        android:layout_width="wrap_content"
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/toggleTargetBt"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:checked="true"
-                        android:minHeight="36dp"
+                        android:layout_weight="1"
                         android:text="@string/target_bt" />
 
-                    <RadioButton
-                        android:id="@+id/radioTargetWired"
-                        android:layout_width="wrap_content"
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/toggleTargetWired"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="16dp"
-                        android:minHeight="36dp"
+                        android:layout_weight="1"
                         android:text="@string/target_wired" />
-                </RadioGroup>
+                </com.google.android.material.button.MaterialButtonToggleGroup>
 
                 <!-- 蓝牙（模式A/B）音量范围 -->
                 <LinearLayout
@@ -378,6 +379,13 @@
                     android:alpha="0.7"
                     android:text="@string/wired_hint"
                     android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/tvWiredSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:textSize="13sp" />
 
                 <TextView
                     android:layout_width="wrap_content"

@@ -155,6 +155,19 @@ public final class Avrcp {
         return duplicates;
     }
 
+    /** 统计软件衰减模式下「相邻档位映射到相同系统档位」的对数（不含静音档 0）。 */
+    public static int countDuplicateSystemIndices(int maxSteps, int minAbs, int maxAbs,
+            int curveType) {
+        int duplicates = 0;
+        for (int step = 2; step <= maxSteps; step++) {
+            if (curveToSystemIndex(step, maxSteps, minAbs, maxAbs, curveType)
+                    == curveToSystemIndex(step - 1, maxSteps, minAbs, maxAbs, curveType)) {
+                duplicates++;
+            }
+        }
+        return duplicates;
+    }
+
     /**
      * 生成蓝牙音量预览文本（供界面直接显示）。
      *
@@ -185,7 +198,13 @@ public final class Avrcp {
         sb.append("模式B：停用绝对音量（最大音量 ").append(maxAbs).append("）\n");
         sb.append("✓ 档位经与模式A 相同的").append(curveLabel(curveType))
                 .append("曲线映射为 AVRCP，再换算回系统音量\n");
-        sb.append("✓ 从根本上避免「相邻档位听感相同」与「低档位无声」\n");
+        int dups = countDuplicateSystemIndices(maxSteps, minAbs, maxAbs, curveType);
+        if (dups == 0) {
+            sb.append("✓ 数值无重复：各档系统音量档位互不相同\n");
+        } else {
+            sb.append("⚠ 有 ").append(dups)
+                    .append(" 对相邻档位映射到相同系统档位（建议减少档位数）\n");
+        }
         if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
             sb.append("最大音量：").append(maxAbs).append("（约 ").append(maxPercent)
                     .append("%，滑块上限）\n");
@@ -265,6 +284,28 @@ public final class Avrcp {
         }
         return renderMappingTable("耳机模式 · 档位 → 音量（0~127）：\n",
                 maxSteps, minAbs, maxAbs, curveType);
+    }
+
+    /** 耳机模式（有线+外放）摘要：按系统实际档位判重 + 第 1 档落点。 */
+    public static String buildWiredPreview(int maxSteps, int minAbs, int maxAbs,
+            int curveType) {
+        if (maxSteps <= 0) {
+            return "";
+        }
+        int dups = countDuplicateSystemIndices(maxSteps, minAbs, maxAbs, curveType);
+        int lowest = curveToSystemIndex(1, maxSteps, minAbs, maxAbs, curveType);
+        StringBuilder sb = new StringBuilder();
+        sb.append("耳机模式（有线/外放）· ").append(curveLabel(curveType)).append("曲线\n");
+        sb.append("媒体 ").append(maxSteps).append(" 档 → 系统音量档位，范围 ")
+                .append(minAbs).append('~').append(maxAbs).append("（0~127）\n");
+        if (dups == 0) {
+            sb.append("✓ 数值无重复：各档系统音量档位互不相同\n");
+        } else {
+            sb.append("⚠ 有 ").append(dups)
+                    .append(" 对相邻档位映射到相同系统档位（建议减少档位数）\n");
+        }
+        sb.append("第 1 档 → 系统音量 ").append(lowest).append('/').append(maxSteps);
+        return sb.toString();
     }
 
     /** 按所选曲线渲染「档位 → 音量(0~127)」等宽行，6 列/行。 */
