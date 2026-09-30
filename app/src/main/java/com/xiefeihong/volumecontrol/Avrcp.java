@@ -4,27 +4,20 @@ package com.xiefeihong.volumecontrol;
  * 蓝牙 AVRCP 绝对音量映射计算与预览文本。
  *
  * <p>AOSP 蓝牙模块（packages/modules/Bluetooth，com.android.bluetooth.avrcp.AvrcpVolumeManager）
- * 的默认换算为线性公式：</p>
+ * 的默认换算为线性公式：{@code absVolume = round(档位 * 127 / 系统最大档位)}。该公式第 1 档
+ * AVRCP 值过低（部分耳机无声），且低音量区相邻档位差值小，易被耳机内部档位量化到同一格。</p>
  *
- * <pre>absVolume = round(档位 * 127 / 系统最大档位)</pre>
+ * <p>因此模式A 改用以 [minAbs, maxAbs] 为端点的对数（等比倍增）曲线：</p>
  *
- * <p>纯线性映射存在两个问题：</p>
- * <ul>
- *   <li>第 1 档 AVRCP 值过低（如 30 档时仅 4），部分耳机在极低音量下直接无声；</li>
- *   <li>低音量区相邻档位的 AVRCP 差值小（约 127/档数），容易被耳机内部档位量化到
- *       同一格，表现为「5% 和 10% 听感相同」。</li>
- * </ul>
+ * <pre>absVolume = lo * (maxAbs / lo)^((档位 - 1) / (最大档位 - 1))，lo = max(1, minAbs)</pre>
  *
- * <p>因此模式A 改用低音量增强曲线（平方根映射）：</p>
- *
- * <pre>absVolume = 最小值 + (最大值 - 最小值) * (档位 / 最大档位)^0.5</pre>
- *
- * <p>低音量区每档跨度明显增大（避免无声与相邻重复），高档位自然趋近最大值。</p>
+ * <p>保证：档位 1 精确命中 minAbs（minAbs=0 时忽略最小值、lo 取 1），最大档位精确命中
+ * maxAbs；每按一次音量键输出按恒定比例增长（符合百分比直觉）。档位 0 恒为静音。
+ * 预览与实际发送（{@code BtHooks.SystemToAvrcpHooker}）调用同一函数，天然一致。
+ * 模式B 复用同一曲线（{@code curveToAbsoluteVolume}）再换算回系统档位
+ * （{@code avrcp / 127 * maxSteps}）。</p>
  */
 public final class Avrcp {
-
-    /** 低音量增强曲线的指数（0.5 = 平方根映射）。 */
-    public static final double CURVE_EXPONENT = 0.5;
 
     private Avrcp() {
     }
@@ -37,52 +30,67 @@ public final class Avrcp {
     }
 
     /**
-     * 模式A 映射：手机档位 → AVRCP 绝对音量（低音量增强曲线）。
+     * 对数曲线使用的区间：{@code {lo, hi}}，其中 {@code lo = max(1, 归一下限)}。
+     * 对数曲线无法从 0 起，故 minAbs=0 时忽略该最小值，lo 回退为几何下限 1（仅锚定 maxAbs）。
+     */
+    private static int[] logRange(int minAbs, int maxAbs) {
+        int[] range = normalizedRange(minAbs, maxAbs);
+        return new int[]{Math.max(1, range[0]), range[1]};
+    }
+
+    /**
+     * 模式A 映射：手机档位 → AVRCP 绝对音量（对数等比曲线）。
      *
-     * <p>档位 0 保持静音；达到最大档位时等于范围上限。</p>
+     * <p>档位 0 保持静音；step=1 精确命中 minAbs（minAbs=0 时取 1），
+     * step=maxSteps 精确命中 maxAbs。</p>
      */
     public static int curveToAbsoluteVolume(int step, int maxSteps, int minAbs, int maxAbs) {
         if (maxSteps <= 0 || step <= 0) {
             return 0;
         }
-        int[] range = normalizedRange(minAbs, maxAbs);
-        double ratio = Math.min(1.0, (double) step / maxSteps);
-        int value = (int) Math.round(range[0] + (range[1] - range[0])
-                * Math.pow(ratio, CURVE_EXPONENT));
-        return Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, value));
+        int[] range = logRange(minAbs, maxAbs);
+        int lo = range[0];
+        int hi = range[1];
+        // 退化（maxSteps<=1 或 min>=max）：直接输出上限
+        if (maxSteps <= 1 || hi <= lo) {
+            return Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, hi));
+        }
+        double exponent = Math.max(0.0, Math.min(1.0,
+                (double) (step - 1) / (maxSteps - 1)));
+        double value = lo * Math.pow((double) hi / lo, exponent);
+        return (int) Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, Math.round(value)));
     }
 
     /** 曲线反函数：AVRCP 绝对音量 → 手机档位（耳机音量键回调时保持映射一致）。 */
     public static int curveToSystemStep(int absVolume, int maxSteps, int minAbs, int maxAbs) {
-        if (maxSteps <= 0) {
+        if (maxSteps <= 0 || absVolume <= 0) {
             return 0;
         }
-        int[] range = normalizedRange(minAbs, maxAbs);
-        if (range[1] <= range[0]) {
-            return 0;
+        int[] range = logRange(minAbs, maxAbs);
+        int lo = range[0];
+        int hi = range[1];
+        if (maxSteps <= 1 || hi <= lo) {
+            return maxSteps;
         }
-        double ratio = (absVolume - range[0]) / (double) (range[1] - range[0]);
+        double ratio = Math.log((double) absVolume / lo) / Math.log((double) hi / lo);
         ratio = Math.max(0.0, Math.min(1.0, ratio));
-        return (int) Math.round(maxSteps * Math.pow(ratio, 1.0 / CURVE_EXPONENT));
+        int step = (int) Math.round(1 + (maxSteps - 1) * ratio);
+        return Math.max(0, Math.min(maxSteps, step));
     }
 
     /**
-     * 模式B 映射：手机档位 → 应用到手机端软件衰减的系统音量档位（低音量增强曲线）。
+     * 模式B 映射：与模式A 相同算法——手机档位经 {@link #curveToAbsoluteVolume}
+     * 映射为 AVRCP 值，再换算回系统音量档位（{@code avrcp / 127 * maxSteps}）。
      *
-     * <p>「音量范围」在模式B 下表示手机端软件衰减的百分比范围（127 = 100% 不衰减）：
-     * 档位经低音量增强曲线映射为范围百分比，再直接换算为该百分比对应的系统音量
-     * 档位（百分比 = 音量条位置语义，低设置值下音量更小，符合直觉）。档位 0 始终
-     * 为静音；最高档 = 范围上限百分比对应的系统档位。</p>
+     * <p>双模式曲线统一；maxAbs&lt;127 时最高系统档位被压缩（滑块上限受限），
+     * 为软件衰减固有行为。档位 0 恒为静音。</p>
      */
     public static int curveToSystemIndex(int step, int maxSteps, int minAbs, int maxAbs) {
         if (maxSteps <= 0 || step <= 0) {
             return 0;
         }
-        int[] range = normalizedRange(minAbs, maxAbs);
-        double ratio = Math.min(1.0, (double) step / maxSteps);
-        double scaled = (range[0] + (range[1] - range[0]) * Math.pow(ratio, CURVE_EXPONENT))
-                / Prefs.AVRCP_MAX_VOLUME;
-        int value = (int) Math.round(maxSteps * scaled);
+        int avrcp = curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs);
+        int value = (int) Math.round(avrcp / (double) Prefs.AVRCP_MAX_VOLUME * maxSteps);
         return Math.max(0, Math.min(maxSteps, value));
     }
 
@@ -123,7 +131,7 @@ public final class Avrcp {
 
         StringBuilder sb = new StringBuilder();
         sb.append("模式B：停用绝对音量（最大音量 ").append(maxAbs).append("）\n");
-        sb.append("✓ 音量由手机软件曲线平滑控制，不经过耳机内部档位量化\n");
+        sb.append("✓ 档位经与模式A 相同的对数曲线映射为 AVRCP，再换算回系统音量\n");
         sb.append("✓ 从根本上避免「相邻档位听感相同」与「低档位无声」\n");
         if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
             sb.append("最大音量：").append(maxAbs).append("（约 ").append(maxPercent)
@@ -138,7 +146,7 @@ public final class Avrcp {
         return sb.toString();
     }
 
-    /** 模式A：低音量增强曲线 + 音量范围。 */
+    /** 模式A：对数（等比）曲线 + 音量范围。 */
     private static String buildAbsolutePreview(int maxSteps, int minAbs, int maxAbs) {
         int[] range = normalizedRange(minAbs, maxAbs);
         StringBuilder sb = new StringBuilder();
@@ -149,7 +157,7 @@ public final class Avrcp {
         int spacing = maxSteps >= 2
                 ? curveToAbsoluteVolume(2, maxSteps, range[0], range[1]) - lowest : 0;
 
-        sb.append("模式A：保持绝对音量 · 低音量增强曲线（√）\n");
+        sb.append("模式A：保持绝对音量 · 对数曲线（等比）\n");
         sb.append("媒体 ").append(maxSteps).append(" 档 → 蓝牙 AVRCP（0~127），范围 ")
                 .append(range[0]).append('~').append(range[1]).append("\n");
         if (duplicates == 0) {
