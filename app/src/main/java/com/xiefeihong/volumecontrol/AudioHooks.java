@@ -688,7 +688,9 @@ final class AudioHooks {
                 }
                 // curve 映射（按所选曲线，与模式A 同算法）
                 int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs, curveType);
-                if (mapped >= index) {
+                // 仅在无需改变时放行；mapped>index 抬升低档位以生效「最小音量」下限，
+                // mapped<index 压低高档位以生效「最大音量」上限（软件衰减）。
+                if (mapped == index) {
                     return chain.proceed();
                 }
                 if (index != sLastLoggedSystemIndex) {
@@ -699,7 +701,7 @@ final class AudioHooks {
                 }
                 Object[] newArgs = args.toArray();
                 newArgs[0] = mapped;
-                chain.proceed(newArgs); // HAL 应用降低后的增益
+                chain.proceed(newArgs); // HAL 应用重映射后的增益（升/降）
                 // 恢复 mIndexMap 中的原始档位，避免 getStreamVolume 读回 remapped
                 // 后二次映射导致音量卡死（VOL_UP 无效）
                 try {
