@@ -662,7 +662,8 @@ final class AudioHooks {
                 }
                 int minAbs = config[5];
                 int maxAbs = config[6];
-                int curveType = config.length >= 8 ? config[7] : Prefs.CURVE_LOG;
+                int curveType = config.length >= 9 ? config[8]
+                        : (config.length >= 8 ? config[7] : Prefs.CURVE_LOG);
                 // 无需衰减时直接放行
                 if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0) {
                     return chain.proceed();

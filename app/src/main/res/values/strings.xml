@@ -31,7 +31,7 @@
         <string name="curve_log">对数区间（等比倍增，默认）</string>
         <string name="curve_linear">线性区间（每档等量）</string>
         <string name="curve_sqrt">平方根区间（低音量增强）</string>
-        <string name="curve_hint" formatted="false">选择档位到音量范围的映射分布；三者第 1 档=最小音量、最高档=最大音量。</string>
+        <string name="curve_hint" formatted="false">选择档位到音量范围的映射分布；三者第 1 档=最小音量、最高档=最大音量。模式A/B 的曲线各自独立保存。</string>
     <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
 

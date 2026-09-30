@@ -97,18 +97,23 @@ public class MainActivity extends AppCompatActivity {
             int oldMode = prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE);
             if (oldMode != Prefs.BT_MODE_SOFTWARE) oldMode = Prefs.BT_MODE_ABSOLUTE;
             if (newMode != oldMode) {
-                // 先保存旧模式的值
+                // 先保存旧模式的值（范围 + 曲线）
                 String oldMinKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
                 String oldMaxKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
+                String oldCurveKey = oldMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
                 prefs.edit()
                         .putInt(oldMinKey, currentMinAbs())
                         .putInt(oldMaxKey, currentMaxAbs())
+                        .putInt(oldCurveKey, currentCurveType())
                         .apply();
-                // 加载新模式保存的值
+                // 加载新模式保存的值（范围 + 曲线）
                 String newMinKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
                 String newMaxKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
+                String newCurveKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
                 binding.seekMinAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMinKey, Prefs.ABS_VOLUME_MIN_DEFAULT)));
                 binding.seekMaxAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMaxKey, Prefs.ABS_VOLUME_MAX_DEFAULT)));
+                binding.radioCurveType.check(curveRadioId(Prefs.clampCurve(
+                        prefs.getInt(newCurveKey, Prefs.CURVE_TYPE_DEFAULT))));
             }
             onConfigChanged();
         });
@@ -170,8 +175,9 @@ public class MainActivity extends AppCompatActivity {
                 ? R.id.radioModeSoftware : R.id.radioModeAbsolute);
         binding.seekMinAbs.setProgress(minAbs);
         binding.seekMaxAbs.setProgress(maxAbs);
-        int curveType = Prefs.clampCurve(
-                prefs.getInt(Prefs.KEY_CURVE_TYPE, Prefs.CURVE_TYPE_DEFAULT));
+        String curveKey = btMode == Prefs.BT_MODE_SOFTWARE
+                ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
+        int curveType = Prefs.clampCurve(prefs.getInt(curveKey, Prefs.CURVE_TYPE_DEFAULT));
         binding.radioCurveType.check(curveRadioId(curveType));
     }
 
@@ -188,7 +194,7 @@ public class MainActivity extends AppCompatActivity {
                 ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
     }
 
-    /** 当前选择的映射曲线类型（全局，A/B 共用）。 */
+    /** 当前模式选中的映射曲线类型（Mode A/B 各自独立）。 */
     private int currentCurveType() {
         int id = binding.radioCurveType.getCheckedRadioButtonId();
         if (id == R.id.radioCurveLinear) return Prefs.CURVE_LINEAR;
@@ -263,7 +269,8 @@ public class MainActivity extends AppCompatActivity {
                 .putInt(Prefs.KEY_BT_MODE, mode)
                 .putInt(minKey, currentMinAbs())
                 .putInt(maxKey, currentMaxAbs())
-                .putInt(Prefs.KEY_CURVE_TYPE, currentCurveType());
+                .putInt(mode == Prefs.BT_MODE_SOFTWARE
+                        ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A, currentCurveType());
         if (synchronous) {
             editor.commit();
         } else {
@@ -278,14 +285,20 @@ public class MainActivity extends AppCompatActivity {
         int maxA = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MAX_ABS_A, Prefs.ABS_VOLUME_MAX_DEFAULT));
         int minB = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MIN_ABS_B, Prefs.ABS_VOLUME_MIN_DEFAULT));
         int maxB = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MAX_ABS_B, Prefs.ABS_VOLUME_MAX_DEFAULT));
-        // 当前模式的值用 seekbar 实时值（可能尚未保存到 prefs）
+        int curveA = Prefs.clampCurve(
+                prefs.getInt(Prefs.KEY_CURVE_TYPE_A, Prefs.CURVE_TYPE_DEFAULT));
+        int curveB = Prefs.clampCurve(
+                prefs.getInt(Prefs.KEY_CURVE_TYPE_B, Prefs.CURVE_TYPE_DEFAULT));
+        // 当前模式的值用界面实时值（可能尚未保存到 prefs）
         if (mode == Prefs.BT_MODE_SOFTWARE) {
             minB = currentMinAbs(); maxB = currentMaxAbs();
+            curveB = currentCurveType();
         } else {
             minA = currentMinAbs(); maxA = currentMaxAbs();
+            curveA = currentCurveType();
         }
         return Prefs.encodeConfig(binding.switchEnable.isChecked(), currentMediaSteps(),
-                mode, minA, maxA, minB, maxB, currentCurveType());
+                mode, minA, maxA, minB, maxB, curveA, curveB);
     }
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
@@ -409,8 +422,12 @@ public class MainActivity extends AppCompatActivity {
                             .putInt(Prefs.KEY_MAX_ABS_A, globalConfig[4])
                             .putInt(Prefs.KEY_MIN_ABS_B, globalConfig[5])
                             .putInt(Prefs.KEY_MAX_ABS_B, globalConfig[6])
-                            .putInt(Prefs.KEY_CURVE_TYPE, globalConfig.length >= 8
+                            .putInt(Prefs.KEY_CURVE_TYPE_A, globalConfig.length >= 8
                                     ? globalConfig[7] : Prefs.CURVE_TYPE_DEFAULT)
+                            .putInt(Prefs.KEY_CURVE_TYPE_B, globalConfig.length >= 9
+                                    ? globalConfig[8]
+                                    : (globalConfig.length >= 8 ? globalConfig[7]
+                                            : Prefs.CURVE_TYPE_DEFAULT))
                             .commit();
                     adopted = true;
                 }

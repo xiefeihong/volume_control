@@ -178,7 +178,7 @@ public final class Avrcp {
     /** 模式B：手机端软件衰减。 */
     private static String buildSoftwarePreview(int maxSteps, int minAbs, int maxAbs,
             int curveType) {
-        int lowest = curveToSystemIndex(1, maxSteps, minAbs, maxAbs, curveType);
+        int lowest = curveToAbsoluteVolume(1, maxSteps, minAbs, maxAbs, curveType);
         int maxPercent = (int) Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME);
 
         StringBuilder sb = new StringBuilder();
@@ -189,7 +189,7 @@ public final class Avrcp {
         if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
             sb.append("最大音量：").append(maxAbs).append("（约 ").append(maxPercent)
                     .append("%，滑块上限）\n");
-            sb.append("第 1 档 → ").append(lowest).append("/").append(maxSteps).append("\n");
+            sb.append("第 1 档 → 音量 ").append(lowest).append("/127\n");
         } else {
             sb.append("最大音量 127：不限制，滑块可达 100%\n");
         }
@@ -243,7 +243,7 @@ public final class Avrcp {
 
     /**
      * 生成「档位 → 音量」逐档映射表（等宽文本，显示在音量范围卡片内，便于调整时就地查看结果）。
-     * 模式A 显示 AVRCP 绝对音量（0~127）；模式B 显示软件衰减后的系统档位（与模式A 同曲线换算）。
+     * 模式A 显示 AVRCP 绝对音量（0~127）；模式B 显示软件衰减音量（0~127，取本模式范围/曲线，值域落在 min~max 之间）。
      */
     public static String buildMappingTable(int maxSteps, int btMode, int minAbs, int maxAbs,
             int curveType) {
@@ -251,20 +251,17 @@ public final class Avrcp {
             return "";
         }
         boolean software = (btMode == Prefs.BT_MODE_SOFTWARE);
-        int valueMax = software ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
         StringBuilder sb = new StringBuilder();
         sb.append(software
-                ? "档位 → 系统音量（软件衰减，0~" + maxSteps + "）：\n"
+                ? "档位 → 软件衰减音量（0~127）：\n"
                 : "档位 → AVRCP 音量（0~127）：\n");
         int stepWidth = String.valueOf(maxSteps).length();
-        int valWidth = String.valueOf(valueMax).length();
+        int valWidth = String.valueOf(Prefs.AVRCP_MAX_VOLUME).length();
         String entryFmt = "%" + stepWidth + "d→%" + valWidth + "d";
         int perLine = 6;
         StringBuilder line = new StringBuilder();
         for (int step = 0; step <= maxSteps; step++) {
-            int value = software
-                    ? curveToSystemIndex(step, maxSteps, minAbs, maxAbs, curveType)
-                    : curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
+            int value = curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
             int pos = step % perLine;
             if (pos == 0) {
                 line.setLength(0);

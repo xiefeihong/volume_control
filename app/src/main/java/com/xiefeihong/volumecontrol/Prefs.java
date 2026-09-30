@@ -23,8 +23,10 @@ public final class Prefs {
     public static final String KEY_ENABLED = "enabled";
     public static final String KEY_MEDIA_STEPS = "media_steps";
     public static final String KEY_BT_MODE = "bt_volume_mode";
-    /** 映射曲线类型 SharedPreferences 键（全局，A/B 共用）。 */
-    public static final String KEY_CURVE_TYPE = "curve_type";
+    /** 模式A 映射曲线类型 SharedPreferences 键。 */
+    public static final String KEY_CURVE_TYPE_A = "curve_type_a";
+    /** 模式B 映射曲线类型 SharedPreferences 键。 */
+    public static final String KEY_CURVE_TYPE_B = "curve_type_b";
 
     /** 模式A 音量范围 SharedPreferences 键。 */
     public static final String KEY_MIN_ABS_A = "min_abs_volume_a";
@@ -54,7 +56,7 @@ public final class Prefs {
     public static final int BT_MODE_SOFTWARE = 1;
 
     /**
-     * 映射曲线类型（全局，Mode A/B 共用）：step→音量范围的中间分布。
+     * 映射曲线类型（Mode A/B 各自独立设置）：step→音量范围的中间分布。
      * 三者均保证 step=1 精确命中最小、maxSteps 精确命中最大。
      */
     public static final int CURVE_LOG = 0;
@@ -100,17 +102,17 @@ public final class Prefs {
     }
 
     /**
-     * 序列化为可写入 Settings.Global 的字符串（8 字段）：
-     * {启用};{媒体档位};{模式};{A最小};{A最大};{B最小};{B最大};{曲线类型}。
+     * 序列化为可写入 Settings.Global 的字符串（9 字段）：
+     * {启用};{媒体档位};{模式};{A最小};{A最大};{B最小};{B最大};{曲线A};{曲线B}。
      */
     public static String encodeConfig(boolean enabled, int mediaSteps, int mode,
             int minAbsA, int maxAbsA,
-            int minAbsB, int maxAbsB, int curveType) {
+            int minAbsB, int maxAbsB, int curveTypeA, int curveTypeB) {
         return (enabled ? 1 : 0) + ";" + clampMediaSteps(mediaSteps)
                 + ";" + mode
                 + ";" + clampAbs(minAbsA) + ";" + clampAbs(maxAbsA)
                 + ";" + clampAbs(minAbsB) + ";" + clampAbs(maxAbsB)
-                + ";" + clampCurve(curveType);
+                + ";" + clampCurve(curveTypeA) + ";" + clampCurve(curveTypeB);
     }
 
     /** 绝对音量值限制在 0~127。 */
@@ -122,10 +124,10 @@ public final class Prefs {
     /**
      * 解析配置字符串。
      *
-     * <p>兼容历史格式：3/5/6/7/9 字段旧格式与 8 字段新格式。
-     * 旧格式的衰减乘数字段被忽略；旧格式无曲线字段时默认 {@link #CURVE_LOG}。</p>
+     * <p>兼容历史格式：3/5/6/7/8 字段旧格式与 9 字段新格式（曲线A/曲线B）。
+     * 8 字段的全局曲线同时赋给 A/B；无曲线字段时默认 {@link #CURVE_LOG}。</p>
      *
-     * @return int[]{enabled, mediaSteps, mode, minAbsA, maxAbsA, minAbsB, maxAbsB, curveType}；
+     * @return int[]{enabled, mediaSteps, mode, minAbsA, maxAbsA, minAbsB, maxAbsB, curveTypeA, curveTypeB}；
      *         非法内容返回 null。
      */
     public static int[] decodeConfig(String raw) {
@@ -144,22 +146,24 @@ public final class Prefs {
             int minA = ABS_VOLUME_MIN_DEFAULT, maxA = ABS_VOLUME_MAX_DEFAULT;
             int minB = ABS_VOLUME_MIN_DEFAULT, maxB = ABS_VOLUME_MAX_DEFAULT;
             int curveType = CURVE_TYPE_DEFAULT;
+            int curveTypeB = CURVE_TYPE_DEFAULT;
 
             if (parts.length >= 7) {
-                // 7/8/9 字段：[3][4]=A 范围、[5][6]=B 范围（旧 9 字段 B 在 [6][7]，忽略乘数）
+                // 7/8/9 字段：[3][4]=A 范围、[5][6]=B 范围
                 mediaSteps = Integer.parseInt(parts[1].trim());
                 mode = Integer.parseInt(parts[2].trim());
                 minA = Integer.parseInt(parts[3].trim());
                 maxA = Integer.parseInt(parts[4].trim());
+                minB = Integer.parseInt(parts[5].trim());
+                maxB = Integer.parseInt(parts[6].trim());
                 if (parts.length == 9) {
-                    minB = Integer.parseInt(parts[6].trim());
-                    maxB = Integer.parseInt(parts[7].trim());
-                } else {
-                    minB = Integer.parseInt(parts[5].trim());
-                    maxB = Integer.parseInt(parts[6].trim());
-                }
-                if (parts.length == 8) {
+                    // 新格式：[7]=曲线A、[8]=曲线B
                     curveType = Integer.parseInt(parts[7].trim());
+                    curveTypeB = Integer.parseInt(parts[8].trim());
+                } else if (parts.length == 8) {
+                    // 旧全局曲线 [7]：A/B 同值
+                    curveType = Integer.parseInt(parts[7].trim());
+                    curveTypeB = curveType;
                 }
             } else if (parts.length == 6) {
                 // 旧 6 字段：范围值迁移到模式B
@@ -184,10 +188,11 @@ public final class Prefs {
             minA = clampAbs(minA); maxA = clampAbs(maxA);
             minB = clampAbs(minB); maxB = clampAbs(maxB);
             curveType = clampCurve(curveType);
+            curveTypeB = clampCurve(curveTypeB);
             if (minA > maxA) { int t = minA; minA = maxA; maxA = t; }
             if (minB > maxB) { int t = minB; minB = maxB; maxB = t; }
             return new int[]{enabled, mediaSteps, mode,
-                    minA, maxA, minB, maxB, curveType};
+                    minA, maxA, minB, maxB, curveType, curveTypeB};
         } catch (NumberFormatException e) {
             return null;
         }
