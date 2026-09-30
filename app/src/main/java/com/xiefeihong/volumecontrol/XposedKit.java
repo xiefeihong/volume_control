@@ -351,14 +351,14 @@ public final class XposedKit {
      * → 通道2 配置镜像文件（App 以 root 写入 /data/system，不依赖 SettingsProvider，
      * 开机全程可读——冷启动构造期的关键通道）。</p>
      *
-     * @return int[]{enabled, mediaSteps, btMode, minAbsA, maxAbsA, minAbsB, maxAbsB} 或 null
+     * @return 解析后的 {@link VolumeConfig}（任一通道成功即返回），全部失败返回 null
      */
-    static int[] readConfig(Context context) {
+    static VolumeConfig readConfig(Context context) {
         // 通道1：Settings.Global
         if (context != null) {
             try {
                 String raw = SettingsGlobal.getString(context, Prefs.GLOBAL_KEY);
-                int[] config = Prefs.decodeConfig(raw);
+                VolumeConfig config = VolumeConfig.fromRaw(raw);
                 if (config != null) {
                     return config;
                 }
@@ -374,7 +374,7 @@ public final class XposedKit {
         }
         // 通道2：配置镜像文件（不依赖 SettingsProvider；冷启动早期唯一可靠通道）
         try {
-            int[] config = Prefs.decodeConfig(readMirrorConfig());
+            VolumeConfig config = VolumeConfig.fromRaw(readMirrorConfig());
             if (config != null) {
                 logOnce("mirror-used", "config loaded from mirror file");
                 return config;

@@ -404,8 +404,10 @@ public class MainActivity extends AppCompatActivity {
         int minW = currentMinW();
         int maxW = currentMaxW();
         int curveW = currentCurveW();
-        return Prefs.encodeConfig(binding.switchEnable.isChecked(), currentMediaSteps(),
-                mode, minA, maxA, minB, maxB, curveA, curveB, minW, maxW, curveW);
+        return new VolumeConfig(binding.switchEnable.isChecked(), currentMediaSteps(),
+                mode, new VolumeConfig.Range(minA, maxA, curveA),
+                new VolumeConfig.Range(minB, maxB, curveB),
+                new VolumeConfig.Range(minW, maxW, curveW)).toRaw();
     }
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
@@ -520,29 +522,22 @@ public class MainActivity extends AppCompatActivity {
             // 应用数据被清除后首次打开：以系统配置键为准恢复界面，避免误覆盖已生效的配置
             boolean adopted = false;
             if (root && !prefs.contains(Prefs.KEY_ENABLED)) {
-                int[] globalConfig = Prefs.decodeConfig(
+                VolumeConfig globalConfig = VolumeConfig.fromRaw(
                         Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output);
-                if (globalConfig != null && globalConfig.length >= 7) {
+                if (globalConfig != null) {
                     prefs.edit()
-                            .putBoolean(Prefs.KEY_ENABLED, globalConfig[0] != 0)
-                            .putInt(Prefs.KEY_MEDIA_STEPS, globalConfig[1])
-                            .putInt(Prefs.KEY_BT_MODE, globalConfig[2])
-                            .putInt(Prefs.KEY_MIN_ABS_A, globalConfig[3])
-                            .putInt(Prefs.KEY_MAX_ABS_A, globalConfig[4])
-                            .putInt(Prefs.KEY_MIN_ABS_B, globalConfig[5])
-                            .putInt(Prefs.KEY_MAX_ABS_B, globalConfig[6])
-                            .putInt(Prefs.KEY_CURVE_TYPE_A, globalConfig.length >= 8
-                                    ? globalConfig[7] : Prefs.CURVE_TYPE_DEFAULT)
-                            .putInt(Prefs.KEY_CURVE_TYPE_B, globalConfig.length >= 9
-                                    ? globalConfig[8]
-                                    : (globalConfig.length >= 8 ? globalConfig[7]
-                                            : Prefs.CURVE_TYPE_DEFAULT))
-                            .putInt(Prefs.KEY_MIN_ABS_W, globalConfig.length >= 12
-                                    ? globalConfig[9] : Prefs.ABS_VOLUME_MIN_DEFAULT)
-                            .putInt(Prefs.KEY_MAX_ABS_W, globalConfig.length >= 12
-                                    ? globalConfig[10] : Prefs.ABS_VOLUME_MAX_DEFAULT)
-                            .putInt(Prefs.KEY_CURVE_TYPE_W, globalConfig.length >= 12
-                                    ? globalConfig[11] : Prefs.CURVE_TYPE_DEFAULT)
+                            .putBoolean(Prefs.KEY_ENABLED, globalConfig.enabled)
+                            .putInt(Prefs.KEY_MEDIA_STEPS, globalConfig.mediaSteps)
+                            .putInt(Prefs.KEY_BT_MODE, globalConfig.btMode)
+                            .putInt(Prefs.KEY_MIN_ABS_A, globalConfig.absolute.min)
+                            .putInt(Prefs.KEY_MAX_ABS_A, globalConfig.absolute.max)
+                            .putInt(Prefs.KEY_MIN_ABS_B, globalConfig.software.min)
+                            .putInt(Prefs.KEY_MAX_ABS_B, globalConfig.software.max)
+                            .putInt(Prefs.KEY_CURVE_TYPE_A, globalConfig.absolute.curve)
+                            .putInt(Prefs.KEY_CURVE_TYPE_B, globalConfig.software.curve)
+                            .putInt(Prefs.KEY_MIN_ABS_W, globalConfig.wired.min)
+                            .putInt(Prefs.KEY_MAX_ABS_W, globalConfig.wired.max)
+                            .putInt(Prefs.KEY_CURVE_TYPE_W, globalConfig.wired.curve)
                             .commit();
                     adopted = true;
                 }

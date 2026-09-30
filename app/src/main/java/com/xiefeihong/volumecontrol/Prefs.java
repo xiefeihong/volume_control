@@ -109,117 +109,12 @@ public final class Prefs {
         return Math.max(MEDIA_STEPS_MIN, Math.min(MEDIA_STEPS_MAX, steps));
     }
 
-    /**
-     * 序列化为可写入 Settings.Global 的字符串（12 字段）：
-     * {启用};{媒体档位};{模式};{A最小};{A最大};{B最小};{B最大};{曲线A};{曲线B};{W最小};{W最大};{曲线W}。
-     * W = 耳机模式（有线+外放）。
-     */
-    public static String encodeConfig(boolean enabled, int mediaSteps, int mode,
-            int minAbsA, int maxAbsA,
-            int minAbsB, int maxAbsB, int curveTypeA, int curveTypeB,
-            int minAbsW, int maxAbsW, int curveTypeW) {
-        return (enabled ? 1 : 0) + ";" + clampMediaSteps(mediaSteps)
-                + ";" + mode
-                + ";" + clampAbs(minAbsA) + ";" + clampAbs(maxAbsA)
-                + ";" + clampAbs(minAbsB) + ";" + clampAbs(maxAbsB)
-                + ";" + clampCurve(curveTypeA) + ";" + clampCurve(curveTypeB)
-                + ";" + clampAbs(minAbsW) + ";" + clampAbs(maxAbsW)
-                + ";" + clampCurve(curveTypeW);
-    }
-
     /** 绝对音量值限制在 0~127。 */
     public static int clampAbs(int v) { return Math.max(0, Math.min(AVRCP_MAX_VOLUME, v)); }
 
     /** 曲线类型限制在 0~2。 */
     public static int clampCurve(int v) { return Math.max(0, Math.min(CURVE_SQRT, v)); }
 
-    /**
-     * 解析配置字符串。
-     *
-     * <p>兼容历史格式：3/5/6/7/8/9 字段旧格式与 12 字段新格式（追加耳机模式 W）。
-     * 8 字段的全局曲线同时赋给 A/B；无曲线字段时默认 {@link #CURVE_LOG}；
-     * 无 W 字段（&lt;12）时耳机模式默认 0~127 不衰减。</p>
-     *
-     * @return int[]{enabled, mediaSteps, mode, minAbsA, maxAbsA, minAbsB, maxAbsB, curveTypeA, curveTypeB, minAbsW, maxAbsW, curveTypeW}；
-     *         非法内容返回 null。
-     */
-    public static int[] decodeConfig(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String[] parts = raw.trim().split(";");
-        if (parts.length != 12 && parts.length != 9 && parts.length != 8
-                && parts.length != 7 && parts.length != 6 && parts.length != 5
-                && parts.length != 3) {
-            return null;
-        }
-        try {
-            int enabled = Integer.parseInt(parts[0].trim()) != 0 ? 1 : 0;
-            int mediaSteps;
-            int mode = BT_MODE_ABSOLUTE;
-            int minA = ABS_VOLUME_MIN_DEFAULT, maxA = ABS_VOLUME_MAX_DEFAULT;
-            int minB = ABS_VOLUME_MIN_DEFAULT, maxB = ABS_VOLUME_MAX_DEFAULT;
-            int curveType = CURVE_TYPE_DEFAULT;
-            int curveTypeB = CURVE_TYPE_DEFAULT;
-            int minW = ABS_VOLUME_MIN_DEFAULT, maxW = ABS_VOLUME_MAX_DEFAULT;
-            int curveTypeW = CURVE_TYPE_DEFAULT;
-
-            if (parts.length >= 7) {
-                // 7/8/9 字段：[3][4]=A 范围、[5][6]=B 范围
-                mediaSteps = Integer.parseInt(parts[1].trim());
-                mode = Integer.parseInt(parts[2].trim());
-                minA = Integer.parseInt(parts[3].trim());
-                maxA = Integer.parseInt(parts[4].trim());
-                minB = Integer.parseInt(parts[5].trim());
-                maxB = Integer.parseInt(parts[6].trim());
-                if (parts.length == 9) {
-                    // 新格式：[7]=曲线A、[8]=曲线B
-                    curveType = Integer.parseInt(parts[7].trim());
-                    curveTypeB = Integer.parseInt(parts[8].trim());
-                } else if (parts.length == 8) {
-                    // 旧全局曲线 [7]：A/B 同值
-                    curveType = Integer.parseInt(parts[7].trim());
-                    curveTypeB = curveType;
-                }
-                if (parts.length == 12) {
-                    // 新格式：[9]=minW、[10]=maxW、[11]=curveW（耳机模式）
-                    minW = Integer.parseInt(parts[9].trim());
-                    maxW = Integer.parseInt(parts[10].trim());
-                    curveTypeW = Integer.parseInt(parts[11].trim());
-                }
-            } else if (parts.length == 6) {
-                // 旧 6 字段：范围值迁移到模式B
-                mediaSteps = Integer.parseInt(parts[1].trim());
-                mode = Integer.parseInt(parts[2].trim());
-                minB = Integer.parseInt(parts[3].trim());
-                maxB = Integer.parseInt(parts[4].trim());
-            } else if (parts.length == 5) {
-                mediaSteps = Integer.parseInt(parts[1].trim());
-                mode = Integer.parseInt(parts[2].trim());
-                minB = Integer.parseInt(parts[3].trim());
-                maxB = Integer.parseInt(parts[4].trim());
-            } else {
-                // 旧 3 字段格式
-                int percent = Integer.parseInt(parts[1].trim());
-                int legacyMedia = Integer.parseInt(parts[2].trim());
-                mediaSteps = legacyMedia > 0 ? legacyMedia
-                        : (int) Math.round(percent * 15 / 100.0);
-            }
-            if (mode != BT_MODE_SOFTWARE) mode = BT_MODE_ABSOLUTE;
-            mediaSteps = clampMediaSteps(mediaSteps);
-            minA = clampAbs(minA); maxA = clampAbs(maxA);
-            minB = clampAbs(minB); maxB = clampAbs(maxB);
-            minW = clampAbs(minW); maxW = clampAbs(maxW);
-            curveType = clampCurve(curveType);
-            curveTypeB = clampCurve(curveTypeB);
-            curveTypeW = clampCurve(curveTypeW);
-            if (minA > maxA) { int t = minA; minA = maxA; maxA = t; }
-            if (minB > maxB) { int t = minB; minB = maxB; maxB = t; }
-            if (minW > maxW) { int t = minW; minW = maxW; maxW = t; }
-            return new int[]{enabled, mediaSteps, mode,
-                    minA, maxA, minB, maxB, curveType, curveTypeB, minW, maxW, curveTypeW};
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
+    // 配置字符串的序列化 / 解析（原 encodeConfig / decodeConfig）已迁至
+    // VolumeConfig.toRaw() / VolumeConfig.fromRaw()，以具名值对象取代 int[] config。
 }

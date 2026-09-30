@@ -89,7 +89,7 @@ final class BtHooks {
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
             Object result = chain.proceed();
             try {
-                int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
+                VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
                 VolumeMode m = VolumeMode.forBluetoothAvrcp(config);
                 if (m == null) {
                     return result; // 非模式A（含未启用/模式B）走系统原始换算
@@ -103,9 +103,10 @@ final class BtHooks {
                     return result;
                 }
                 int step = (Integer) arg0;
-                int minA = m.minAbs(config);
-                int maxA = m.maxAbs(config);
-                int curveType = m.curveType(config);
+                VolumeConfig.Range range = m.range(config);
+                int minA = range.min;
+                int maxA = range.max;
+                int curveType = range.curve;
                 // 无范围限制时保持系统原始线性换算
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
                     return result;
@@ -144,7 +145,7 @@ final class BtHooks {
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
             Object result = chain.proceed();
             try {
-                int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
+                VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
                 VolumeMode m = VolumeMode.forBluetoothAvrcp(config);
                 if (m == null) {
                     return result; // 非模式A（含未启用/模式B）无需反算
@@ -157,9 +158,10 @@ final class BtHooks {
                 if (!(arg0 instanceof Integer)) {
                     return result;
                 }
-                int minA = m.minAbs(config);
-                int maxA = m.maxAbs(config);
-                int curveType = m.curveType(config);
+                VolumeConfig.Range range = m.range(config);
+                int minA = range.min;
+                int maxA = range.max;
+                int curveType = range.curve;
                 if (minA == 0 && maxA >= Prefs.AVRCP_MAX_VOLUME) {
                     return result; // 无范围限制时无需反算
                 }
@@ -188,7 +190,7 @@ final class BtHooks {
                         try {
                             List<Object> args = chain.getArgs();
                             if (args.size() >= 2 && Boolean.TRUE.equals(args.get(1))) {
-                                int[] config = XposedKit.readConfig(
+                                VolumeConfig config = XposedKit.readConfig(
                                         XposedKit.bluetoothContext());
                                 if (VolumeMode.suppressAbsoluteVolume(config)) {
                                     if (!sModeBLogged) {
@@ -226,7 +228,7 @@ final class BtHooks {
                     @Override
                     public Object intercept(XposedInterface.Chain chain) throws Throwable {
                         try {
-                            int[] config = XposedKit.readConfig(XposedKit.bluetoothContext());
+                            VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
                             if (VolumeMode.suppressAbsoluteVolume(config)) {
                                 return null; // 模式B：阻止发送 AVRCP
                             }

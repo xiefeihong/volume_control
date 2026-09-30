@@ -128,9 +128,8 @@ final class AudioHooks {
 
             scheduleBootCorrection();
             // 诊断：安装完成后立即读取并记录当前配置
-            int[] diagConfig = XposedKit.readConfig(XposedKit.systemServerContext(null));
-            XposedKit.log("system_server hooks installed, config="
-                    + (diagConfig != null ? java.util.Arrays.toString(diagConfig) : "null"));
+            VolumeConfig diagConfig = XposedKit.readConfig(XposedKit.systemServerContext(null));
+            XposedKit.log("system_server hooks installed, config=" + diagConfig);
         } catch (Throwable t) {
             XposedKit.logError("hook system server failed: " + t);
         }
@@ -209,10 +208,10 @@ final class AudioHooks {
 
     /** 读取配置并刷新属性拦截缓存（未就绪 / 停用置 -1，不拦截）；返回缓存的档位数。 */
     private static int refreshMediaStepsOverride() {
-        int[] config = XposedKit.readConfig(XposedKit.systemServerContext(null));
+        VolumeConfig config = XposedKit.readConfig(XposedKit.systemServerContext(null));
         int steps = -1;
-        if (config != null && config[0] != 0) {
-            steps = Prefs.clampMediaSteps(config[1]);
+        if (config != null && config.enabled) {
+            steps = config.mediaSteps;
         }
         sMediaStepsOverride = steps;
         return steps;
@@ -275,12 +274,12 @@ final class AudioHooks {
         if (audioServiceClass == null) {
             return;
         }
-        int[] config = XposedKit.readConfig(XposedKit.systemServerContext(null));
+        VolumeConfig config = XposedKit.readConfig(XposedKit.systemServerContext(null));
         if (config == null) {
             XposedKit.log("no config found, keep system defaults");
             return;
         }
-        if (config[0] == 0) {
+        if (!config.enabled) {
             sMediaStepsOverride = -1;
             XposedKit.log("disabled, keep system defaults");
             return;
@@ -295,7 +294,7 @@ final class AudioHooks {
                 || sOriginalMaxStreamVolumes.length != maxStreamVolumes.length) {
             sOriginalMaxStreamVolumes = maxStreamVolumes.clone();
         }
-        int mediaSteps = Prefs.clampMediaSteps(config[1]);
+        int mediaSteps = config.mediaSteps;
         maxStreamVolumes[Prefs.STREAM_MUSIC_INDEX] = mediaSteps;
         // 属性拦截缓存同步（幂等）
         sMediaStepsOverride = mediaSteps;
@@ -312,17 +311,17 @@ final class AudioHooks {
      * @return 目标档位数；无配置 / 已停用 / 实例不可用时返回 -1
      */
     private static int syncMediaStreamMax(Object audioService, String tag) {
-        int[] config = XposedKit.readConfig(XposedKit.systemServerContext(audioService));
+        VolumeConfig config = XposedKit.readConfig(XposedKit.systemServerContext(audioService));
         if (config == null) {
             XposedKit.log(tag + ": no config, keep system defaults");
             return -1;
         }
-        if (config[0] == 0) {
+        if (!config.enabled) {
             sMediaStepsOverride = -1;
             XposedKit.log(tag + ": disabled, keep system defaults");
             return -1;
         }
-        int target = Prefs.clampMediaSteps(config[1]);
+        int target = config.mediaSteps;
         sMediaStepsOverride = target;
         int current = readMediaStreamMaxSteps(audioService);
         if (current < 0) {
@@ -541,7 +540,7 @@ final class AudioHooks {
                 if (args.size() < 2 || !Boolean.TRUE.equals(args.get(1))) {
                     return chain.proceed();
                 }
-                int[] config = XposedKit.readConfig(
+                VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(chain.getThisObject()));
                 if (!VolumeMode.suppressAbsoluteVolume(config)) {
                     return chain.proceed();
@@ -566,7 +565,7 @@ final class AudioHooks {
                 if (!(arg0 instanceof Integer)) {
                     return chain.proceed();
                 }
-                int[] config = XposedKit.readConfig(
+                VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(chain.getThisObject()));
                 if (!VolumeMode.suppressAbsoluteVolume(config)) {
                     return chain.proceed();
@@ -631,11 +630,10 @@ final class AudioHooks {
                 // 首次触发诊断
                 if (!sAnyFireLogged) {
                     sAnyFireLogged = true;
-                    int[] diagConfig = XposedKit.readConfig(XposedKit.systemServerContext(null));
+                    VolumeConfig diagConfig = XposedKit.readConfig(XposedKit.systemServerContext(null));
                     XposedKit.log("setStreamVolumeIndex first fire: index="
                             + index + " device=" + device
-                            + " config=" + (diagConfig != null
-                                    ? java.util.Arrays.toString(diagConfig) : "null"));
+                            + " config=" + diagConfig);
                 }
                 Object state = chain.getThisObject();
                 if (XposedKit.getIntField(state, FIELD_STREAM_TYPE)
@@ -651,9 +649,9 @@ final class AudioHooks {
                         return chain.proceed();
                     }
                 }
-                int[] config = XposedKit.readConfig(
+                VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(audioService));
-                if (config == null || config[0] == 0) {
+                if (config == null || !config.enabled) {
                     return chain.proceed();
                 }
                 // 按输出设备分派：软件衰减模式（模式B/耳机模式）在 system_server 改写档位；
@@ -662,9 +660,10 @@ final class AudioHooks {
                 if (mode == null) {
                     return chain.proceed();
                 }
-                int minAbs = mode.minAbs(config);
-                int maxAbs = mode.maxAbs(config);
-                int curveType = mode.curveType(config);
+                VolumeConfig.Range range = mode.range(config);
+                int minAbs = range.min;
+                int maxAbs = range.max;
+                int curveType = range.curve;
                 // 全量程无需衰减时直接放行
                 if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0) {
                     return chain.proceed();
