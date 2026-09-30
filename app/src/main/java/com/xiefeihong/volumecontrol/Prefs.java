@@ -89,7 +89,7 @@ public final class Prefs {
     public static final int MEDIA_STEPS_MIN = 10;
     public static final int MEDIA_STEPS_MAX = 29;
     /** 兜底默认媒体档位数（仅在无法探测系统原生档位时使用）。 */
-    public static final int MEDIA_STEPS_DEFAULT = 15;
+    public static final int MEDIA_STEPS_DEFAULT = 20;
     /** @deprecated 已删除“默认档位”选项，范围从 10 开始。 */
     @Deprecated
     public static final int MEDIA_STEPS_DEFAULT_VAL = 0;
