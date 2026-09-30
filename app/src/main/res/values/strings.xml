@@ -26,7 +26,7 @@
 
     <string name="mode_absolute">模式A：保持绝对音量（默认）</string>
     <string name="mode_software">模式B：停用绝对音量（手机端衰减）</string>
-    <string name="mode_hint" formatted="false">模式A：保持蓝牙耳机绝对音量控制，手机系统音量线性不变。模式B：停用蓝牙绝对音量，由手机端软件衰减音频，耳机固定自身硬件音量。两种模式仅作用于蓝牙耳机；插入有线耳机或使用外放扬声器时自动走「有线耳机」范围（在下方音量范围卡片切到该选项卡可调整）。</string>
+    <string name="mode_hint" formatted="false">模式A：保持蓝牙耳机绝对音量控制，手机系统音量线性不变。模式B：停用蓝牙绝对音量，由手机端软件衰减音频，耳机固定自身硬件音量。两种模式仅作用于蓝牙耳机；插入有线耳机或使用外放扬声器时自动走「有线耳机」范围（切到该选项卡可调整）。</string>
     <string name="range_hint" formatted="false">蓝牙与有线耳机在本卡片顶部的选项卡间切换，各自保存独立的范围/曲线。蓝牙下模式A/B 又分别保存：模式A 为 AVRCP 映射，模式B 为手机端软件曲线衰减（均仅蓝牙）。插入有线耳机或使用外放时自动走「有线耳机」范围。</string>
     <string name="wired_hint" formatted="false">插入有线耳机或使用外放扬声器时自动按此范围映射（与蓝牙模式A/B 无关）。默认 0~127 为不衰减。</string>
     
@@ -61,18 +61,11 @@
     <string name="dlg_ok">继续</string>
     <string name="dlg_cancel">取消</string>
     <string name="dlg_restart_title">重启系统框架</string>
-    <string name="dlg_restart_msg">将软重启系统框架，使媒体档位数生效（设置已自动保存）：
-
-• 屏幕会短暂黑屏，随后自动恢复
-• 正在播放的声音会中断，本应用会被关闭
-• 耗时约 5~30 秒</string>
+    <string name="dlg_restart_msg">将软重启系统框架，使媒体档位数生效（设置已自动保存）：\n\n• 屏幕会短暂黑屏，随后自动恢复\n• 正在播放的声音会中断，本应用会被关闭\n• 耗时约 5~30 秒</string>
     <string name="dlg_reset_title">恢复系统默认</string>
     <string name="dlg_reset_msg">将关闭模块并恢复系统默认档位（%1$d 档）、模式A 与默认音量范围，并立即保存。媒体档位数需点「重启系统框架」后恢复。确定继续吗？</string>
     <string name="dlg_restart_bt_title">重启蓝牙</string>
-    <string name="dlg_restart_bt_msg">将关闭并重新打开蓝牙（设置已自动保存）：
-
-• 蓝牙耳机/设备会断开，请重新连接
-• 耗时约数秒，不需要重启系统框架</string>
+    <string name="dlg_restart_bt_msg">将关闭并重新打开蓝牙（设置已自动保存）：\n\n• 蓝牙耳机/设备会断开，请重新连接\n• 耗时约数秒，不需要重启系统框架</string>
 
     <string name="toast_push_fail">写入系统配置失败，请确认 su 已授权</string>
     <string name="toast_auto_save_fail">自动保存失败：无法写入系统配置，请确认 su 已授权</string>
@@ -87,29 +80,12 @@
 
     <string name="log_title">模块日志（VolumeControl）</string>
     <string name="btn_logs">查看模块日志</string>
-    <string name="log_empty">未找到模块日志。可能原因：
-• LSPosed 中未启用模块
-• 安装本版本后尚未重启过系统框架 / 蓝牙（Hook 只在进程启动时加载）
-• 此处显示全部级别日志；LSPosed 日志页仅记录错误日志（E 级）</string>
+    <string name="log_empty">未找到模块日志。可能原因：\n• LSPosed 中未启用模块\n• 安装本版本后尚未重启过系统框架 / 蓝牙（Hook 只在进程启动时加载）\n• 此处显示全部级别日志；LSPosed 日志页仅记录错误日志（E 级）</string>
     <string name="dlg_copy">复制</string>
     <string name="dlg_close">关闭</string>
     <string name="dlg_clear">清理</string>
     <string name="toast_log_copied">日志已复制到剪贴板</string>
     <string name="toast_logs_cleared">日志文件已清理</string>
 
-    <string name="guide_text" formatted="false">1. 在 LSPosed 中启用本模块，然后重启系统框架（本页按钮即可）。
-
-2. 媒体音量档位：可设置 10~29 档（HyperOS 默认 15），只影响媒体流（音乐/视频）。修改档位数后点「重启系统框架」，期间黑屏属正常现象。
-
-3. 模式A（默认，保持绝对音量）：蓝牙耳机保持绝对音量控制，手机系统音量线性不变。档位经可选曲线（线性/对数/平方根）映射为 AVRCP 音量（0~127）：第 1 档=最小音量、最高档=最大音量；最小音量设为 0 时，第 1 档自动取最大音量约 15% 作为可闻下限（自适应耳机量程）。
-
-4. 模式B（低音量问题首选）：停用蓝牙绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量；音量范围仅对蓝牙生效。
-
-5. 音量范围：蓝牙模式A/B 各自独立保存；插入有线耳机或使用外放时自动走「耳机模式」的独立范围（最小/最大/曲线），与蓝牙模式无关。
-
-6. 生效方式：修改自动保存。切换模式或调整音量范围后需点「重启蓝牙」生效；仅媒体档位数修改后需点「重启系统框架」。
-
-7. 恢复默认：点「恢复系统默认」并重启生效；或在 LSPosed 中停用模块后重启手机。
-
-8. 排查：状态区查看「系统配置键」与媒体档位是否生效；点「查看模块日志」查看模块自写日志。</string>
+    <string name="guide_text" formatted="false">1. 在 LSPosed 中启用本模块，然后重启系统框架（本页按钮即可）。\n\n2. 媒体音量档位：可设置 10~29 档（HyperOS 默认 15），只影响媒体流（音乐/视频）。修改档位数后点「重启系统框架」，期间黑屏属正常现象。\n\n3. 模式A（默认，保持绝对音量）：蓝牙耳机保持绝对音量控制，手机系统音量线性不变。档位经可选曲线（线性/对数/平方根）映射为 AVRCP 音量（0~127）：第 1 档=最小音量、最高档=最大音量；最小音量设为 0 时，第 1 档自动取最大音量约 15% 作为可闻下限（自适应耳机量程）。\n\n4. 模式B（低音量问题首选）：停用蓝牙绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量；音量范围仅对蓝牙生效。\n\n5. 音量范围：蓝牙模式A/B 各自独立保存；插入有线耳机或使用外放时自动走「耳机模式」的独立范围（最小/最大/曲线），与蓝牙模式无关。\n\n6. 生效方式：修改自动保存。切换模式或调整音量范围后需点「重启蓝牙」生效；仅媒体档位数修改后需点「重启系统框架」。\n\n7. 恢复默认：点「恢复系统默认」并重启生效；或在 LSPosed 中停用模块后重启手机。\n\n8. 排查：状态区查看「系统配置键」与媒体档位是否生效；点「查看模块日志」查看模块自写日志。</string>
 </resources>
