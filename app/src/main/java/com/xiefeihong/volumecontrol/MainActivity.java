@@ -41,6 +41,13 @@ public class MainActivity extends AppCompatActivity {
     /** 防抖后的自动保存任务（设置变更 → 写入 Settings.Global）。 */
     private final Runnable autoSaveRunnable = () -> saveToSystem(null);
 
+    /**
+     * 程序化载入/切换模式期间置为 true，抑制所有监听回调。
+     * 否则 setProgress/check 会触发 persistToPrefs，把当前 radio（仍属旧模式）的值
+     * 写进新模式的键，导致模式A/B 的曲线、范围相互污染。
+     */
+    private boolean suppressListeners = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -92,6 +99,9 @@ public class MainActivity extends AppCompatActivity {
         binding.seekMaxAbs.setOnSeekBarChangeListener(listener);
 
         binding.radioBtMode.setOnCheckedChangeListener((group, checkedId) -> {
+            if (suppressListeners) {
+                return;
+            }
             int newMode = checkedId == R.id.radioModeSoftware
                     ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
             int oldMode = prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE);
@@ -106,14 +116,17 @@ public class MainActivity extends AppCompatActivity {
                         .putInt(oldMaxKey, currentMaxAbs())
                         .putInt(oldCurveKey, currentCurveType())
                         .apply();
-                // 加载新模式保存的值（范围 + 曲线）
+                // 加载新模式保存的值（范围 + 曲线）。抑制监听：否则 setProgress/check 会触发
+                // persistToPrefs，把此刻仍显示“旧模式曲线”的 radio 值写进新模式键，导致 A/B 曲线互相污染。
                 String newMinKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MIN_ABS_B : Prefs.KEY_MIN_ABS_A;
                 String newMaxKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_MAX_ABS_B : Prefs.KEY_MAX_ABS_A;
                 String newCurveKey = newMode == Prefs.BT_MODE_SOFTWARE ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
+                suppressListeners = true;
                 binding.seekMinAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMinKey, Prefs.ABS_VOLUME_MIN_DEFAULT)));
                 binding.seekMaxAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMaxKey, Prefs.ABS_VOLUME_MAX_DEFAULT)));
                 binding.radioCurveType.check(curveRadioId(Prefs.clampCurve(
                         prefs.getInt(newCurveKey, Prefs.CURVE_TYPE_DEFAULT))));
+                suppressListeners = false;
             }
             onConfigChanged();
         });
@@ -157,6 +170,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadConfigIntoUi() {
+        suppressListeners = true;
         boolean enabled = prefs.getBoolean(Prefs.KEY_ENABLED, false);
         int mediaSteps = Prefs.clampMediaSteps(
                 prefs.getInt(Prefs.KEY_MEDIA_STEPS, Prefs.MEDIA_STEPS_DEFAULT));
@@ -179,6 +193,7 @@ public class MainActivity extends AppCompatActivity {
                 ? Prefs.KEY_CURVE_TYPE_B : Prefs.KEY_CURVE_TYPE_A;
         int curveType = Prefs.clampCurve(prefs.getInt(curveKey, Prefs.CURVE_TYPE_DEFAULT));
         binding.radioCurveType.check(curveRadioId(curveType));
+        suppressListeners = false;
     }
 
     // ==================== 配置计算与预览 ====================
@@ -303,6 +318,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
     private void onConfigChanged() {
+        if (suppressListeners) {
+            return;
+        }
         persistToPrefs(false);
         updatePreview();
         scheduleAutoSave();
