@@ -56,6 +56,9 @@ public class MainActivity extends AppCompatActivity {
     /** 当前标签对应编辑/查看的音量模式（ABSOLUTE / SOFTWARE / WIRED）。 */
     private VolumeMode editingMode = VolumeMode.ABSOLUTE;
 
+    /** 蓝牙生效模式（ABSOLUTE/SOFTWARE）：由「蓝牙A/蓝牙B」标签决定，有线标签不改；持久化保存。 */
+    private int btMode = Prefs.BT_MODE_ABSOLUTE;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -106,12 +109,9 @@ public class MainActivity extends AppCompatActivity {
         binding.seekMinAbs.setOnSeekBarChangeListener(listener);
         binding.seekMaxAbs.setOnSeekBarChangeListener(listener);
 
-        // 蓝牙生效模式：独立于编辑标签，切换只写 btMode 并保存，不改动范围控件、不实时生效。
-        binding.radioBtMode.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
-
         binding.radioCurveType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
-        // 编辑标签：切换当前编辑/查看哪个模式的范围（先保存离开的值，再载入新模式的值）。
+        // 编辑标签：切换当前查看/编辑哪个模式的范围；蓝牙A/蓝牙B 同时切换生效模式。
         binding.tabsRange.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override
             public void onTabSelected(TabLayout.Tab tab) {
@@ -154,15 +154,14 @@ public class MainActivity extends AppCompatActivity {
         boolean enabled = prefs.getBoolean(Prefs.KEY_ENABLED, false);
         int mediaSteps = Prefs.clampMediaSteps(
                 prefs.getInt(Prefs.KEY_MEDIA_STEPS, systemDefaultSteps()));
-        int btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
+        btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
 
         binding.switchEnable.setChecked(enabled);
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
-        binding.radioBtMode.check(btMode == Prefs.BT_MODE_SOFTWARE
-                ? R.id.radioModeSoftware : R.id.radioModeAbsolute);
 
-        // 初始编辑标签 = 当前蓝牙生效模式（A/B）；有线范围需用户手动切到该标签调整。
-        editingMode = VolumeMode.ofBtMode(btMode);
+        // 初始标签：有线耳机在用则显示「有线耳机」，否则显示当前生效的蓝牙模式（蓝牙A/蓝牙B）。
+        editingMode = isWiredHeadsetInUse()
+                ? VolumeMode.WIRED : VolumeMode.ofBtMode(btMode);
         binding.tabsRange.selectTab(binding.tabsRange.getTabAt(modeToTab(editingMode)));
         loadRangeIntoUi();
         suppressListeners = false;
@@ -182,7 +181,7 @@ public class MainActivity extends AppCompatActivity {
         binding.radioCurveType.check(curveRadioId(curve));
     }
 
-    /** 切换到 index 对应的编辑标签：先保存离开标签的当前值，再载入新模式的值与预览。 */
+    /** 切换到 index 对应的编辑标签：载入该模式的值；蓝牙A/B 标签同时切换生效模式。 */
     private void switchEditingTab(int index) {
         VolumeMode target = tabToMode(index);
         if (suppressListeners) {
@@ -190,12 +189,20 @@ public class MainActivity extends AppCompatActivity {
             editingMode = target;
             return;
         }
+        // 蓝牙A/蓝牙B 标签即「生效模式」；有线耳机标签不改变生效模式。
+        if (target == VolumeMode.ABSOLUTE) {
+            btMode = Prefs.BT_MODE_ABSOLUTE;
+        } else if (target == VolumeMode.SOFTWARE) {
+            btMode = Prefs.BT_MODE_SOFTWARE;
+        }
         suppressListeners = true;
-        persistToPrefs(false);
         editingMode = target;
         loadRangeIntoUi();
         updatePreview();
         suppressListeners = false;
+        // 生效模式随标签切换而变：落盘偏好并防抖写入系统（重启蓝牙后生效）。
+        persistToPrefs(false);
+        scheduleAutoSave();
     }
 
     /** 标签 index → 编辑模式（0=模式A，1=模式B，2=有线耳机）。 */
@@ -225,6 +232,25 @@ public class MainActivity extends AppCompatActivity {
         return btMode == Prefs.BT_MODE_SOFTWARE ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
     }
 
+    /** 当前是否有有线耳机/耳麦接入（决定打开 App 时默认显示「有线耳机」标签）。 */
+    private boolean isWiredHeadsetInUse() {
+        try {
+            AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager == null) {
+                return false;
+            }
+            for (AudioDeviceInfo device : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                int type = device.getType();
+                if (type == 3 || type == 4) { // TYPE_WIRED_HEADSET / TYPE_WIRED_HEADPHONES
+                    return true;
+                }
+            }
+        } catch (Throwable t) {
+            return false;
+        }
+        return false;
+    }
+
     // ==================== 配置计算与预览 ====================
 
     /** 当前选择的媒体档位数（10~29）。 */
@@ -232,10 +258,9 @@ public class MainActivity extends AppCompatActivity {
         return Prefs.MEDIA_STEPS_MIN + binding.seekMediaSteps.getProgress();
     }
 
-    /** 「蓝牙生效模式」单选当前选中的模式（独立于编辑标签）。 */
+    /** 当前蓝牙生效模式（由「蓝牙A/蓝牙B」标签决定，存于 {@link #btMode}）。 */
     private int currentBtMode() {
-        return binding.radioBtMode.getCheckedRadioButtonId() == R.id.radioModeSoftware
-                ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
+        return btMode;
     }
 
     /** 共享控件当前选中的映射曲线类型（恒代表 {@link #editingMode}）。 */
@@ -429,7 +454,7 @@ public class MainActivity extends AppCompatActivity {
         binding.switchEnable.setChecked(false);
         setMediaSteps(systemDefaultSteps());
         suppressListeners = true;
-        binding.radioBtMode.check(R.id.radioModeAbsolute);
+        btMode = Prefs.BT_MODE_ABSOLUTE;
         // 三种模式（A/B/有线）范围全部回到默认，写入 prefs
         for (VolumeMode mode : VolumeMode.values()) {
             prefs.edit()

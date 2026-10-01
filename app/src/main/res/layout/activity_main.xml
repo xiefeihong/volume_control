@@ -203,45 +203,7 @@
                     android:text="@string/sec_bt_range"
                     android:textStyle="bold" />
 
-                <!-- 蓝牙生效模式：独立于下方编辑标签，切换只保存、点「重启蓝牙」才生效 -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/sec_bt"
-                    android:textStyle="bold" />
-
-                <RadioGroup
-                    android:id="@+id/radioBtMode"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="vertical">
-
-                    <RadioButton
-                        android:id="@+id/radioModeAbsolute"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:minHeight="36dp"
-                        android:text="@string/mode_name_absolute" />
-
-                    <RadioButton
-                        android:id="@+id/radioModeSoftware"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:minHeight="36dp"
-                        android:text="@string/mode_name_software" />
-                </RadioGroup>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:alpha="0.7"
-                    android:text="@string/mode_hint"
-                    android:textSize="12sp" />
-
-                <!-- 编辑标签：仅决定当前查看/编辑哪个模式的范围，不影响蓝牙生效模式 -->
+                <!-- 顶部标签栏：蓝牙A/蓝牙B 同时决定「生效模式」，有线耳机标签不改生效模式 -->
                 <com.google.android.material.tabs.TabLayout
                     android:id="@+id/tabsRange"
                     android:layout_width="match_parent"

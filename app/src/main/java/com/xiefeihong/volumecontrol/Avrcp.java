@@ -196,7 +196,7 @@ public final class Avrcp {
 
         StringBuilder sb = new StringBuilder();
         sb.append("模式B：停用绝对音量（最大音量 ").append(maxAbs).append("）\n");
-        sb.append("✓ 档位经与模式A 相同的").append(curveLabel(curveType))
+        sb.append("✓ 档位经").append(curveLabel(curveType))
                 .append("曲线映射为 AVRCP，再换算回系统音量\n");
         int dups = countDuplicateSystemIndices(maxSteps, minAbs, maxAbs, curveType);
         if (dups == 0) {

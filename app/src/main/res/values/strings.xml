@@ -9,8 +9,8 @@
     <string name="sec_bt">音量控制模式</string>
     <string name="sec_bt_range">音量范围</string>
     <string name="target_wired">有线耳机</string>
-    <string name="tab_mode_a">模式A</string>
-    <string name="tab_mode_b">模式B</string>
+    <string name="tab_mode_a">蓝牙A</string>
+    <string name="tab_mode_b">蓝牙B</string>
     <string name="sec_actions">操作</string>
     <string name="sec_guide">使用说明</string>
 
