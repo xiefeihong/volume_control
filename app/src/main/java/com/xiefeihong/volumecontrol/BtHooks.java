@@ -1,5 +1,6 @@
 package com.xiefeihong.volumecontrol;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 import io.github.libxposed.api.XposedInterface;
@@ -87,6 +88,7 @@ final class BtHooks {
 
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            XposedKit.logOnce("hook-bt-toavrcp", "HOOK fired: systemToAvrcpVolume (modeA)");
             Object result = chain.proceed();
             try {
                 VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
@@ -143,6 +145,7 @@ final class BtHooks {
 
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            XposedKit.logOnce("hook-bt-tosystem", "HOOK fired: avrcpToSystemVolume (modeA)");
             Object result = chain.proceed();
             try {
                 VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
@@ -179,7 +182,7 @@ final class BtHooks {
     /** 模式B：设备连接时上报"不支持绝对音量"，使 AudioService 走本地软件衰减路径。 */
     private static int hookDeviceConnected(XposedModule module, Class<?> volumeManager) {
         int count = 0;
-        for (java.lang.reflect.Method method : volumeManager.getDeclaredMethods()) {
+        for (Method method : volumeManager.getDeclaredMethods()) {
             if (!"deviceConnected".equals(method.getName())) {
                 continue;
             }
@@ -188,6 +191,7 @@ final class BtHooks {
                     @Override
                     public Object intercept(XposedInterface.Chain chain) throws Throwable {
                         try {
+                            XposedKit.logOnce("hook-bt-devconn", "HOOK fired: deviceConnected (modeB)");
                             List<Object> args = chain.getArgs();
                             if (args.size() >= 2 && Boolean.TRUE.equals(args.get(1))) {
                                 VolumeConfig config = XposedKit.readConfig(
@@ -219,7 +223,7 @@ final class BtHooks {
     /** 模式B：屏蔽发往耳机的 AVRCP 音量命令（耳机固定自身硬件音量）。 */
     private static int hookSendVolumeChanged(XposedModule module, Class<?> volumeManager) {
         int count = 0;
-        for (java.lang.reflect.Method method : volumeManager.getDeclaredMethods()) {
+        for (Method method : volumeManager.getDeclaredMethods()) {
             if (!"sendVolumeChanged".equals(method.getName())) {
                 continue;
             }
@@ -228,6 +232,7 @@ final class BtHooks {
                     @Override
                     public Object intercept(XposedInterface.Chain chain) throws Throwable {
                         try {
+                            XposedKit.logOnce("hook-bt-sendvol", "HOOK fired: sendVolumeChanged (modeB)");
                             VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
                             if (VolumeMode.suppressAbsoluteVolume(config)) {
                                 return null; // 模式B：阻止发送 AVRCP

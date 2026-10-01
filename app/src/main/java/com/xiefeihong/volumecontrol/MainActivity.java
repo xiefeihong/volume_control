@@ -9,6 +9,7 @@ import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.widget.SeekBar;
 import android.widget.Toast;
 
@@ -51,6 +52,9 @@ public class MainActivity extends AppCompatActivity {
      * 否则 setProgress/check 会触发 onConfigChanged → persistToPrefs，把载入中的旧值
      * 误写进当前编辑模式的键。
      */
+    /** App 侧日志 tag：catch 兜底记录，保证异常可见。 */
+    private static final String LOG_TAG = "VolumeControlUI";
+
     private boolean suppressListeners = false;
 
     /** 当前标签对应编辑/查看的音量模式（ABSOLUTE / SOFTWARE / WIRED）。 */
@@ -94,6 +98,17 @@ public class MainActivity extends AppCompatActivity {
         SeekBar.OnSeekBarChangeListener listener = new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                // 音量范围最小/最大：拖动时禁止交叉——即将令 min>max 时把当前滑块停在对侧边界，使其无法继续滑动。
+                if (fromUser && !suppressListeners) {
+                    if (seekBar == binding.seekMinAbs && progress > binding.seekMaxAbs.getProgress()) {
+                        seekBar.setProgress(binding.seekMaxAbs.getProgress());
+                        return;
+                    }
+                    if (seekBar == binding.seekMaxAbs && progress < binding.seekMinAbs.getProgress()) {
+                        seekBar.setProgress(binding.seekMinAbs.getProgress());
+                        return;
+                    }
+                }
                 onConfigChanged();
             }
 
@@ -159,8 +174,8 @@ public class MainActivity extends AppCompatActivity {
         binding.switchEnable.setChecked(enabled);
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
 
-        // 初始标签：有线耳机在用则显示「有线耳机」，否则显示当前生效的蓝牙模式（蓝牙A/蓝牙B）。
-        editingMode = isWiredHeadsetInUse()
+        // 初始标签：当前为有线/USB/外放输出则显示「有线耳机」，否则显示当前生效的蓝牙模式（蓝牙A/蓝牙B）。
+        editingMode = isWiredOrSpeakerOutput()
                 ? VolumeMode.WIRED : VolumeMode.ofBtMode(btMode);
         binding.tabsRange.selectTab(binding.tabsRange.getTabAt(modeToTab(editingMode)));
         loadRangeIntoUi();
@@ -232,23 +247,35 @@ public class MainActivity extends AppCompatActivity {
         return btMode == Prefs.BT_MODE_SOFTWARE ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
     }
 
-    /** 当前是否有有线耳机/耳麦接入（决定打开 App 时默认显示「有线耳机」标签）。 */
-    private boolean isWiredHeadsetInUse() {
+    /**
+     * 打开 App 时是否默认显示「有线耳机」标签：当前输出为有线/USB 耳机或外放扬声器
+     * （即模块「耳机模式」所覆盖的非蓝牙输出）时返回 true；蓝牙音频输出在用则返回 false
+     * （回到当前生效的蓝牙模式标签）。type 取自 AudioDeviceInfo（字面值兼容低版本 API）。
+     */
+    private boolean isWiredOrSpeakerOutput() {
         try {
             AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
             if (audioManager == null) {
                 return false;
             }
+            boolean wiredOrSpeaker = false;
             for (AudioDeviceInfo device : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
                 int type = device.getType();
-                if (type == 3 || type == 4) { // TYPE_WIRED_HEADSET / TYPE_WIRED_HEADPHONES
-                    return true;
+                // 蓝牙音频输出优先：显示蓝牙模式标签
+                if (bluetoothTypeName(type) != null) {
+                    return false;
+                }
+                // 外放扬声器(2)/有线耳麦(3,4)/线路(5,6)/USB 耳机·设备·配件(22,11,10)
+                if (type == 2 || type == 3 || type == 4 || type == 5
+                        || type == 6 || type == 10 || type == 11 || type == 22) {
+                    wiredOrSpeaker = true;
                 }
             }
+            return wiredOrSpeaker;
         } catch (Throwable t) {
+            Log.i(LOG_TAG, "isWiredOrSpeakerOutput failed", t);
             return false;
         }
-        return false;
     }
 
     // ==================== 配置计算与预览 ====================
@@ -445,7 +472,8 @@ public class MainActivity extends AppCompatActivity {
                 });
             });
         } catch (RuntimeException ignored) {
-            // 页面已销毁、线程池已关闭，忽略即可
+            // 页面已销毁、线程池已关闭：记录后忽略（不影响已保存配置）
+            Log.i(LOG_TAG, "post-save/restart task rejected (executor shutdown / destroyed)", ignored);
         }
     }
 
@@ -486,7 +514,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
             } catch (RuntimeException ignored) {
-                // 页面已销毁、线程池已关闭，忽略即可
+                // 页面已销毁、线程池已关闭：记录后忽略（不影响已保存配置）
+            Log.i(LOG_TAG, "post-save/restart task rejected (executor shutdown / destroyed)", ignored);
             }
         });
     }
@@ -497,7 +526,8 @@ public class MainActivity extends AppCompatActivity {
             try {
                 executor.execute(Shell::restartSystemServer);
             } catch (RuntimeException ignored) {
-                // 页面已销毁、线程池已关闭，忽略即可
+                // 页面已销毁、线程池已关闭：记录后忽略（不影响已保存配置）
+            Log.i(LOG_TAG, "post-save/restart task rejected (executor shutdown / destroyed)", ignored);
             }
         });
     }

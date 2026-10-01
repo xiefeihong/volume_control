@@ -6,6 +6,7 @@ import android.util.Log;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -19,7 +20,7 @@ import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
 
 /**
- * 模块共享基础层（libxposed 新 API，作用域：系统框架 + 蓝牙）。
+ * 模块共享基础层（libxposed 新 API，作用域：系统框架 + 蓝牙 + Andorid系统）。
  *
  * <p>集中提供：模块实例与进程状态、分级日志（自写文件 + 错误外发）、反射工具
  * （新 API 不再提供 XposedHelpers）、配置读取（Settings.Global + 镜像文件双通道）、
@@ -262,7 +263,7 @@ public final class XposedKit {
     static int hookAllConstructors(XposedModule module, Class<?> clazz,
             XposedInterface.Hooker hooker) {
         int count = 0;
-        for (java.lang.reflect.Constructor<?> constructor : clazz.getDeclaredConstructors()) {
+        for (Constructor<?> constructor : clazz.getDeclaredConstructors()) {
             try {
                 module.hook(constructor).intercept(hooker);
                 count++;
@@ -414,6 +415,7 @@ public final class XposedKit {
             }
             return new String(buffer, StandardCharsets.UTF_8).trim();
         } catch (Throwable t) {
+            logErrorOnce("mirror-read-fail", "read mirror config file failed: " + t);
             return null;
         }
     }

@@ -4,9 +4,12 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -137,8 +140,8 @@ final class AudioHooks {
 
     /** 批量 deoptimize（内联防护）；单个失败不影响其余。 */
     private static void deoptimizeQuietly(XposedModule module,
-            java.lang.reflect.Executable[] executables) {
-        for (java.lang.reflect.Executable executable : executables) {
+            Executable[] executables) {
+        for (Executable executable : executables) {
             try {
                 module.deoptimize(executable);
             } catch (Throwable t) {
@@ -148,10 +151,10 @@ final class AudioHooks {
     }
 
     /** 按名称选取方法（用于精确 deoptimize 目标方法）。 */
-    private static java.lang.reflect.Executable[] findMethodsNamed(Class<?> clazz, String name) {
-        return java.util.Arrays.stream(clazz.getDeclaredMethods())
+    private static Executable[] findMethodsNamed(Class<?> clazz, String name) {
+        return Arrays.stream(clazz.getDeclaredMethods())
                 .filter(m -> name.equals(m.getName()))
-                .toArray(java.lang.reflect.Executable[]::new);
+                .toArray(Executable[]::new);
     }
 
     // ==================== 第一重保险：属性拦截 ====================
@@ -159,7 +162,7 @@ final class AudioHooks {
     /**
      * 拦截 {@code SystemProperties.getInt("ro.config.media_vol_steps", ...)}：
      * 命中该属性时返回缓存的用户档位数。HyperOS 的 AudioService 初始化通过该
-     * 属性读取媒体档位数（默认 15），拦截后 ROM 自身流程即使用正确档位。
+     * 属性读取媒体档位数（默认 20），拦截后 ROM 自身流程即使用正确档位。
      *
      * <p>关键修复（相对 v1.8）：缓存未就绪（-1）时在回调内<b>现场刷新</b>——
      * AudioService 构造读取属性的那一刻才是真正需要配置值的时刻，届时
@@ -183,6 +186,7 @@ final class AudioHooks {
     private static final class PropGetIntHooker implements XposedInterface.Hooker {
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            XposedKit.logOnce("hook-prop-getint", "HOOK fired: SystemProperties#getInt");
             try {
                 Object key = chain.getArg(0);
                 if (key instanceof String && PROP_MEDIA_VOL_STEPS.equals(key)) {
@@ -233,6 +237,7 @@ final class AudioHooks {
     private static final class AudioServiceCtorHooker implements XposedInterface.Hooker {
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            XposedKit.logOnce("hook-ctor", "HOOK fired: AudioService.<init>");
             try {
                 List<Object> args = chain.getArgs();
                 if (!args.isEmpty() && args.get(0) instanceof Context) {
@@ -258,6 +263,7 @@ final class AudioHooks {
     private static final class CreateStreamStatesHooker implements XposedInterface.Hooker {
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            XposedKit.logOnce("hook-createstream", "HOOK fired: createStreamStates");
             try {
                 applyMediaSteps();
             } catch (Throwable t) {
@@ -357,6 +363,7 @@ final class AudioHooks {
             }
             return XposedKit.getIntField(mediaState, FIELD_INDEX_MAX) / 10;
         } catch (Throwable t) {
+            XposedKit.logErrorOnce("read-media-max", "read media mIndexMax failed: " + t);
             return -1;
         }
     }
@@ -376,6 +383,7 @@ final class AudioHooks {
             XposedKit.setIntField(mediaState, FIELD_INDEX_MAX, steps * 10);
             return true;
         } catch (Throwable t) {
+            XposedKit.logErrorOnce("correct-media-max", "correct media mIndexMax failed: " + t);
             return false;
         }
     }
@@ -384,6 +392,7 @@ final class AudioHooks {
     private static final class StreamMaxSelfHealHooker implements XposedInterface.Hooker {
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            XposedKit.logOnce("hook-selfheal", "HOOK fired: getStreamMaxVolume (self-heal)");
             Object result = chain.proceed();
             try {
                 Object arg0 = chain.getArg(0);
@@ -535,6 +544,7 @@ final class AudioHooks {
     private static final class AvrcpSupportsHooker implements XposedInterface.Hooker {
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            XposedKit.logOnce("hook-avrcp-support", "HOOK fired: avrcpSupportsAbsoluteVolume");
             try {
                 List<Object> args = chain.getArgs();
                 if (args.size() < 2 || !Boolean.TRUE.equals(args.get(1))) {
@@ -560,6 +570,7 @@ final class AudioHooks {
     private static final class PostAvrcpVolumeHooker implements XposedInterface.Hooker {
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            XposedKit.logOnce("hook-post-avrcp", "HOOK fired: postSetAvrcpAbsoluteVolumeIndex");
             try {
                 Object arg0 = chain.getArg(0);
                 if (!(arg0 instanceof Integer)) {
@@ -644,6 +655,7 @@ final class AudioHooks {
                 try {
                     audioService = XposedKit.getField(state, FIELD_AUDIO_SERVICE);
                 } catch (Throwable t) {
+                    XposedKit.logErrorOnce("vss-this", "read VolumeStreamState.this$0 failed: " + t);
                     audioService = sAudioService;
                     if (audioService == null) {
                         return chain.proceed();
@@ -692,13 +704,14 @@ final class AudioHooks {
                 // 后二次映射导致音量卡死（VOL_UP 无效）
                 try {
                     Object map = XposedKit.getField(state, "mIndexMap");
-                    if (map instanceof java.util.Map) {
+                    if (map instanceof Map) {
                         @SuppressWarnings("unchecked")
-                        java.util.Map<Integer, Integer> indexMap =
-                                (java.util.Map<Integer, Integer>) map;
+                        Map<Integer, Integer> indexMap =
+                                (Map<Integer, Integer>) map;
                         indexMap.put(device, index * 10);
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable t) {
+                    XposedKit.logErrorOnce("restore-index-map", "restore mIndexMap failed: " + t);
                 }
                 return null;
             } catch (Throwable t) {
