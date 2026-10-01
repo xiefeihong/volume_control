@@ -203,41 +203,11 @@
                     android:text="@string/sec_bt_range"
                     android:textStyle="bold" />
 
-                <com.google.android.material.button.MaterialButtonToggleGroup
-                    android:id="@+id/toggleRangeTarget"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    app:selectionRequired="true"
-                    app:singleSelection="true">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/toggleTargetBt"
-                        style="?attr/materialButtonOutlinedStyle"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/target_bt" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/toggleTargetWired"
-                        style="?attr/materialButtonOutlinedStyle"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/target_wired" />
-                </com.google.android.material.button.MaterialButtonToggleGroup>
-
-                <!-- 蓝牙（模式A/B）音量范围 -->
-                <LinearLayout
-                    android:id="@+id/groupBtRange"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
+                <!-- 蓝牙生效模式：独立于下方编辑标签，切换只保存、点「重启蓝牙」才生效 -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
                     android:text="@string/sec_bt"
                     android:textStyle="bold" />
 
@@ -253,14 +223,14 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:minHeight="36dp"
-                        android:text="@string/mode_absolute" />
+                        android:text="@string/mode_name_absolute" />
 
                     <RadioButton
                         android:id="@+id/radioModeSoftware"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:minHeight="36dp"
-                        android:text="@string/mode_software" />
+                        android:text="@string/mode_name_software" />
                 </RadioGroup>
 
                 <TextView
@@ -271,190 +241,129 @@
                     android:text="@string/mode_hint"
                     android:textSize="12sp" />
 
-                <TextView
-                    android:id="@+id/tvAvrcpSummary"
+                <!-- 编辑标签：仅决定当前查看/编辑哪个模式的范围，不影响蓝牙生效模式 -->
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/tabsRange"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:textSize="13sp" />
+                    app:tabGravity="fill"
+                    app:tabMode="fixed">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/sec_curve"
-                    android:textStyle="bold" />
-
-                <RadioGroup
-                    android:id="@+id/radioCurveType"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="vertical">
-
-                    <RadioButton
-                        android:id="@+id/radioCurveLog"
-                        android:layout_width="match_parent"
+                    <com.google.android.material.tabs.TabItem
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:minHeight="36dp"
-                        android:text="@string/curve_log" />
+                        android:text="@string/tab_mode_a" />
 
-                    <RadioButton
-                        android:id="@+id/radioCurveLinear"
-                        android:layout_width="match_parent"
+                    <com.google.android.material.tabs.TabItem
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:minHeight="36dp"
-                        android:text="@string/curve_linear" />
+                        android:text="@string/tab_mode_b" />
 
-                    <RadioButton
-                        android:id="@+id/radioCurveSqrt"
-                        android:layout_width="match_parent"
+                    <com.google.android.material.tabs.TabItem
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:minHeight="36dp"
-                        android:text="@string/curve_sqrt" />
-                </RadioGroup>
+                        android:text="@string/target_wired" />
+                </com.google.android.material.tabs.TabLayout>
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:alpha="0.7"
-                    android:text="@string/curve_hint"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tvMinAbs"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textSize="14sp" />
-
-                <SeekBar
-                    android:id="@+id/seekMinAbs"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="127" />
-
-                <TextView
-                    android:id="@+id/tvMaxAbs"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="14sp" />
-
-                <SeekBar
-                    android:id="@+id/seekMaxAbs"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="127" />
-
-                <TextView
-                    android:id="@+id/tvRangeHint"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:alpha="0.7"
-                    android:text="@string/range_hint"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tvRangeMapping"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:fontFamily="monospace"
-                    android:textSize="11sp" />
-                </LinearLayout>
-
-                <!-- 有线耳机（耳机模式）音量范围 -->
+                <!-- 共享范围编辑器：曲线 + 最小/最大滑条 + 预览，随当前标签绑定对应 VolumeMode -->
                 <LinearLayout
-                    android:id="@+id/groupWiredRange"
+                    android:id="@+id/groupRangeEditor"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:alpha="0.7"
-                    android:text="@string/wired_hint"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tvWiredSummary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:textSize="13sp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/sec_curve"
-                    android:textStyle="bold" />
-
-                <RadioGroup
-                    android:id="@+id/radioCurveWType"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
                     android:orientation="vertical">
 
-                    <RadioButton
-                        android:id="@+id/radioCurveWLog"
+                    <TextView
+                        android:id="@+id/tvSummary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="36dp"
-                        android:text="@string/curve_log" />
+                        android:layout_marginTop="10dp"
+                        android:textSize="13sp" />
 
-                    <RadioButton
-                        android:id="@+id/radioCurveWLinear"
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/sec_curve"
+                        android:textStyle="bold" />
+
+                    <RadioGroup
+                        android:id="@+id/radioCurveType"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="36dp"
-                        android:text="@string/curve_linear" />
+                        android:layout_marginTop="4dp"
+                        android:orientation="vertical">
 
-                    <RadioButton
-                        android:id="@+id/radioCurveWSqrt"
+                        <RadioButton
+                            android:id="@+id/radioCurveLog"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="36dp"
+                            android:text="@string/curve_log" />
+
+                        <RadioButton
+                            android:id="@+id/radioCurveLinear"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="36dp"
+                            android:text="@string/curve_linear" />
+
+                        <RadioButton
+                            android:id="@+id/radioCurveSqrt"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:minHeight="36dp"
+                            android:text="@string/curve_sqrt" />
+                    </RadioGroup>
+
+                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="36dp"
-                        android:text="@string/curve_sqrt" />
-                </RadioGroup>
+                        android:layout_marginTop="2dp"
+                        android:alpha="0.7"
+                        android:text="@string/curve_hint"
+                        android:textSize="12sp" />
 
-                <TextView
-                    android:id="@+id/tvMinW"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textSize="14sp" />
+                    <TextView
+                        android:id="@+id/tvMinAbs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:textSize="14sp" />
 
-                <SeekBar
-                    android:id="@+id/seekMinW"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="127" />
+                    <SeekBar
+                        android:id="@+id/seekMinAbs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:max="127" />
 
-                <TextView
-                    android:id="@+id/tvMaxW"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="14sp" />
+                    <TextView
+                        android:id="@+id/tvMaxAbs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp" />
 
-                <SeekBar
-                    android:id="@+id/seekMaxW"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="127" />
+                    <SeekBar
+                        android:id="@+id/seekMaxAbs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:max="127" />
 
-                <TextView
-                    android:id="@+id/tvWMapping"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:fontFamily="monospace"
-                    android:textSize="11sp" />
+                    <TextView
+                        android:id="@+id/tvRangeHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:alpha="0.7"
+                        android:text="@string/range_hint"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/tvRangeMapping"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:fontFamily="monospace"
+                        android:textSize="11sp" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

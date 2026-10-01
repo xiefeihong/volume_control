@@ -9,13 +9,13 @@ import android.media.AudioManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.View;
 import android.widget.SeekBar;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.google.android.material.tabs.TabLayout;
 import com.xiefeihong.volumecontrol.databinding.ActivityMainBinding;
 
 import java.util.ArrayList;
@@ -24,8 +24,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 主界面：设置媒体音量档位（15~29）、选择蓝牙音量模式与音量范围。
- * 设置变更后自动保存；重启蓝牙 / 系统框架使其生效。
+ * 主界面：设置媒体音量档位、选择蓝牙生效模式（A/B）与查看/编辑各模式音量范围。
+ *
+ * <p>音量范围卡片以 {@link TabLayout} 三个标签（模式A / 模式B / 有线耳机）切换「当前
+ * 编辑哪个范围」，共享同一组曲线/滑条/预览控件，按 {@link VolumeMode} 各自的键读写；
+ * 各模式的值互不干扰。蓝牙生效模式（btMode）由独立的单选控件决定，切换仅保存、不实时
+ * 生效。所有变更自动写入 Settings.Global，重启蓝牙 / 系统框架使其生效。</p>
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -43,11 +47,14 @@ public class MainActivity extends AppCompatActivity {
     private final Runnable autoSaveRunnable = () -> saveToSystem(null);
 
     /**
-     * 程序化载入/切换模式期间置为 true，抑制所有监听回调。
-     * 否则 setProgress/check 会触发 persistToPrefs，把当前 radio（仍属旧模式）的值
-     * 写进新模式的键，导致模式A/B 的曲线、范围相互污染。
+     * 程序化把某模式的值载入共享控件期间置为 true，抑制所有监听回调。
+     * 否则 setProgress/check 会触发 onConfigChanged → persistToPrefs，把载入中的旧值
+     * 误写进当前编辑模式的键。
      */
     private boolean suppressListeners = false;
+
+    /** 当前标签对应编辑/查看的音量模式（ABSOLUTE / SOFTWARE / WIRED）。 */
+    private VolumeMode editingMode = VolumeMode.ABSOLUTE;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,11 +63,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         prefs = Prefs.get(this);
-        // 设备切换分段按钮无 XML checked 属性，显式初始化默认「蓝牙」（先于监听注册，避免多余回调）。
-        binding.toggleRangeTarget.check(R.id.toggleTargetBt);
         setupListeners();
         loadConfigIntoUi();
-        updateRangeTargetVisibility();
         updatePreview();
         // 状态刷新交给 onResume（onCreate 后紧随一次，避免重复执行）
     }
@@ -101,55 +105,26 @@ public class MainActivity extends AppCompatActivity {
         binding.seekMediaSteps.setOnSeekBarChangeListener(listener);
         binding.seekMinAbs.setOnSeekBarChangeListener(listener);
         binding.seekMaxAbs.setOnSeekBarChangeListener(listener);
-        binding.seekMinW.setOnSeekBarChangeListener(listener);
-        binding.seekMaxW.setOnSeekBarChangeListener(listener);
 
-        binding.radioBtMode.setOnCheckedChangeListener((group, checkedId) -> {
-            if (suppressListeners) {
-                return;
-            }
-            int newMode = checkedId == R.id.radioModeSoftware
-                    ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
-            int oldMode = prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE);
-            if (oldMode != Prefs.BT_MODE_SOFTWARE) oldMode = Prefs.BT_MODE_ABSOLUTE;
-            if (newMode != oldMode) {
-                // 先保存旧模式的值（范围 + 曲线）
-                VolumeMode oldVm = VolumeMode.ofBtMode(oldMode);
-                String oldMinKey = oldVm.minKey();
-                String oldMaxKey = oldVm.maxKey();
-                String oldCurveKey = oldVm.curveKey();
-                prefs.edit()
-                        .putInt(oldMinKey, currentMinAbs())
-                        .putInt(oldMaxKey, currentMaxAbs())
-                        .putInt(oldCurveKey, currentCurveType())
-                        .apply();
-                // 加载新模式保存的值（范围 + 曲线）。抑制监听：否则 setProgress/check 会触发
-                // persistToPrefs，把此刻仍显示“旧模式曲线”的 radio 值写进新模式键，导致 A/B 曲线互相污染。
-                VolumeMode newVm = VolumeMode.ofBtMode(newMode);
-                String newMinKey = newVm.minKey();
-                String newMaxKey = newVm.maxKey();
-                String newCurveKey = newVm.curveKey();
-                suppressListeners = true;
-                binding.seekMinAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMinKey, Prefs.ABS_VOLUME_MIN_DEFAULT)));
-                binding.seekMaxAbs.setProgress(Prefs.clampAbs(prefs.getInt(newMaxKey, Prefs.ABS_VOLUME_MAX_DEFAULT)));
-                binding.radioCurveType.check(curveRadioId(Prefs.clampCurve(
-                        prefs.getInt(newCurveKey, Prefs.CURVE_TYPE_DEFAULT))));
-                suppressListeners = false;
-            }
-            onConfigChanged();
-        });
+        // 蓝牙生效模式：独立于编辑标签，切换只写 btMode 并保存，不改动范围控件、不实时生效。
+        binding.radioBtMode.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
         binding.radioCurveType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
-        binding.radioCurveWType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
-
-        // 蓝牙 / 有线耳机 分段按钮：仅切换音量范围卡片内两组控件的可见性，不改变任何配置值。
-        binding.toggleRangeTarget.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
-            if (!isChecked) {
-                return;
+        // 编辑标签：切换当前编辑/查看哪个模式的范围（先保存离开的值，再载入新模式的值）。
+        binding.tabsRange.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                switchEditingTab(tab.getPosition());
             }
-            updateRangeTargetVisibility();
-            updatePreview();
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {
+            }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
+            }
         });
 
         binding.btnRefresh.setOnClickListener(v -> refreshStatus());
@@ -169,20 +144,7 @@ public class MainActivity extends AppCompatActivity {
         binding.btnReset.setOnClickListener(v -> new AlertDialog.Builder(this)
                 .setTitle(R.string.dlg_reset_title)
                 .setMessage(getString(R.string.dlg_reset_msg, systemDefaultStepsRaw()))
-                .setPositiveButton(R.string.dlg_ok, (dialog, which) -> {
-                    binding.switchEnable.setChecked(false);
-                    setMediaSteps(systemDefaultSteps());
-                    binding.radioBtMode.check(R.id.radioModeAbsolute);
-                    binding.radioCurveType.check(R.id.radioCurveLog);
-                    binding.seekMinAbs.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
-                    binding.seekMaxAbs.setProgress(Prefs.ABS_VOLUME_MAX_DEFAULT);
-                    binding.radioCurveWType.check(R.id.radioCurveWLog);
-                    binding.seekMinW.setProgress(Prefs.ABS_VOLUME_MIN_DEFAULT);
-                    binding.seekMaxW.setProgress(Prefs.ABS_VOLUME_MAX_DEFAULT);
-                    mainHandler.removeCallbacks(autoSaveRunnable);
-                    saveToSystem(() -> Toast.makeText(this, R.string.toast_reset_done,
-                            Toast.LENGTH_LONG).show());
-                })
+                .setPositiveButton(R.string.dlg_ok, (dialog, which) -> resetToDefaults())
                 .setNegativeButton(R.string.dlg_cancel, null)
                 .show());
     }
@@ -192,34 +154,75 @@ public class MainActivity extends AppCompatActivity {
         boolean enabled = prefs.getBoolean(Prefs.KEY_ENABLED, false);
         int mediaSteps = Prefs.clampMediaSteps(
                 prefs.getInt(Prefs.KEY_MEDIA_STEPS, systemDefaultSteps()));
-        int btMode = prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE);
-        if (btMode != Prefs.BT_MODE_SOFTWARE) btMode = Prefs.BT_MODE_ABSOLUTE;
-
-        // 根据当前模式加载对应的音量范围
-        VolumeMode loadVm = VolumeMode.ofBtMode(btMode);
-        String minKey = loadVm.minKey();
-        String maxKey = loadVm.maxKey();
-        int minAbs = Prefs.clampAbs(prefs.getInt(minKey, Prefs.ABS_VOLUME_MIN_DEFAULT));
-        int maxAbs = Prefs.clampAbs(prefs.getInt(maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT));
+        int btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
 
         binding.switchEnable.setChecked(enabled);
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
         binding.radioBtMode.check(btMode == Prefs.BT_MODE_SOFTWARE
                 ? R.id.radioModeSoftware : R.id.radioModeAbsolute);
-        binding.seekMinAbs.setProgress(minAbs);
-        binding.seekMaxAbs.setProgress(maxAbs);
-        String curveKey = loadVm.curveKey();
-        int curveType = Prefs.clampCurve(prefs.getInt(curveKey, Prefs.CURVE_TYPE_DEFAULT));
-        binding.radioCurveType.check(curveRadioId(curveType));
 
-        // 耳机模式（有线+外放）独立范围与曲线
-        int minW = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MIN_ABS_W, Prefs.ABS_VOLUME_MIN_DEFAULT));
-        int maxW = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MAX_ABS_W, Prefs.ABS_VOLUME_MAX_DEFAULT));
-        binding.seekMinW.setProgress(minW);
-        binding.seekMaxW.setProgress(maxW);
-        int curveW = Prefs.clampCurve(prefs.getInt(Prefs.KEY_CURVE_TYPE_W, Prefs.CURVE_TYPE_DEFAULT));
-        binding.radioCurveWType.check(curveWRadioId(curveW));
+        // 初始编辑标签 = 当前蓝牙生效模式（A/B）；有线范围需用户手动切到该标签调整。
+        editingMode = VolumeMode.ofBtMode(btMode);
+        binding.tabsRange.selectTab(binding.tabsRange.getTabAt(modeToTab(editingMode)));
+        loadRangeIntoUi();
         suppressListeners = false;
+    }
+
+    /**
+     * 按 {@link #editingMode} 从 prefs 读取该模式保存的最小/最大/曲线，载入共享控件。
+     * 调用方负责在 {@code suppressListeners == true} 下调用，避免触发写回。
+     */
+    private void loadRangeIntoUi() {
+        int min = Prefs.clampAbs(prefs.getInt(editingMode.minKey(), Prefs.ABS_VOLUME_MIN_DEFAULT));
+        int max = Prefs.clampAbs(prefs.getInt(editingMode.maxKey(), Prefs.ABS_VOLUME_MAX_DEFAULT));
+        int curve = Prefs.clampCurve(
+                prefs.getInt(editingMode.curveKey(), Prefs.CURVE_TYPE_DEFAULT));
+        binding.seekMinAbs.setProgress(min);
+        binding.seekMaxAbs.setProgress(max);
+        binding.radioCurveType.check(curveRadioId(curve));
+    }
+
+    /** 切换到 index 对应的编辑标签：先保存离开标签的当前值，再载入新模式的值与预览。 */
+    private void switchEditingTab(int index) {
+        VolumeMode target = tabToMode(index);
+        if (suppressListeners) {
+            // 载入/初始阶段（selectTab 触发）：仅切换 editingMode，不回写、不重复载入。
+            editingMode = target;
+            return;
+        }
+        suppressListeners = true;
+        persistToPrefs(false);
+        editingMode = target;
+        loadRangeIntoUi();
+        updatePreview();
+        suppressListeners = false;
+    }
+
+    /** 标签 index → 编辑模式（0=模式A，1=模式B，2=有线耳机）。 */
+    private VolumeMode tabToMode(int index) {
+        if (index == 1) {
+            return VolumeMode.SOFTWARE;
+        }
+        if (index == 2) {
+            return VolumeMode.WIRED;
+        }
+        return VolumeMode.ABSOLUTE;
+    }
+
+    /** 编辑模式 → 标签 index。 */
+    private int modeToTab(VolumeMode mode) {
+        if (mode == VolumeMode.SOFTWARE) {
+            return 1;
+        }
+        if (mode == VolumeMode.WIRED) {
+            return 2;
+        }
+        return 0;
+    }
+
+    /** 归一化蓝牙模式 id：非软件模式一律视为模式A。 */
+    private int normalizeBtMode(int btMode) {
+        return btMode == Prefs.BT_MODE_SOFTWARE ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
     }
 
     // ==================== 配置计算与预览 ====================
@@ -229,13 +232,13 @@ public class MainActivity extends AppCompatActivity {
         return Prefs.MEDIA_STEPS_MIN + binding.seekMediaSteps.getProgress();
     }
 
-    /** 当前选择的蓝牙音量控制模式。 */
+    /** 「蓝牙生效模式」单选当前选中的模式（独立于编辑标签）。 */
     private int currentBtMode() {
         return binding.radioBtMode.getCheckedRadioButtonId() == R.id.radioModeSoftware
                 ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
     }
 
-    /** 当前模式选中的映射曲线类型（Mode A/B 各自独立）。 */
+    /** 共享控件当前选中的映射曲线类型（恒代表 {@link #editingMode}）。 */
     private int currentCurveType() {
         int id = binding.radioCurveType.getCheckedRadioButtonId();
         if (id == R.id.radioCurveLinear) return Prefs.CURVE_LINEAR;
@@ -250,51 +253,14 @@ public class MainActivity extends AppCompatActivity {
         return R.id.radioCurveLog;
     }
 
-    /** 当前音量范围下限（自动保证 下限 <= 上限）。 */
+    /** 共享控件当前音量范围下限（自动保证 下限 <= 上限；恒代表 {@link #editingMode}）。 */
     private int currentMinAbs() {
         return Math.min(binding.seekMinAbs.getProgress(), binding.seekMaxAbs.getProgress());
     }
 
-    /** 当前音量范围上限（自动保证 上限 >= 下限）。 */
+    /** 共享控件当前音量范围上限（自动保证 上限 >= 下限；恒代表 {@link #editingMode}）。 */
     private int currentMaxAbs() {
         return Math.max(binding.seekMinAbs.getProgress(), binding.seekMaxAbs.getProgress());
-    }
-
-    /** 耳机模式当前映射曲线类型（独立于 A/B）。 */
-    private int currentCurveW() {
-        int id = binding.radioCurveWType.getCheckedRadioButtonId();
-        if (id == R.id.radioCurveWLinear) return Prefs.CURVE_LINEAR;
-        if (id == R.id.radioCurveWSqrt) return Prefs.CURVE_SQRT;
-        return Prefs.CURVE_LOG;
-    }
-
-    /** 耳机模式曲线类型 → RadioButton id。 */
-    private int curveWRadioId(int curveType) {
-        if (curveType == Prefs.CURVE_LINEAR) return R.id.radioCurveWLinear;
-        if (curveType == Prefs.CURVE_SQRT) return R.id.radioCurveWSqrt;
-        return R.id.radioCurveWLog;
-    }
-
-    /** 耳机模式当前音量范围下限（自动保证 下限 <= 上限）。 */
-    private int currentMinW() {
-        return Math.min(binding.seekMinW.getProgress(), binding.seekMaxW.getProgress());
-    }
-
-    /** 耳机模式当前音量范围上限（自动保证 上限 >= 下限）。 */
-    private int currentMaxW() {
-        return Math.max(binding.seekMinW.getProgress(), binding.seekMaxW.getProgress());
-    }
-
-    /** 当前选中的是「有线耳机」选项卡（否则为「蓝牙」）。 */
-    private boolean isWiredTarget() {
-        return binding.toggleRangeTarget.getCheckedButtonId() == R.id.toggleTargetWired;
-    }
-
-    /** 根据选项卡切换蓝牙 / 有线两组音量范围控件的可见性。 */
-    private void updateRangeTargetVisibility() {
-        boolean wired = isWiredTarget();
-        binding.groupBtRange.setVisibility(wired ? View.GONE : View.VISIBLE);
-        binding.groupWiredRange.setVisibility(wired ? View.VISIBLE : View.GONE);
     }
 
     /** 系统原生媒体档位数（首次捕获值）；未捕获时回退 MEDIA_STEPS_DEFAULT。 */
@@ -337,43 +303,35 @@ public class MainActivity extends AppCompatActivity {
                 Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
         binding.tvRangeHint.setText(getString(R.string.range_hint));
 
-        int btMode = currentBtMode();
         int curveType = currentCurveType();
-        binding.tvAvrcpSummary.setText(
-                Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType));
-        binding.tvRangeMapping.setText(
-                Avrcp.buildMappingTable(mediaSteps, btMode, minAbs, maxAbs, curveType));
-
-        // 耳机模式（有线+外放）范围标签与映射表
-        int minW = currentMinW();
-        int maxW = currentMaxW();
-        binding.tvMinW.setText(getString(R.string.label_min_abs_fmt, minW,
-                Math.round(minW * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
-        binding.tvMaxW.setText(getString(R.string.label_max_abs_fmt, maxW,
-                Math.round(maxW * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
-        binding.tvWiredSummary.setText(
-                Avrcp.buildWiredPreview(mediaSteps, minW, maxW, currentCurveW()));
-        binding.tvWMapping.setText(
-                Avrcp.buildWiredMappingTable(mediaSteps, minW, maxW, currentCurveW()));
+        if (editingMode == VolumeMode.WIRED) {
+            binding.tvSummary.setText(
+                    Avrcp.buildWiredPreview(mediaSteps, minAbs, maxAbs, curveType));
+            binding.tvRangeMapping.setText(
+                    Avrcp.buildWiredMappingTable(mediaSteps, minAbs, maxAbs, curveType));
+        } else {
+            int btMode = editingMode.modeId();
+            binding.tvSummary.setText(
+                    Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType));
+            binding.tvRangeMapping.setText(
+                    Avrcp.buildMappingTable(mediaSteps, btMode, minAbs, maxAbs, curveType));
+        }
     }
 
     // ==================== 持久化与写入系统 ====================
 
+    /**
+     * 把共享控件当前值写入 {@link #editingMode} 自己的键，外加启用开关、媒体档位、蓝牙生效模式。
+     * 其余两个模式的范围值保持 prefs 中已存值不动（切换标签时才各自载入/写回）。
+     */
     private void persistToPrefs(boolean synchronous) {
-        int mode = currentBtMode();
-        VolumeMode vm = VolumeMode.ofBtMode(mode);
-        String minKey = vm.minKey();
-        String maxKey = vm.maxKey();
         SharedPreferences.Editor editor = prefs.edit()
                 .putBoolean(Prefs.KEY_ENABLED, binding.switchEnable.isChecked())
                 .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
-                .putInt(Prefs.KEY_BT_MODE, mode)
-                .putInt(minKey, currentMinAbs())
-                .putInt(maxKey, currentMaxAbs())
-                .putInt(vm.curveKey(), currentCurveType())
-                .putInt(Prefs.KEY_MIN_ABS_W, currentMinW())
-                .putInt(Prefs.KEY_MAX_ABS_W, currentMaxW())
-                .putInt(Prefs.KEY_CURVE_TYPE_W, currentCurveW());
+                .putInt(Prefs.KEY_BT_MODE, currentBtMode())
+                .putInt(editingMode.minKey(), currentMinAbs())
+                .putInt(editingMode.maxKey(), currentMaxAbs())
+                .putInt(editingMode.curveKey(), currentCurveType());
         if (synchronous) {
             editor.commit();
         } else {
@@ -381,33 +339,24 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /** 由 prefs 中的三套范围 + 全局字段构造序列化配置（persistToPrefs 后调用，恒为最新）。 */
     private String currentConfigString() {
-        int mode = currentBtMode();
-        // 读取两个模式各自的范围值
-        int minA = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MIN_ABS_A, Prefs.ABS_VOLUME_MIN_DEFAULT));
-        int maxA = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MAX_ABS_A, Prefs.ABS_VOLUME_MAX_DEFAULT));
-        int minB = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MIN_ABS_B, Prefs.ABS_VOLUME_MIN_DEFAULT));
-        int maxB = Prefs.clampAbs(prefs.getInt(Prefs.KEY_MAX_ABS_B, Prefs.ABS_VOLUME_MAX_DEFAULT));
-        int curveA = Prefs.clampCurve(
-                prefs.getInt(Prefs.KEY_CURVE_TYPE_A, Prefs.CURVE_TYPE_DEFAULT));
-        int curveB = Prefs.clampCurve(
-                prefs.getInt(Prefs.KEY_CURVE_TYPE_B, Prefs.CURVE_TYPE_DEFAULT));
-        // 当前模式的值用界面实时值（可能尚未保存到 prefs）
-        if (mode == Prefs.BT_MODE_SOFTWARE) {
-            minB = currentMinAbs(); maxB = currentMaxAbs();
-            curveB = currentCurveType();
-        } else {
-            minA = currentMinAbs(); maxA = currentMaxAbs();
-            curveA = currentCurveType();
-        }
-        // 耳机模式（有线+外放）恒独立，直接用界面实时值
-        int minW = currentMinW();
-        int maxW = currentMaxW();
-        int curveW = currentCurveW();
-        return new VolumeConfig(binding.switchEnable.isChecked(), currentMediaSteps(),
-                mode, new VolumeConfig.Range(minA, maxA, curveA),
-                new VolumeConfig.Range(minB, maxB, curveB),
-                new VolumeConfig.Range(minW, maxW, curveW)).toRaw();
+        boolean enabled = prefs.getBoolean(Prefs.KEY_ENABLED, false);
+        int mediaSteps = Prefs.clampMediaSteps(
+                prefs.getInt(Prefs.KEY_MEDIA_STEPS, systemDefaultSteps()));
+        int btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
+        return new VolumeConfig(enabled, mediaSteps, btMode,
+                readRangeFromPrefs(VolumeMode.ABSOLUTE),
+                readRangeFromPrefs(VolumeMode.SOFTWARE),
+                readRangeFromPrefs(VolumeMode.WIRED)).toRaw();
+    }
+
+    /** 从 prefs 读取某模式的最小/最大/曲线三元组。 */
+    private VolumeConfig.Range readRangeFromPrefs(VolumeMode mode) {
+        int min = Prefs.clampAbs(prefs.getInt(mode.minKey(), Prefs.ABS_VOLUME_MIN_DEFAULT));
+        int max = Prefs.clampAbs(prefs.getInt(mode.maxKey(), Prefs.ABS_VOLUME_MAX_DEFAULT));
+        int curve = Prefs.clampCurve(prefs.getInt(mode.curveKey(), Prefs.CURVE_TYPE_DEFAULT));
+        return new VolumeConfig.Range(min, max, curve);
     }
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
@@ -475,6 +424,30 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /** 关闭模块并恢复默认档位、模式A、以及三种模式各自默认音量范围，随后保存。 */
+    private void resetToDefaults() {
+        binding.switchEnable.setChecked(false);
+        setMediaSteps(systemDefaultSteps());
+        suppressListeners = true;
+        binding.radioBtMode.check(R.id.radioModeAbsolute);
+        // 三种模式（A/B/有线）范围全部回到默认，写入 prefs
+        for (VolumeMode mode : VolumeMode.values()) {
+            prefs.edit()
+                    .putInt(mode.minKey(), Prefs.ABS_VOLUME_MIN_DEFAULT)
+                    .putInt(mode.maxKey(), Prefs.ABS_VOLUME_MAX_DEFAULT)
+                    .putInt(mode.curveKey(), Prefs.CURVE_TYPE_DEFAULT)
+                    .apply();
+        }
+        editingMode = VolumeMode.ofBtMode(Prefs.BT_MODE_ABSOLUTE);
+        binding.tabsRange.selectTab(binding.tabsRange.getTabAt(modeToTab(editingMode)));
+        loadRangeIntoUi();
+        suppressListeners = false;
+        updatePreview();
+        mainHandler.removeCallbacks(autoSaveRunnable);
+        saveToSystem(() -> Toast.makeText(this, R.string.toast_reset_done,
+                Toast.LENGTH_LONG).show());
+    }
+
     /** 保存配置并重启蓝牙（音量模式 / 音量范围修改后的生效方式，不重启系统框架）。 */
     private void restartBluetoothNow() {
         Toast.makeText(this, R.string.toast_bt_restarting, Toast.LENGTH_LONG).show();
@@ -531,9 +504,9 @@ public class MainActivity extends AppCompatActivity {
                             .putInt(Prefs.KEY_BT_MODE, globalConfig.btMode)
                             .putInt(Prefs.KEY_MIN_ABS_A, globalConfig.absolute.min)
                             .putInt(Prefs.KEY_MAX_ABS_A, globalConfig.absolute.max)
+                            .putInt(Prefs.KEY_CURVE_TYPE_A, globalConfig.absolute.curve)
                             .putInt(Prefs.KEY_MIN_ABS_B, globalConfig.software.min)
                             .putInt(Prefs.KEY_MAX_ABS_B, globalConfig.software.max)
-                            .putInt(Prefs.KEY_CURVE_TYPE_A, globalConfig.absolute.curve)
                             .putInt(Prefs.KEY_CURVE_TYPE_B, globalConfig.software.curve)
                             .putInt(Prefs.KEY_MIN_ABS_W, globalConfig.wired.min)
                             .putInt(Prefs.KEY_MAX_ABS_W, globalConfig.wired.max)
