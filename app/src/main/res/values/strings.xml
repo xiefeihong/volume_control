@@ -62,10 +62,9 @@
     <string name="dlg_ok">继续</string>
     <string name="dlg_cancel">取消</string>
     <string name="dlg_restart_title">重启系统框架</string>
-    <string name="dlg_restart_msg">将软重启系统框架，使媒体档位数生效（设置已自动保存）：
-
-• 屏幕会短暂黑屏，随后自动恢复
-• 正在播放的声音会中断，本应用会被关闭
+    <string name="dlg_restart_msg">将软重启系统框架，使媒体档位数生效：\n\n
+• 屏幕会短暂黑屏，随后自动恢复 \n
+• 正在播放的声音会中断，本应用会被关闭 \n
 • 耗时约 5~30 秒</string>
     <string name="dlg_reset_title">恢复系统默认</string>
     <string name="dlg_reset_msg">将关闭模块并恢复系统默认档位（%1$d 档）、模式A 与默认音量范围，并立即保存。媒体档位数需点「重启系统框架」后恢复。确定继续吗？</string>

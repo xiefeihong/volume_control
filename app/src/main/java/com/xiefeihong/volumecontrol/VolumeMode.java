@@ -65,23 +65,33 @@ public enum VolumeMode {
 
     /**
      * 判断 setStreamVolumeIndex 的 device 是否为蓝牙输出。
-     * 采用「白名单非蓝牙才 remap」策略：仅识别 AudioSystem DEVICE_OUT 位掩码的蓝牙段（SCO+A2DP+BLE）。
-     * 校验提示：若运行时日志显示 device 为小整数（如 speaker=2/wired=3~4、A2DP=8），
-     * 则 device 实为 AudioDeviceInfo type，需改用蓝牙类型集 {7,8,26,27,30}。
+     *
+     * <p>采用 AudioSystem {@code DEVICE_OUT} 位掩码白名单（实测日志 device 为该位掩码：
+     * 如 0x80=128→A2DP、0x10=16→SCO、0x4=4→有线耳麦），仅当命中蓝牙输出位才返回 true。</p>
+     *
+     * <p>蓝牙输出位：SCO 0x10/0x20/0x40、A2DP 0x80/0x100/0x200、
+     * BLE Headset/Speaker/Broadcast 0x800000/0x1000000/0x2000000。</p>
      */
     public static boolean isBluetoothOutput(int device) {
-        // DEVICE_OUT: SCO 0x40/0x80/0x100 + A2DP 0x200/0x400/0x800 = 0xFC0；BLE 输出高位段
-        final int btMask = 0xFC0 | 0x1C000;
+        final int btMask = 0x70 /* SCO */ | 0x380 /* A2DP */ | 0x3800000 /* BLE */;
         return (device & btMask) != 0;
     }
 
-    /** 是否为可识别的有线耳机/外放扬声器 device-out（耳机模式白名单）。 */
+    /**
+     * 是否为可识别的有线耳机/外放扬声器 device-out（耳机模式白名单）。
+     *
+     * <p>覆盖：受话器 0x1、内置扬声器 0x2、有线耳麦 0x4、有线耳机 0x8、
+     * 模拟/数字底座 0x800/0x1000、USB 附件/设备 0x2000/0x4000、线路输出 0x20000。
+     * 蓝牙优先排除（见 {@link #isBluetoothOutput}）。</p>
+     */
     public static boolean isWiredOrSpeakerOutput(int device) {
         if (isBluetoothOutput(device)) {
             return false;
         }
-        // EARPIECE 0x1 | SPEAKER 0x2 | WIRED_HEADPHONE 0x4 | HEADPHONES 0x8 | WIRED_HEADSET 0x10
-        final int wiredMask = 0x1 | 0x2 | 0x4 | 0x8 | 0x10;
+        final int wiredMask = 0x1 | 0x2 | 0x4 | 0x8 /* earpiece/speaker/wired */
+                | 0x800 | 0x1000 /* analog/digital dock */
+                | 0x2000 | 0x4000 /* usb accessory/device */
+                | 0x20000 /* line */;
         return (device & wiredMask) != 0;
     }
 
