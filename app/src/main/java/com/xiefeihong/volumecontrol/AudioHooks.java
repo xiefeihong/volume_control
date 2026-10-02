@@ -123,6 +123,11 @@ final class AudioHooks {
             hookSoftwareVolumeCurve(classLoader, module);
             hookAbsoluteVolumeSuppression(classLoader, module);
 
+            // 诊断（临时，用于实测媒体流真实可分辨级数）：读取 dB 表长度 +
+            // 只读观测 system_server→audioserver 边界收到的 index。
+            probeMediaVolumeTable();
+            hookAudioSystemIndexProbe(classLoader, module);
+
             // 立即读取配置填充属性拦截缓存（此时 SettingsProvider 未就绪，
             // 镜像文件通道可读）；失败由属性回调与开机校正重试。
             int steps = refreshMediaStepsOverride();
@@ -616,6 +621,85 @@ final class AudioHooks {
         }
     }
 
+    // ==================== 诊断（临时）：实测媒体流真实可分辨级数 ====================
+
+    /**
+     * 诊断：读取并打印媒体流 dB/音量表静态字段长度——若存在且长度远大于档位数，
+     * 说明底层真有更细的可分辨级（支持 0~127 精细直控）；若长度==档位数或字段不存在，
+     * 说明真实级数受档位数约束。
+     */
+    private static void probeMediaVolumeTable() {
+        Class<?> clazz = sAudioServiceClass;
+        if (clazz == null) {
+            XposedKit.logError("probe: AudioService class not resolved");
+            return;
+        }
+        final String[] candidates = {
+                "msStreamMediaVolume", "mStreamVolumeDB", "MSStreamVolumeDBs",
+                "mStreamVolumeDbLevel", "mMediaVolumeDbCs"};
+        boolean found = false;
+        for (String name : candidates) {
+            try {
+                Object v = XposedKit.getStaticField(clazz, name);
+                if (v instanceof float[]) {
+                    XposedKit.log("probe media dB table " + name + " float[] length="
+                            + ((float[]) v).length);
+                    found = true;
+                } else if (v instanceof int[]) {
+                    XposedKit.log("probe media dB table " + name + " int[] length="
+                            + ((int[]) v).length);
+                    found = true;
+                } else {
+                    XposedKit.log("probe candidate " + name + " present but not an array: " + v);
+                }
+            } catch (Throwable t) {
+                XposedKit.log("probe candidate " + name + " absent: " + t);
+            }
+        }
+        if (!found) {
+            XposedKit.log("probe media dB table: no known static table field present");
+        }
+        int[] maxVol = XposedKit.getStaticIntArrayField(clazz, FIELD_MAX_STREAM_VOLUME);
+        if (maxVol != null && Prefs.STREAM_MUSIC_INDEX >= 0
+                && Prefs.STREAM_MUSIC_INDEX < maxVol.length) {
+            XposedKit.log("probe MAX_STREAM_VOLUME[" + Prefs.STREAM_MUSIC_INDEX + "]="
+                    + maxVol[Prefs.STREAM_MUSIC_INDEX] + " (array len=" + maxVol.length + ")");
+        }
+    }
+
+    /**
+     * 诊断：只读挂载 {@code android.media.AudioSystem#setStreamVolumeIndex}，
+     * 记录媒体流每次推往 audioserver 的 index，用于判定边界粒度是档位级还是细级。
+     * 不改参数、不干扰 proceed。
+     */
+    private static void hookAudioSystemIndexProbe(ClassLoader classLoader, XposedModule module) {
+        final Class<?> audioSystem;
+        try {
+            audioSystem = classLoader.loadClass("android.media.AudioSystem");
+        } catch (Throwable t) {
+            XposedKit.logError("probe: android.media.AudioSystem not found: " + t);
+            return;
+        }
+        int hooked = XposedKit.hookAllMethodsNamed(module, audioSystem,
+                "setStreamVolumeIndex", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        try {
+                            Object streamType = chain.getArg(0);
+                            if (streamType instanceof Integer
+                                    && (Integer) streamType == Prefs.STREAM_MUSIC_INDEX) {
+                                XposedKit.log("probe AudioSystem#setStreamVolumeIndex: stream=3 index="
+                                        + chain.getArg(1) + " device=" + chain.getArg(2));
+                            }
+                        } catch (Throwable t) {
+                            XposedKit.logErrorOnce("probe-as", "AudioSystem probe error: " + t);
+                        }
+                        return chain.proceed();
+                    }
+                });
+        XposedKit.log("probe hook android.media.AudioSystem#setStreamVolumeIndex: " + hooked);
+    }
+
     /**
      * 模式B 软件衰减曲线映射：
      * {@code VolumeStreamState#setStreamVolumeIndex(index, device)} 是档位应用必经点。
@@ -691,7 +775,8 @@ final class AudioHooks {
                 if (mapped == index) {
                     return chain.proceed();
                 }
-                if (index != sLastLoggedSystemIndex) {
+                final boolean logProbe = index != sLastLoggedSystemIndex;
+                if (logProbe) {
                     sLastLoggedSystemIndex = index;
                     XposedKit.log("vol remap: " + index + "/" + maxSteps
                             + " -> " + mapped + " (range=" + minAbs + "~" + maxAbs
@@ -700,6 +785,19 @@ final class AudioHooks {
                 Object[] newArgs = args.toArray();
                 newArgs[0] = mapped;
                 chain.proceed(newArgs); // HAL 应用重映射后的增益（升/降）
+                // 诊断：记录 proceed 后 mIndexMap 实际存储值，验证 ×10 细索引是否真被写入。
+                if (logProbe) {
+                    try {
+                        Object probeMap = XposedKit.getField(state, "mIndexMap");
+                        if (probeMap instanceof Map) {
+                            XposedKit.log("vol remap stored: mapped=" + mapped
+                                    + " mIndexMap[" + device + "]="
+                                    + ((Map<?, ?>) probeMap).get(device));
+                        }
+                    } catch (Throwable t) {
+                        XposedKit.logErrorOnce("probe-stored", "read mIndexMap after proceed failed: " + t);
+                    }
+                }
                 // 恢复 mIndexMap 中的原始档位，避免 getStreamVolume 读回 remapped
                 // 后二次映射导致音量卡死（VOL_UP 无效）
                 try {

@@ -62,27 +62,23 @@ public final class Avrcp {
     }
 
     /**
-     * 正向曲线的连续值：step → [lo,hi] 区间内的浮点音量。三曲线共用 logRange 的 lo/hi（min=0 时含 15% 自适应下限）。
+     * 正向曲线：step → [lo,hi] 区间内的音量值。三曲线共用 logRange 的 lo/hi（min=0 时含 15% 自适应下限）。
      * {@code e=(step-1)/(maxSteps-1)}：线性 {@code lo+(hi-lo)·e}；平方根 {@code lo+(hi-lo)·√e}；对数 {@code lo·(hi/lo)^e}。
      */
-    private static double curveFloat(int step, int maxSteps, int lo, int hi, int curveType) {
+    private static int applyCurve(int step, int maxSteps, int lo, int hi, int curveType) {
         // 退化（maxSteps<=1 或 min>=max）：直接输出上限
         if (maxSteps <= 1 || hi <= lo) {
-            return hi;
+            return Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, hi));
         }
         double e = Math.max(0.0, Math.min(1.0, (double) (step - 1) / (maxSteps - 1)));
+        double value;
         if (curveType == Prefs.CURVE_LINEAR) {
-            return lo + (hi - lo) * e;
+            value = lo + (hi - lo) * e;
         } else if (curveType == Prefs.CURVE_SQRT) {
-            return lo + (hi - lo) * Math.sqrt(e);
+            value = lo + (hi - lo) * Math.sqrt(e);
         } else { // CURVE_LOG
-            return lo * Math.pow((double) hi / lo, e);
+            value = lo * Math.pow((double) hi / lo, e);
         }
-    }
-
-    /** {@link #curveFloat} 的四舍五入取整并夹到 0~127（模式A 的 AVRCP 绝对音量域使用）。 */
-    private static int applyCurve(int step, int maxSteps, int lo, int hi, int curveType) {
-        double value = curveFloat(step, maxSteps, lo, hi, curveType);
         return (int) Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, Math.round(value)));
     }
 
@@ -131,139 +127,21 @@ public final class Avrcp {
     }
 
     /**
-     * 模式B / 耳机模式映射：手机档位 → 衰减后的系统音量档位（0~maxSteps）。
+     * 模式B 映射：与模式A 相同曲线——手机档位经 {@link #curveToAbsoluteVolume}
+     * 映射为 AVRCP 值，再换算回系统音量档位（{@code avrcp / 127 * maxSteps}）。
      *
-     * <p>采用「保留下限的单调量化」（{@link #buildSystemIndexTable}）而非旧的双重取整
-     * （step→AVRCP 整数→系统整数）：在 [loSys,hiSys] 系统域上直接按曲线单重量化，
-     * 保证首档精确落在可闻下限、末档精确落在上限；只要系统域还有空位就严格逐档 +1（低/中区
-     * 不重复），鸽笼原理不可避免的重复统一堆到高音量顶端（听感最不敏感处）。</p>
-     *
-     * <p>注：当 {@code maxAbs<127} 时可达顶档被压缩，重复属数学上不可消除（仅能均匀化）；
-     * 要彻底避免只能提高档位数或把最大音量设为 127。档位 0 恒为静音。</p>
+     * <p>双模式曲线统一；maxAbs&lt;127 时最高系统档位被压缩（滑块上限受限），
+     * 为软件衰减固有行为。档位 0 恒为静音。</p>
      */
     public static int curveToSystemIndex(int step, int maxSteps, int minAbs, int maxAbs,
             int curveType) {
         if (maxSteps <= 0 || step <= 0) {
             return 0;
         }
-        int[] table = systemIndexTable(maxSteps, minAbs, maxAbs, curveType);
-        if (step > maxSteps) {
-            step = maxSteps;
-        }
-        return table[step];
+        int avrcp = curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
+        int value = (int) Math.round(avrcp / (double) Prefs.AVRCP_MAX_VOLUME * maxSteps);
+        return Math.max(0, Math.min(maxSteps, value));
     }
-
-    /**
-     * 当前设置下「互不相同的系统档位」数量（= {@link #buildSystemIndexTable} 表中的唯一值个数）。
-     * 用于当出现相邻重复时，提示用户“最多 N 档互不相同”。</p>
-     */
-    public static int distinctSystemSteps(int maxSteps, int minAbs, int maxAbs, int curveType) {
-        if (maxSteps <= 0) {
-            return 0;
-        }
-        int[] table = systemIndexTable(maxSteps, minAbs, maxAbs, curveType);
-        int distinct = 0;
-        int prev = -1;
-        for (int step = 1; step <= maxSteps; step++) {
-            if (table[step] != prev) {
-                distinct++;
-                prev = table[step];
-            }
-        }
-        return distinct;
-    }
-
-    /** 取映射表（带单条目缓存，键为四个入参）；预览逐档取表 + Hook 单点取表共用同一口径。 */
-    private static int[] systemIndexTable(int maxSteps, int minAbs, int maxAbs, int curveType) {
-        final int key = ((maxSteps * 131 + minAbs) * 131 + maxAbs) * 131 + curveType;
-        TableCache c = sTableCache;
-        if (c != null && c.key == key) {
-            return c.table;
-        }
-        int[] table = buildSystemIndexTable(maxSteps, minAbs, maxAbs, curveType);
-        sTableCache = new TableCache(key, table);
-        return table;
-    }
-
-    /**
-     * 构造「step → 衰减后系统档位」单调表：
-     * <ul>
-     *   <li>首档取 {@code loSys=round(lo·maxSteps/127)}（≥、1，永不压到 0 静音）；末档取 {@code hiSys=round(hi·maxSteps/127)}。</li>
-     *   <li>逐档以曲线浮点落点为基准，不低于 {@code prev+1}（优先严格递增）；并为尾部预留至少每档 +1 的空间
-     *       （{@code reserve=hiSys-(maxSteps-step)}）以免提前顶到上限；当容量不足时自然产生重复（落在顶部）。</li>
-     * </ul>
-     */
-    private static int[] buildSystemIndexTable(int maxSteps, int minAbs, int maxAbs, int curveType) {
-        int[] table = new int[maxSteps + 1];
-        if (maxSteps <= 0) {
-            return table;
-        }
-        table[0] = 0; // 静音档
-        int[] range = logRange(minAbs, maxAbs);
-        int lo = range[0];
-        int hi = range[1];
-        double scale = maxSteps / (double) Prefs.AVRCP_MAX_VOLUME;
-        int loSys = (int) Math.round(lo * scale);
-        if (loSys < 1) {
-            loSys = 1;
-        }
-        int hiSys = (int) Math.round(hi * scale);
-        if (hiSys > maxSteps) {
-            hiSys = maxSteps;
-        }
-        if (hiSys < loSys) {
-            hiSys = loSys;
-        }
-        int prev = loSys - 1;
-        for (int step = 1; step <= maxSteps; step++) {
-            int v;
-            if (step == maxSteps) {
-                v = hiSys;
-            } else {
-                int base = (int) Math.round(curveFloat(step, maxSteps, lo, hi, curveType) * scale);
-                if (base < loSys) {
-                    base = loSys;
-                }
-                if (base > hiSys) {
-                    base = hiSys;
-                }
-                int minAllowed = prev + 1;
-                v = base;
-                if (v < minAllowed) {
-                    v = minAllowed;
-                }
-                int reserve = hiSys - (maxSteps - step);
-                if (reserve >= minAllowed && v > reserve) {
-                    v = reserve;
-                }
-                if (v > hiSys) {
-                    v = hiSys;
-                }
-                if (v < loSys) {
-                    v = loSys;
-                }
-            }
-            if (v > maxSteps) {
-                v = maxSteps;
-            }
-            table[step] = v;
-            prev = v;
-        }
-        return table;
-    }
-
-    /** 映射表单条目缓存（不可变；volatile 引用替换，良性并发）。 */
-    private static final class TableCache {
-        final int key;
-        final int[] table;
-
-        TableCache(int key, int[] table) {
-            this.key = key;
-            this.table = table;
-        }
-    }
-
-    private static volatile TableCache sTableCache;
 
     /** 统计曲线映射后「相邻档位数值相同」的档位对数量（不含静音档 0）。 */
     public static int countDuplicatePairs(int maxSteps, int minAbs, int maxAbs, int curveType) {
@@ -325,9 +203,7 @@ public final class Avrcp {
             sb.append("✓ 数值无重复：各档系统音量档位互不相同\n");
         } else {
             sb.append("⚠ 有 ").append(dups)
-                    .append(" 对相邻档位映射到相同系统档位（当前最多 ")
-                    .append(distinctSystemSteps(maxSteps, minAbs, maxAbs, curveType))
-                    .append(" 档互不相同；如需消除请减少档位数或将最大音量设为 127）\n");
+                    .append(" 对相邻档位映射到相同系统档位（建议减少档位数）\n");
         }
         if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
             sb.append("最大音量：").append(maxAbs).append("（约 ").append(maxPercent)
@@ -428,9 +304,7 @@ public final class Avrcp {
             sb.append("✓ 数值无重复：各档系统音量档位互不相同\n");
         } else {
             sb.append("⚠ 有 ").append(dups)
-                    .append(" 对相邻档位映射到相同系统档位（当前最多 ")
-                    .append(distinctSystemSteps(maxSteps, minAbs, maxAbs, curveType))
-                    .append(" 档互不相同；如需消除请减少档位数或将最大音量设为 127）\n");
+                    .append(" 对相邻档位映射到相同系统档位（建议减少档位数）\n");
         }
         sb.append("第 1 档 → 系统音量 ").append(lowest).append('/').append(maxSteps);
         return sb.toString();
