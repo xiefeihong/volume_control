@@ -1,6 +1,7 @@
 package com.xiefeihong.volumecontrol;
 
 import android.content.Context;
+import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -49,6 +50,10 @@ final class AudioHooks {
     private static final String METHOD_SET_STREAM_VOLUME_INDEX = "setStreamVolumeIndex";
     private static final String METHOD_AVRCP_SUPPORTS_ABS_VOLUME = "avrcpSupportsAbsoluteVolume";
     private static final String METHOD_POST_AVRCP_VOLUME = "postSetAvrcpAbsoluteVolumeIndex";
+    /** 音量键步进：接管 adjustStreamVolume，按用户设定的 delta 重算目标级（仅媒体、仅按键）。 */
+    private static final String METHOD_ADJUST_STREAM_VOLUME = "adjustStreamVolume";
+    private static final String METHOD_GET_STREAM_VOLUME = "getStreamVolume";
+    private static final String METHOD_SET_STREAM_VOLUME = "setStreamVolume";
     private static final String PROP_MEDIA_VOL_STEPS = "ro.config.media_vol_steps";
     private static final String FIELD_MAX_STREAM_VOLUME = "MAX_STREAM_VOLUME";
     private static final String FIELD_STREAM_STATES = "mStreamStates";
@@ -122,6 +127,7 @@ final class AudioHooks {
 
             hookSoftwareVolumeCurve(classLoader, module);
             hookAbsoluteVolumeSuppression(classLoader, module);
+            hookVolumeKeyStep(classLoader, module);
 
             // 立即读取配置填充属性拦截缓存（此时 SettingsProvider 未就绪，
             // 镜像文件通道可读）；失败由属性回调与开机校正重试。
@@ -613,6 +619,104 @@ final class AudioHooks {
                 + " hooked: " + hooked);
         if (hooked == 0) {
             XposedKit.logError("setStreamVolumeIndex NOT FOUND on VolumeStreamState!");
+        }
+    }
+
+    /**
+     * 音量键步进：接管 {@code AudioService#adjustStreamVolume}，对媒体流的
+     * ADJUST_RAISE/LOWER 按用户设定的 {@code delta = keyDelta(mediaSteps, keySteps)}
+     * 重算目标级并直接 {@code setStreamVolume}，完全覆盖 ROM 默认的
+     * 「按 maxIndex/15 分段」步进。屏幕滑条拖动走 setStreamVolume 不经此路径，
+     * 保留全部级数精度。{@code delta<=1}（如默认级数==段数）时不干预。
+     *
+     * <p>若 {@code hooked:0}（ROM 音量键不走此方法），则保持系统默认步进并如实记录。</p>
+     */
+    private static void hookVolumeKeyStep(ClassLoader classLoader, XposedModule module) {
+        Class<?> audioService = sAudioServiceClass;
+        if (audioService == null) {
+            try {
+                audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
+            } catch (Throwable t) {
+                XposedKit.logError("key step: AudioService class load failed: " + t);
+                return;
+            }
+        }
+        int hooked = XposedKit.hookAllMethodsNamed(module, audioService,
+                METHOD_ADJUST_STREAM_VOLUME, new AdjustStreamVolumeHooker());
+        XposedKit.log("key step: " + audioService.getName() + "#" + METHOD_ADJUST_STREAM_VOLUME
+                + " hooked: " + hooked
+                + (hooked == 0 ? " (keys routed elsewhere; step stays default)" : ""));
+    }
+
+    /** 反射调用单 int 参数的方法并取 int 返回（getStreamVolume / getStreamMaxVolume）。 */
+    private static int invokeIntMethod(Object target, String name, int arg) throws Exception {
+        Object r = target.getClass().getMethod(name, int.class).invoke(target, arg);
+        if (r instanceof Integer) {
+            return (Integer) r;
+        }
+        throw new NoSuchMethodException(name + " not returning int");
+    }
+
+    /**
+     * 音量键步进 Hooker：仅对媒体流 RAISE/LOWER 生效，以当前级 ± delta 为新目标。
+     * 任何异常或不适用的调用一律 {@code chain.proceed()} 保留系统默认行为。
+     */
+    private static final class AdjustStreamVolumeHooker implements XposedInterface.Hooker {
+        private static boolean sFiredLogged;
+        @Override
+        public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            try {
+                List<Object> args = chain.getArgs();
+                if (args.size() < 3 || !(args.get(0) instanceof Integer)
+                        || !(args.get(1) instanceof Integer)) {
+                    return chain.proceed();
+                }
+                int streamType = (Integer) args.get(0);
+                int direction = (Integer) args.get(1);
+                int flags = args.get(2) instanceof Integer ? (Integer) args.get(2) : 0;
+                boolean raise = direction == AudioManager.ADJUST_RAISE;
+                boolean lower = direction == AudioManager.ADJUST_LOWER;
+                if (streamType != Prefs.STREAM_MUSIC_INDEX || (!raise && !lower)) {
+                    return chain.proceed();
+                }
+                Object audioService = chain.getThisObject();
+                VolumeConfig config = XposedKit.readConfig(
+                        XposedKit.systemServerContext(audioService));
+                if (config == null || !config.enabled) {
+                    return chain.proceed();
+                }
+                int delta = Prefs.keyDelta(config.mediaSteps, config.keySteps);
+                if (delta <= 1) {
+                    return chain.proceed();
+                }
+                int maxSteps = invokeIntMethod(audioService,
+                        METHOD_GET_STREAM_MAX_VOLUME, streamType);
+                int oldIndex = invokeIntMethod(audioService,
+                        METHOD_GET_STREAM_VOLUME, streamType);
+                if (maxSteps <= 0 || oldIndex < 0) {
+                    return chain.proceed();
+                }
+                int newIndex = raise ? oldIndex + delta : oldIndex - delta;
+                newIndex = Math.max(0, Math.min(maxSteps, newIndex));
+                if (!sFiredLogged) {
+                    sFiredLogged = true;
+                    XposedKit.log("key step applied: " + (raise ? "RAISE " : "LOWER ")
+                            + oldIndex + " -> " + newIndex + " delta=" + delta
+                            + " levels=" + config.mediaSteps + " segs=" + config.keySteps);
+                } else {
+                    XposedKit.log("key step: " + (raise ? "+" : "-") + delta + " "
+                            + oldIndex + " -> " + newIndex);
+                }
+                audioService.getClass().getMethod(METHOD_SET_STREAM_VOLUME,
+                        int.class, int.class, int.class)
+                        .invoke(audioService, streamType, newIndex, flags);
+                // 跳过原实现（它自带 ±1 或按 maxIndex/15 的步进），避免双算。
+                return null;
+            } catch (Throwable t) {
+                XposedKit.logErrorOnce("key-step-adjust",
+                        "adjustStreamVolume key step error: " + t);
+                return chain.proceed();
+            }
         }
     }
 
