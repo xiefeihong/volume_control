@@ -363,22 +363,19 @@ public class MainActivity extends AppCompatActivity {
 
         int curveType = currentCurveType();
         int segs = Prefs.clampKeySteps(keySteps);
+        boolean useSystemIndex = editingMode.attenuatesInSystemServer();
         if (editingMode == VolumeMode.WIRED) {
             binding.tvSummary.setText(
                     Avrcp.buildWiredPreview(mediaSteps, minAbs, maxAbs, curveType, keySteps));
-            binding.tvRangeMapping.setText(Avrcp.buildWiredMappingTable(
-                    mediaSteps, minAbs, maxAbs, curveType, keySteps,
-                    computeTableColumns(segs, mediaSteps)));
         } else {
-            int btMode = editingMode.modeId();
-            binding.tvSummary.setText(
-                    Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType, keySteps));
-            int valueMax = editingMode.attenuatesInSystemServer()
-                    ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
-            binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
-                    mediaSteps, btMode, minAbs, maxAbs, curveType, keySteps,
-                    computeTableColumns(segs, valueMax)));
+            binding.tvSummary.setText(Avrcp.buildPreview(
+                    mediaSteps, editingMode.modeId(), minAbs, maxAbs, curveType, keySteps));
         }
+        // 映射表三模式共用同一构建器（模式B 与耳机模式走同一系统档位代码路径）。
+        int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
+        binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
+                mediaSteps, useSystemIndex, minAbs, maxAbs, curveType, keySteps,
+                computeTableColumns(segs, valueMax)));
     }
 
     /** 依 TextView 实测宽度与等宽单元宽度，估算映射表每行可容纳的单元个数（<=0 表示交回自然换行）。 */

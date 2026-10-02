@@ -276,31 +276,19 @@ public final class Avrcp {
     /**
      * 生成「按键次数 → 音量」映射表（等宽对齐、自然换行）：左列为音量键按下第几次（1~按键段数），
      * 右列为该次按键到达档位 {@code keyStepLevel(i, ...)}（吸附到 round(i*maxSteps/keySteps)）对应的输出值。
-     * 模式A（AVRCP）右列为 0~127 绝对音量；模式B（软件衰减）右列为换算后的系统实际档位（0~maxSteps）。
+     * 三种模式共用此方法：{@code useSystemIndex=true}（模式B/耳机，system_server 软件衰减）右列为
+     * 系统实际档位（0~maxSteps）；{@code false}（模式A，蓝牙 AVRCP）右列为 0~127 绝对音量。
      */
-    public static String buildMappingTable(int maxSteps, int btMode, int minAbs, int maxAbs,
-            int curveType, int keySteps, int perLine) {
+    public static String buildMappingTable(int maxSteps, boolean useSystemIndex, int minAbs,
+            int maxAbs, int curveType, int keySteps, int perLine) {
         if (maxSteps <= 0) {
             return "";
         }
         int segs = Prefs.clampKeySteps(keySteps);
-        if (VolumeMode.ofBtMode(btMode).attenuatesInSystemServer()) {
-            return renderMappingTable("按键次数 → 系统音量档位（0~" + maxSteps + "），共 " + segs
-                    + " 次：\n", maxSteps, minAbs, maxAbs, curveType, true, keySteps, perLine);
-        }
-        return renderMappingTable("按键次数 → AVRCP 音量（0~127），共 " + segs + " 次：\n",
-                maxSteps, minAbs, maxAbs, curveType, false, keySteps, perLine);
-    }
-
-    /** 耳机模式（有线+外放）映射表：左列按键次数（1~段数），右列为该次到达档位的系统实际档位（0~maxSteps）。 */
-    public static String buildWiredMappingTable(int maxSteps, int minAbs, int maxAbs,
-            int curveType, int keySteps, int perLine) {
-        if (maxSteps <= 0) {
-            return "";
-        }
-        return renderMappingTable("耳机模式 · 按键次数 → 系统音量档位（0~" + maxSteps
-                + "），共 " + Prefs.clampKeySteps(keySteps) + " 次：\n",
-                maxSteps, minAbs, maxAbs, curveType, true, keySteps, perLine);
+        String column = useSystemIndex
+                ? "系统音量档位（0~" + maxSteps + "）" : "AVRCP 音量（0~127）";
+        return renderMappingTable("按键次数 → " + column + "，共 " + segs + " 次：\n",
+                maxSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps, perLine);
     }
 
     /** 耳机模式（有线+外放）摘要：按按键序列判重 + 首次按键落点。 */
