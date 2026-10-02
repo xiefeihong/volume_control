@@ -129,6 +129,62 @@ public final class Prefs {
         return Math.max(1, Math.min(levels, d));
     }
 
+    /**
+     * 第 {@code seg} 段对应的网格绝对级：{@code clamp(round(seg*levels/keySteps), 0, levels)}。
+     * 使滑块显示百分比 {@code round(level*100/levels)} 尽量落在 {@code seg*100/keySteps} 的整数倍，
+     * 消除「固定 delta 累加」从任意当前位置产生的漂移。App 预览与 Hook 共用。
+     */
+    public static int keyStepLevel(int seg, int levels, int keySteps) {
+        if (levels <= 0) {
+            return 0;
+        }
+        if (keySteps <= 0) {
+            return Math.max(0, Math.min(levels, seg));
+        }
+        long lvl = Math.round((double) seg * levels / keySteps);
+        return (int) Math.max(0, Math.min(levels, lvl));
+    }
+
+    /**
+     * 音量键「升高一次」吸附目标级：取严格大于 {@code current} 的最小网格级；到顶则返回 levels。
+     * 段数≥级数（网格间距&lt;1）时退化为逐级 +1。
+     */
+    public static int nextKeyStepUp(int current, int levels, int keySteps) {
+        if (current >= levels) {
+            return levels;
+        }
+        if (keySteps >= levels) {
+            return Math.min(levels, current + 1);
+        }
+        int seg = (int) Math.floor((double) current * keySteps / levels) + 1;
+        int lvl = keyStepLevel(seg, levels, keySteps);
+        while (seg < keySteps && lvl <= current) {   // 防 round 碰撞：确保严格增大
+            seg++;
+            lvl = keyStepLevel(seg, levels, keySteps);
+        }
+        return Math.max(current, Math.min(levels, lvl));
+    }
+
+    /**
+     * 音量键「降低一次」吸附目标级：取严格小于 {@code current} 的最大网格级；到底则返回 0。
+     * 段数≥级数时退化为逐级 -1。
+     */
+    public static int nextKeyStepDown(int current, int levels, int keySteps) {
+        if (current <= 0) {
+            return 0;
+        }
+        if (keySteps >= levels) {
+            return Math.max(0, current - 1);
+        }
+        int seg = (int) Math.ceil((double) current * keySteps / levels) - 1;
+        int lvl = keyStepLevel(Math.max(0, seg), levels, keySteps);
+        while (seg > 0 && lvl >= current) {          // 防 round 碰撞：确保严格减小
+            seg--;
+            lvl = keyStepLevel(seg, levels, keySteps);
+        }
+        return Math.min(current, Math.max(0, lvl));
+    }
+
     /** 绝对音量值限制在 0~127。 */
     public static int clampAbs(int v) { return Math.max(0, Math.min(AVRCP_MAX_VOLUME, v)); }
 

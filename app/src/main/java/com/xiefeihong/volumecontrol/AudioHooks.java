@@ -628,10 +628,11 @@ final class AudioHooks {
 
     /**
      * 音量键步进：接管 {@code AudioService#adjustStreamVolume}，对媒体流的
-     * ADJUST_RAISE/LOWER 按用户设定的 {@code delta = keyDelta(mediaSteps, keySteps)}
-     * 重算目标级并直接 {@code setStreamVolume}，完全覆盖 ROM 默认的
-     * 「按 maxIndex/15 分段」步进。屏幕滑条拖动走 setStreamVolume 不经此路径，
-     * 保留全部级数精度。{@code delta<=1}（如默认级数==段数）时不干预。
+     * ADJUST_RAISE/LOWER 按当前位置吸附到 {@code keySteps} 网格（目标 =
+     * {@code Prefs.nextKeyStepUp/Down}，即严格大于/小于当前的 {@code round(i*maxSteps/keySteps)}），
+     * 再直接 {@code setStreamVolume}，完全覆盖 ROM 默认的「按 maxIndex/15 分段」步进，
+     * 并使滑块百分比落在 100/keySteps 的整数倍。屏幕滑条拖动走 setStreamVolume 不经此路径，
+     * 保留全部级数精度。
      *
      * <p>若 {@code hooked:0}（ROM 音量键不走此方法），则保持系统默认步进并如实记录。</p>
      */
@@ -746,10 +747,16 @@ final class AudioHooks {
      */
     private static final class AdjustStreamVolumeHooker implements XposedInterface.Hooker {
         private static boolean sFiredLogged;
+        private static boolean sEntryLogged;
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
             try {
                 List<Object> args = chain.getArgs();
+                if (!sEntryLogged) {
+                    sEntryLogged = true;
+                    XposedKit.log("key step hook fired (first): args=" + args
+                            + " this=" + chain.getThisObject().getClass().getName());
+                }
                 if (args.size() < 3 || !(args.get(0) instanceof Integer)
                         || !(args.get(1) instanceof Integer)) {
                     return chain.proceed();
@@ -770,10 +777,7 @@ final class AudioHooks {
                 if (config == null || !config.enabled) {
                     return chain.proceed();
                 }
-                int delta = Prefs.keyDelta(config.mediaSteps, config.keySteps);
-                if (delta <= 1) {
-                    return chain.proceed();
-                }
+                int keySteps = Prefs.clampKeySteps(config.keySteps);
                 int maxSteps = invokeIntMethod(audioService,
                         METHOD_GET_STREAM_MAX_VOLUME, streamType);
                 int oldIndex = invokeIntMethod(audioService,
@@ -781,16 +785,24 @@ final class AudioHooks {
                 if (maxSteps <= 0 || oldIndex < 0) {
                     return chain.proceed();
                 }
-                int newIndex = raise ? oldIndex + delta : oldIndex - delta;
+                // 按当前位置吸附到 keySteps 网格：新目标 = 严格大于/小于当前的网格级，
+                // 避免固定 delta 累加造成的漂移（使滑块百分比落在 100/keySteps 的整数倍）。
+                int newIndex = raise
+                        ? Prefs.nextKeyStepUp(oldIndex, maxSteps, keySteps)
+                        : Prefs.nextKeyStepDown(oldIndex, maxSteps, keySteps);
                 newIndex = Math.max(0, Math.min(maxSteps, newIndex));
+                if (newIndex == oldIndex) {
+                    // 已到顶/底：交回系统处理（不强制变更）。
+                    return chain.proceed();
+                }
                 if (!sFiredLogged) {
                     sFiredLogged = true;
                     XposedKit.log("key step applied: " + (raise ? "RAISE " : "LOWER ")
-                            + oldIndex + " -> " + newIndex + " delta=" + delta
-                            + " levels=" + config.mediaSteps + " segs=" + config.keySteps);
+                            + oldIndex + " -> " + newIndex + " levels=" + maxSteps
+                            + " segs=" + keySteps + " (~" + Math.round(newIndex * 100.0 / maxSteps) + "%)");
                 } else {
-                    XposedKit.log("key step: " + (raise ? "+" : "-") + delta + " "
-                            + oldIndex + " -> " + newIndex);
+                    XposedKit.log("key step: " + (raise ? "+" : "-") + (newIndex - oldIndex)
+                            + " " + oldIndex + " -> " + newIndex);
                 }
                 invokeSetStreamVolume(audioService, streamType, newIndex, flags);
                 // 跳过原实现（它自带 ±1 或按 maxIndex/15 的步进），避免双算。
