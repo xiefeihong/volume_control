@@ -373,6 +373,8 @@ public class MainActivity extends AppCompatActivity {
         }
         // 映射表三模式共用同一构建器（模式B 与耳机模式走同一系统档位代码路径）。
         int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
+        binding.curveChart.configure(
+                mediaSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps);
         binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
                 mediaSteps, useSystemIndex, minAbs, maxAbs, curveType, keySteps,
                 computeTableColumns(segs, valueMax)));

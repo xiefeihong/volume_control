@@ -347,6 +347,12 @@
                         android:text="@string/range_hint"
                         android:textSize="12sp" />
 
+                    <com.xiefeihong.volumecontrol.CurveChartView
+                        android:id="@+id/curveChart"
+                        android:layout_width="match_parent"
+                        android:layout_height="180dp"
+                        android:layout_marginTop="8dp" />
+
                     <TextView
                         android:id="@+id/tvRangeMapping"
                         android:layout_width="match_parent"
