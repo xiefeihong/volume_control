@@ -121,6 +121,7 @@ public class MainActivity extends AppCompatActivity {
             }
         };
         binding.seekMediaSteps.setOnSeekBarChangeListener(listener);
+        binding.seekKeySteps.setOnSeekBarChangeListener(listener);
         binding.seekMinAbs.setOnSeekBarChangeListener(listener);
         binding.seekMaxAbs.setOnSeekBarChangeListener(listener);
 
@@ -173,6 +174,9 @@ public class MainActivity extends AppCompatActivity {
 
         binding.switchEnable.setChecked(enabled);
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
+        int keySteps = Prefs.clampKeySteps(
+                prefs.getInt(Prefs.KEY_KEY_STEPS, Prefs.KEY_STEP_DEFAULT));
+        binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
 
         // 初始标签：当前为有线/USB/外放输出则显示「有线耳机」，否则显示当前生效的蓝牙模式（蓝牙A/蓝牙B）。
         editingMode = isWiredOrSpeakerOutput()
@@ -280,9 +284,14 @@ public class MainActivity extends AppCompatActivity {
 
     // ==================== 配置计算与预览 ====================
 
-    /** 当前选择的媒体档位数（10~29）。 */
+    /** 当前选择的媒体音量级数（10~127）。 */
     private int currentMediaSteps() {
         return Prefs.MEDIA_STEPS_MIN + binding.seekMediaSteps.getProgress();
+    }
+
+    /** 当前选择的音量键步进（按键段数 10~29）。 */
+    private int currentKeySteps() {
+        return Prefs.KEY_STEP_MIN + binding.seekKeySteps.getProgress();
     }
 
     /** 当前蓝牙生效模式（由「蓝牙A/蓝牙B」标签决定，存于 {@link #btMode}）。 */
@@ -346,6 +355,9 @@ public class MainActivity extends AppCompatActivity {
     private void updatePreview() {
         int mediaSteps = currentMediaSteps();
         binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
+        int keySteps = currentKeySteps();
+        binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
+                keySteps, Prefs.keyDelta(mediaSteps, keySteps)));
 
         int minAbs = currentMinAbs();
         int maxAbs = currentMaxAbs();
@@ -380,6 +392,7 @@ public class MainActivity extends AppCompatActivity {
         SharedPreferences.Editor editor = prefs.edit()
                 .putBoolean(Prefs.KEY_ENABLED, binding.switchEnable.isChecked())
                 .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
+                .putInt(Prefs.KEY_KEY_STEPS, currentKeySteps())
                 .putInt(Prefs.KEY_BT_MODE, currentBtMode())
                 .putInt(editingMode.minKey(), currentMinAbs())
                 .putInt(editingMode.maxKey(), currentMaxAbs())
@@ -396,8 +409,10 @@ public class MainActivity extends AppCompatActivity {
         boolean enabled = prefs.getBoolean(Prefs.KEY_ENABLED, false);
         int mediaSteps = Prefs.clampMediaSteps(
                 prefs.getInt(Prefs.KEY_MEDIA_STEPS, systemDefaultSteps()));
+        int keySteps = Prefs.clampKeySteps(
+                prefs.getInt(Prefs.KEY_KEY_STEPS, Prefs.KEY_STEP_DEFAULT));
         int btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
-        return new VolumeConfig(enabled, mediaSteps, btMode,
+        return new VolumeConfig(enabled, mediaSteps, keySteps, btMode,
                 readRangeFromPrefs(VolumeMode.ABSOLUTE),
                 readRangeFromPrefs(VolumeMode.SOFTWARE),
                 readRangeFromPrefs(VolumeMode.WIRED)).toRaw();
@@ -494,6 +509,7 @@ public class MainActivity extends AppCompatActivity {
         editingMode = VolumeMode.ofBtMode(Prefs.BT_MODE_ABSOLUTE);
         binding.tabsRange.selectTab(binding.tabsRange.getTabAt(modeToTab(editingMode)));
         loadRangeIntoUi();
+        binding.seekKeySteps.setProgress(Prefs.KEY_STEP_DEFAULT - Prefs.KEY_STEP_MIN);
         suppressListeners = false;
         updatePreview();
         mainHandler.removeCallbacks(autoSaveRunnable);
@@ -556,6 +572,7 @@ public class MainActivity extends AppCompatActivity {
                     prefs.edit()
                             .putBoolean(Prefs.KEY_ENABLED, globalConfig.enabled)
                             .putInt(Prefs.KEY_MEDIA_STEPS, globalConfig.mediaSteps)
+                            .putInt(Prefs.KEY_KEY_STEPS, globalConfig.keySteps)
                             .putInt(Prefs.KEY_BT_MODE, globalConfig.btMode)
                             .putInt(Prefs.KEY_MIN_ABS_A, globalConfig.absolute.min)
                             .putInt(Prefs.KEY_MAX_ABS_A, globalConfig.absolute.max)

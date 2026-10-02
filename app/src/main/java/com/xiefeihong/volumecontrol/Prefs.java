@@ -22,6 +22,8 @@ public final class Prefs {
 
     public static final String KEY_ENABLED = "enabled";
     public static final String KEY_MEDIA_STEPS = "media_steps";
+    /** 音量键步进（按键段数）SharedPreferences 键。 */
+    public static final String KEY_KEY_STEPS = "key_steps";
     public static final String KEY_BT_MODE = "bt_volume_mode";
     /** 首次运行时捕获的系统原生媒体档位数（模块未覆盖时的 getStreamMaxVolume）。 */
     public static final String KEY_SYSTEM_DEFAULT_STEPS = "system_default_steps";
@@ -78,13 +80,19 @@ public final class Prefs {
     public static final int ABS_VOLUME_MIN_DEFAULT = 0;
     public static final int ABS_VOLUME_MAX_DEFAULT = AVRCP_MAX_VOLUME;
 
-    /** 媒体档位数的可选范围（[TEST] 临时 10~127，回退后 10~29）。 */
+    /** 媒体音量级数的可选范围（10~127）。实测 127 级几乎每级可辨。 */
     public static final int MEDIA_STEPS_MIN = 10;
-    // [TEST] 临时放宽上限至 127，用于实测 ROM/HAL 在高档位数下是否真能渲染出可分辨
-    // 的逐级音量差异（测完回退为 29）。对应 activity_main.xml seekMediaSteps android:max=117。
     public static final int MEDIA_STEPS_MAX = 127;
     /** 兜底默认媒体档位数（仅在无法探测系统原生档位时使用）。 */
     public static final int MEDIA_STEPS_DEFAULT = 20;
+
+    /**
+     * 音量键步进（跨完整音量条需要的按键段数）的可选范围（10~29，默认 15）。
+     * 每按一次音量键跳 {@link #keyDelta(int, int)} 个级；段数越大每次跳得越少（越细）。
+     */
+    public static final int KEY_STEP_MIN = 10;
+    public static final int KEY_STEP_MAX = 29;
+    public static final int KEY_STEP_DEFAULT = 15;
 
     /** 媒体流索引（android.media.AudioSystem.STREAM_MUSIC 的稳定取值）。 */
     public static final int STREAM_MUSIC_INDEX = 3;
@@ -99,6 +107,26 @@ public final class Prefs {
     /** 把媒体档位数限制在可选范围内。 */
     public static int clampMediaSteps(int steps) {
         return Math.max(MEDIA_STEPS_MIN, Math.min(MEDIA_STEPS_MAX, steps));
+    }
+
+    /** 把音量键步进（按键段数）限制在可选范围 10~29 内。 */
+    public static int clampKeySteps(int steps) {
+        return Math.max(KEY_STEP_MIN, Math.min(KEY_STEP_MAX, steps));
+    }
+
+    /**
+     * 音量键每按一次跳过的级数：{@code clamp(round(levels / keySteps), 1, levels)}。
+     * App 预览与 system_server Hook 共用此公式，避免算法漂移。
+     *
+     * @param levels   音量级数（{@link #clampMediaSteps} 后的 mediaSteps）
+     * @param keySteps 按键段数（{@link #clampKeySteps} 后）
+     */
+    public static int keyDelta(int levels, int keySteps) {
+        if (keySteps <= 0) {
+            return Math.max(1, levels);
+        }
+        int d = Math.round(levels / (float) keySteps);
+        return Math.max(1, Math.min(levels, d));
     }
 
     /** 绝对音量值限制在 0~127。 */
