@@ -78,9 +78,11 @@ public final class Prefs {
     public static final int ABS_VOLUME_MIN_DEFAULT = 0;
     public static final int ABS_VOLUME_MAX_DEFAULT = AVRCP_MAX_VOLUME;
 
-    /** 媒体档位数的可选范围（10~29）。 */
+    /** 媒体档位数的可选范围（[TEST] 临时 10~127，回退后 10~29）。 */
     public static final int MEDIA_STEPS_MIN = 10;
-    public static final int MEDIA_STEPS_MAX = 29;
+    // [TEST] 临时放宽上限至 127，用于实测 ROM/HAL 在高档位数下是否真能渲染出可分辨
+    // 的逐级音量差异（测完回退为 29）。对应 activity_main.xml seekMediaSteps android:max=117。
+    public static final int MEDIA_STEPS_MAX = 127;
     /** 兜底默认媒体档位数（仅在无法探测系统原生档位时使用）。 */
     public static final int MEDIA_STEPS_DEFAULT = 20;
 
