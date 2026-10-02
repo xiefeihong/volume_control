@@ -4,6 +4,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Paint;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Bundle;
@@ -73,6 +74,8 @@ public class MainActivity extends AppCompatActivity {
         setupListeners();
         loadConfigIntoUi();
         updatePreview();
+        // 首次布局前 getWidth()==0，排版完成后按实测宽度重算一次每行个数。
+        binding.getRoot().post(this::updatePreview);
         // 状态刷新交给 onResume（onCreate 后紧随一次，避免重复执行）
     }
 
@@ -359,18 +362,44 @@ public class MainActivity extends AppCompatActivity {
         binding.tvRangeHint.setText(getString(R.string.range_hint));
 
         int curveType = currentCurveType();
+        int segs = Prefs.clampKeySteps(keySteps);
         if (editingMode == VolumeMode.WIRED) {
             binding.tvSummary.setText(
                     Avrcp.buildWiredPreview(mediaSteps, minAbs, maxAbs, curveType, keySteps));
-            binding.tvRangeMapping.setText(
-                    Avrcp.buildWiredMappingTable(mediaSteps, minAbs, maxAbs, curveType, keySteps));
+            binding.tvRangeMapping.setText(Avrcp.buildWiredMappingTable(
+                    mediaSteps, minAbs, maxAbs, curveType, keySteps,
+                    computeTableColumns(segs, mediaSteps)));
         } else {
             int btMode = editingMode.modeId();
             binding.tvSummary.setText(
                     Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType, keySteps));
-            binding.tvRangeMapping.setText(
-                    Avrcp.buildMappingTable(mediaSteps, btMode, minAbs, maxAbs, curveType, keySteps));
+            int valueMax = editingMode.attenuatesInSystemServer()
+                    ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
+            binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
+                    mediaSteps, btMode, minAbs, maxAbs, curveType, keySteps,
+                    computeTableColumns(segs, valueMax)));
         }
+    }
+
+    /** 依 TextView 实测宽度与等宽单元宽度，估算映射表每行可容纳的单元个数（<=0 表示交回自然换行）。 */
+    private int computeTableColumns(int segs, int valueMax) {
+        if (segs <= 0) {
+            return 0;
+        }
+        int pressWidth = Math.max(2, String.valueOf(segs).length());
+        int valWidth = Math.max(2, String.valueOf(valueMax).length());
+        String cell = String.format("%" + pressWidth + "d→%" + valWidth + "d  ", segs, valueMax);
+        Paint paint = new Paint(binding.tvRangeMapping.getPaint());
+        float cellPx = paint.measureText(cell);
+        if (cellPx <= 0) {
+            return 0;
+        }
+        int avail = binding.tvRangeMapping.getWidth();
+        if (avail <= 0) {
+            float density = getResources().getDisplayMetrics().density;
+            avail = (int) (getResources().getDisplayMetrics().widthPixels - 72 * density);
+        }
+        return Math.max(1, (int) Math.floor(avail / cellPx));
     }
 
     // ==================== 持久化与写入系统 ====================
