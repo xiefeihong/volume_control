@@ -361,13 +361,13 @@ public class MainActivity extends AppCompatActivity {
         int curveType = currentCurveType();
         if (editingMode == VolumeMode.WIRED) {
             binding.tvSummary.setText(
-                    Avrcp.buildWiredPreview(mediaSteps, minAbs, maxAbs, curveType));
+                    Avrcp.buildWiredPreview(mediaSteps, minAbs, maxAbs, curveType, keySteps));
             binding.tvRangeMapping.setText(
                     Avrcp.buildWiredMappingTable(mediaSteps, minAbs, maxAbs, curveType, keySteps));
         } else {
             int btMode = editingMode.modeId();
             binding.tvSummary.setText(
-                    Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType));
+                    Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType, keySteps));
             binding.tvRangeMapping.setText(
                     Avrcp.buildMappingTable(mediaSteps, btMode, minAbs, maxAbs, curveType, keySteps));
         }
