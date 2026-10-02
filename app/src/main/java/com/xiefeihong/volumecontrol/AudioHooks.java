@@ -90,6 +90,10 @@ final class AudioHooks {
     private static int sLastBlockedIndex = -1;
     private static boolean sPropHitLogged;
 
+    /** 诊断：最近一次音量键接管时间戳；绕过路径日志节流时间戳。 */
+    private static volatile long sLastKeyAdjustNanos;
+    private static long sLastBypassLogNanos;
+
     /** ROM 原始档位数组：只在首次调用时备份。 */
     private static int[] sOriginalMaxStreamVolumes;
 
@@ -804,6 +808,7 @@ final class AudioHooks {
                     XposedKit.log("key step: " + (raise ? "+" : "-") + (newIndex - oldIndex)
                             + " " + oldIndex + " -> " + newIndex);
                 }
+                sLastKeyAdjustNanos = System.nanoTime();
                 invokeSetStreamVolume(audioService, streamType, newIndex, flags);
                 // 跳过原实现（它自带 ±1 或按 maxIndex/15 的步进），避免双算。
                 return null;
@@ -813,6 +818,44 @@ final class AudioHooks {
                 return chain.proceed();
             }
         }
+    }
+
+    /**
+     * 诊断：若媒体流逻辑档位落在「非按键网格」上，且最近 200ms 内没有发生过
+     * 我们接管的 adjustStreamVolume，则说明本次音量变化绕过了接管路径（拖滑条
+     * 或 MIUI 自有的音量键/解除静音处理）。拖拽属于设计内保留全精度，但若是音量键
+     * 则需定位那条绕过方法——故低频（≥6s 一次）抓取调用栈。仅读日志，不改行为。
+     */
+    private static void maybeLogKeyBypass(int index, VolumeConfig config) {
+        if (index <= 0) {
+            return;
+        }
+        long now = System.nanoTime();
+        if (now - sLastKeyAdjustNanos < 200_000_000L) {
+            return;   // 刚由按键接管改过，属正常网格落点
+        }
+        int levels = Prefs.clampMediaSteps(config.mediaSteps);
+        int segs = Prefs.clampKeySteps(config.keySteps);
+        if (levels <= 0 || segs >= levels) {
+            return;   // 网格间距<1，逐级即正确，不判
+        }
+        int nearest = (int) Math.round(index * (double) segs / levels);
+        if (Prefs.keyStepLevel(nearest, levels, segs) == index) {
+            return;   // 恰在网格上
+        }
+        if (now - sLastBypassLogNanos < 6_000_000_000L) {
+            return;   // 节流：6s 一次
+        }
+        sLastBypassLogNanos = now;
+        StringBuilder sb = new StringBuilder("key-step bypass? media idx ")
+                .append(index).append('/').append(levels)
+                .append(" off-grid (~").append(Math.round(index * 100.0 / levels))
+                .append("%), no recent adjust. stack:");
+        StackTraceElement[] st = Thread.currentThread().getStackTrace();
+        for (int i = 2; i < Math.min(st.length, 12); i++) {
+            sb.append("\n  at ").append(st[i]);
+        }
+        XposedKit.log(sb.toString());
     }
 
     /**
@@ -865,6 +908,9 @@ final class AudioHooks {
                 if (config == null || !config.enabled) {
                     return chain.proceed();
                 }
+                // 诊断：媒体档位落到「非按键网格」且近期无按键接管 → 音量键可能走了
+                // 绕过 adjustStreamVolume 的路径，抓一次调用栈以定位该方法。
+                maybeLogKeyBypass(index, config);
                 // 按输出设备分派：软件衰减模式（模式B/耳机模式）在 system_server 改写档位；
                 // 蓝牙模式A（AVRCP）与未识别设备返回 null → 放行。
                 VolumeMode mode = VolumeMode.forSystemServer(config, device);
