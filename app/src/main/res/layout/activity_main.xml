@@ -225,30 +225,36 @@
                     android:text="@string/sec_bt_range"
                     android:textStyle="bold" />
 
-                <!-- 顶部标签栏：蓝牙A/蓝牙B 同时决定「生效模式」，有线耳机标签不改生效模式 -->
-                <com.google.android.material.tabs.TabLayout
-                    android:id="@+id/tabsRange"
+                <!-- 顶部单选芯片：蓝牙A/蓝牙B 同时决定「生效模式」，有线耳机芯片不改生效模式 -->
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipGroupRange"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    app:tabGravity="fill"
-                    app:tabMode="fixed">
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
 
-                    <com.google.android.material.tabs.TabItem
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipModeA"
+                        style="@style/Widget.Material3.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/tab_mode_a" />
 
-                    <com.google.android.material.tabs.TabItem
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipModeB"
+                        style="@style/Widget.Material3.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/tab_mode_b" />
 
-                    <com.google.android.material.tabs.TabItem
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipWired"
+                        style="@style/Widget.Material3.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/target_wired" />
-                </com.google.android.material.tabs.TabLayout>
+                </com.google.android.material.chip.ChipGroup>
 
                 <!-- 共享范围编辑器：曲线 + 最小/最大滑条 + 预览，随当前标签绑定对应 VolumeMode -->
                 <LinearLayout

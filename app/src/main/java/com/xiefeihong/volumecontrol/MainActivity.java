@@ -16,7 +16,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.material.tabs.TabLayout;
+import com.google.android.material.chip.ChipGroup;
 import com.xiefeihong.volumecontrol.databinding.ActivityMainBinding;
 
 import java.util.ArrayList;
@@ -27,7 +27,7 @@ import java.util.concurrent.Executors;
 /**
  * 主界面：设置媒体音量档位、选择蓝牙生效模式（A/B）与查看/编辑各模式音量范围。
  *
- * <p>音量范围卡片以 {@link TabLayout} 三个标签（模式A / 模式B / 有线耳机）切换「当前
+ * <p>音量范围卡片以 {@link ChipGroup} 三个单选芯片（模式A / 模式B / 有线耳机）切换「当前
  * 编辑哪个范围」，共享同一组曲线/滑条/预览控件，按 {@link VolumeMode} 各自的键读写；
  * 各模式的值互不干扰。蓝牙生效模式（btMode）由独立的单选控件决定，切换仅保存、不实时
  * 生效。所有变更自动写入 Settings.Global，重启蓝牙 / 系统框架使其生效。</p>
@@ -127,20 +127,12 @@ public class MainActivity extends AppCompatActivity {
 
         binding.radioCurveType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
-        // 编辑标签：切换当前查看/编辑哪个模式的范围；蓝牙A/蓝牙B 同时切换生效模式。
-        binding.tabsRange.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
-            @Override
-            public void onTabSelected(TabLayout.Tab tab) {
-                switchEditingTab(tab.getPosition());
+        // 编辑芯片（单选）：切换当前查看/编辑哪个模式的范围；蓝牙A/蓝牙B 同时切换生效模式。
+        binding.chipGroupRange.setOnCheckedStateChangeListener((group, checkedIds) -> {
+            if (checkedIds.isEmpty()) {
+                return;
             }
-
-            @Override
-            public void onTabUnselected(TabLayout.Tab tab) {
-            }
-
-            @Override
-            public void onTabReselected(TabLayout.Tab tab) {
-            }
+            switchEditingTab(chipIdToMode(checkedIds.get(0)));
         });
 
         binding.btnRefresh.setOnClickListener(v -> refreshStatus());
@@ -178,10 +170,10 @@ public class MainActivity extends AppCompatActivity {
                 prefs.getInt(Prefs.KEY_KEY_STEPS, Prefs.KEY_STEP_DEFAULT));
         binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
 
-        // 初始标签：当前为有线/USB/外放输出则显示「有线耳机」，否则显示当前生效的蓝牙模式（蓝牙A/蓝牙B）。
+        // 初始选中芯片：当前为有线/USB/外放输出则选中「有线耳机」，否则选中当前生效的蓝牙模式（蓝牙A/蓝牙B）。
         editingMode = isWiredOrSpeakerOutput()
                 ? VolumeMode.WIRED : VolumeMode.ofBtMode(btMode);
-        binding.tabsRange.selectTab(binding.tabsRange.getTabAt(modeToTab(editingMode)));
+        binding.chipGroupRange.check(modeToChipId(editingMode));
         loadRangeIntoUi();
         suppressListeners = false;
     }
@@ -200,15 +192,14 @@ public class MainActivity extends AppCompatActivity {
         binding.radioCurveType.check(curveRadioId(curve));
     }
 
-    /** 切换到 index 对应的编辑标签：载入该模式的值；蓝牙A/B 标签同时切换生效模式。 */
-    private void switchEditingTab(int index) {
-        VolumeMode target = tabToMode(index);
+    /** 切换到目标编辑模式（由选中芯片决定）：载入该模式的值；蓝牙A/B 同时切换生效模式。 */
+    private void switchEditingTab(VolumeMode target) {
         if (suppressListeners) {
-            // 载入/初始阶段（selectTab 触发）：仅切换 editingMode，不回写、不重复载入。
+            // 载入/初始阶段（check 触发）：仅切换 editingMode，不回写、不重复载入。
             editingMode = target;
             return;
         }
-        // 蓝牙A/蓝牙B 标签即「生效模式」；有线耳机标签不改变生效模式。
+        // 蓝牙A/蓝牙B 芯片即「生效模式」；有线耳机芯片不改变生效模式。
         if (target == VolumeMode.ABSOLUTE) {
             btMode = Prefs.BT_MODE_ABSOLUTE;
         } else if (target == VolumeMode.SOFTWARE) {
@@ -224,26 +215,26 @@ public class MainActivity extends AppCompatActivity {
         scheduleAutoSave();
     }
 
-    /** 标签 index → 编辑模式（0=模式A，1=模式B，2=有线耳机）。 */
-    private VolumeMode tabToMode(int index) {
-        if (index == 1) {
+    /** 芯片 id → 编辑模式。 */
+    private VolumeMode chipIdToMode(int id) {
+        if (id == R.id.chipModeB) {
             return VolumeMode.SOFTWARE;
         }
-        if (index == 2) {
+        if (id == R.id.chipWired) {
             return VolumeMode.WIRED;
         }
         return VolumeMode.ABSOLUTE;
     }
 
-    /** 编辑模式 → 标签 index。 */
-    private int modeToTab(VolumeMode mode) {
+    /** 编辑模式 → 芯片 id。 */
+    private int modeToChipId(VolumeMode mode) {
         if (mode == VolumeMode.SOFTWARE) {
-            return 1;
+            return R.id.chipModeB;
         }
         if (mode == VolumeMode.WIRED) {
-            return 2;
+            return R.id.chipWired;
         }
-        return 0;
+        return R.id.chipModeA;
     }
 
     /** 归一化蓝牙模式 id：非软件模式一律视为模式A。 */
@@ -372,13 +363,13 @@ public class MainActivity extends AppCompatActivity {
             binding.tvSummary.setText(
                     Avrcp.buildWiredPreview(mediaSteps, minAbs, maxAbs, curveType));
             binding.tvRangeMapping.setText(
-                    Avrcp.buildWiredMappingTable(mediaSteps, minAbs, maxAbs, curveType));
+                    Avrcp.buildWiredMappingTable(mediaSteps, minAbs, maxAbs, curveType, keySteps));
         } else {
             int btMode = editingMode.modeId();
             binding.tvSummary.setText(
                     Avrcp.buildPreview(mediaSteps, btMode, minAbs, maxAbs, curveType));
             binding.tvRangeMapping.setText(
-                    Avrcp.buildMappingTable(mediaSteps, btMode, minAbs, maxAbs, curveType));
+                    Avrcp.buildMappingTable(mediaSteps, btMode, minAbs, maxAbs, curveType, keySteps));
         }
     }
 
@@ -507,7 +498,7 @@ public class MainActivity extends AppCompatActivity {
                     .apply();
         }
         editingMode = VolumeMode.ofBtMode(Prefs.BT_MODE_ABSOLUTE);
-        binding.tabsRange.selectTab(binding.tabsRange.getTabAt(modeToTab(editingMode)));
+        binding.chipGroupRange.check(modeToChipId(editingMode));
         loadRangeIntoUi();
         binding.seekKeySteps.setProgress(Prefs.KEY_STEP_DEFAULT - Prefs.KEY_STEP_MIN);
         suppressListeners = false;

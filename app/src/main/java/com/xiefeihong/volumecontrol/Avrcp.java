@@ -269,31 +269,32 @@ public final class Avrcp {
     }
 
     /**
-     * 生成「档位 → 音量」逐档映射表（等宽文本，显示在音量范围卡片内，便于调整时就地查看结果）。
-     * 模式A（AVRCP）显示 0~127 绝对音量；模式B（软件衰减）显示换算后的系统实际档位（0~maxSteps），
-     * 与「按系统档位判重」摘要口径一致（相邻两档数字相同即为听感无差别）。
+     * 生成「档位 → 音量」映射表（等宽文本，单行）：左边的档位以音量键步进
+     * （{@code delta = keyDelta(maxSteps, keySteps)}）为间隔逐级取样，与音量键实际经停的档位一致；
+     * 末尾恒含最高档。模式A（AVRCP）显示 0~127 绝对音量；模式B/耳机（软件衰减）显示换算后的
+     * 系统实际档位（0~maxSteps），与各自摘要口径一致。
      */
     public static String buildMappingTable(int maxSteps, int btMode, int minAbs, int maxAbs,
-            int curveType) {
+            int curveType, int keySteps) {
         if (maxSteps <= 0) {
             return "";
         }
         if (VolumeMode.ofBtMode(btMode).attenuatesInSystemServer()) {
             return renderMappingTable("档位 → 系统音量档位（0~" + maxSteps + "）：\n",
-                    maxSteps, minAbs, maxAbs, curveType, true);
+                    maxSteps, minAbs, maxAbs, curveType, true, keySteps);
         }
         return renderMappingTable("档位 → AVRCP 音量（0~127）：\n",
-                maxSteps, minAbs, maxAbs, curveType, false);
+                maxSteps, minAbs, maxAbs, curveType, false, keySteps);
     }
 
-    /** 耳机模式（有线+外放）逐档映射表：显示换算后的系统实际档位（0~maxSteps）。 */
+    /** 耳机模式（有线+外放）映射表：单行、按音量键步进取样，显示换算后的系统实际档位（0~maxSteps）。 */
     public static String buildWiredMappingTable(int maxSteps, int minAbs, int maxAbs,
-            int curveType) {
+            int curveType, int keySteps) {
         if (maxSteps <= 0) {
             return "";
         }
         return renderMappingTable("耳机模式 · 档位 → 系统音量档位（0~" + maxSteps + "）：\n",
-                maxSteps, minAbs, maxAbs, curveType, true);
+                maxSteps, minAbs, maxAbs, curveType, true, keySteps);
     }
 
     /** 耳机模式（有线+外放）摘要：按系统实际档位判重 + 第 1 档落点。 */
@@ -318,32 +319,40 @@ public final class Avrcp {
         return sb.toString();
     }
 
-    /** 按所选曲线渲染「档位 → 音量」等宽行，6 列/行；useSystemIndex 时取系统档位（0~maxSteps），否则取 0~127。 */
+    /**
+     * 按所选曲线渲染「档位 → 音量」行：左边档位以音量键步进 {@code delta = keyDelta(maxSteps, keySteps)}
+     * 为间隔取样（与音量键实际经停档位一致）、全部条目合并为一行（不再每行固定列数）。
+     * useSystemIndex 时取系统档位（0~maxSteps），否则取 0~127。
+     */
     private static String renderMappingTable(String title, int maxSteps, int minAbs, int maxAbs,
-            int curveType, boolean useSystemIndex) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(title);
-        int stepWidth = String.valueOf(maxSteps).length();
-        int valueMax = useSystemIndex ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
-        int valWidth = String.valueOf(valueMax).length();
-        String entryFmt = "%" + stepWidth + "d→%" + valWidth + "d";
-        int perLine = 6;
+            int curveType, boolean useSystemIndex, int keySteps) {
+        StringBuilder sb = new StringBuilder(title);
+        int delta = Prefs.keyDelta(maxSteps, keySteps);
+        if (delta < 1) {
+            delta = 1;
+        }
         StringBuilder line = new StringBuilder();
-        for (int step = 0; step <= maxSteps; step++) {
-            int value = useSystemIndex
-                    ? curveToSystemIndex(step, maxSteps, minAbs, maxAbs, curveType)
-                    : curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
-            int pos = step % perLine;
-            if (pos == 0) {
-                line.setLength(0);
+        int prev = -1;
+        for (int step = 0; ; ) {
+            if (step != prev) {
+                int value = useSystemIndex
+                        ? curveToSystemIndex(step, maxSteps, minAbs, maxAbs, curveType)
+                        : curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
+                if (line.length() > 0) {
+                    line.append("  ");
+                }
+                line.append(step).append('→').append(value);
+                prev = step;
             }
-            line.append(String.format(entryFmt, step, value));
-            if (pos == perLine - 1 || step == maxSteps) {
-                sb.append(line).append('\n');
-            } else {
-                line.append("  ");
+            if (step >= maxSteps) {
+                break;
+            }
+            step += delta;
+            if (step > maxSteps) {
+                step = maxSteps;
             }
         }
+        sb.append(line).append('\n');
         return sb.toString();
     }
 }
