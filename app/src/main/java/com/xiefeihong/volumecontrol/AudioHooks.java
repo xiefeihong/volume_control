@@ -7,6 +7,8 @@ import android.os.Looper;
 
 import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
@@ -54,6 +56,8 @@ final class AudioHooks {
     private static final String METHOD_ADJUST_STREAM_VOLUME = "adjustStreamVolume";
     private static final String METHOD_GET_STREAM_VOLUME = "getStreamVolume";
     private static final String METHOD_SET_STREAM_VOLUME = "setStreamVolume";
+    /** setStreamVolume 若仅有带 callingPackage 的重载时补传的调用方包名（system_server 内调用可过权限）。 */
+    private static final String SET_VOLUME_CALLING_PACKAGE = "com.android.systemui";
     private static final String PROP_MEDIA_VOL_STEPS = "ro.config.media_vol_steps";
     private static final String FIELD_MAX_STREAM_VOLUME = "MAX_STREAM_VOLUME";
     private static final String FIELD_STREAM_STATES = "mStreamStates";
@@ -658,6 +662,58 @@ final class AudioHooks {
     }
 
     /**
+     * 反射调用 {@code AudioService#setStreamVolume(int, int, int)}：HyperOS 的 MiAudioService
+     * 继承 AudioService，该方法可能非 public（{@code getMethod} 只查 public → NoSuchMethodException）
+     * 或仅存在带 {@code callingPackage} 的重载。故遍历类层次查找名字为 setStreamVolume、
+     * 前 3 参为 int 的方法，优先参数最少者，{@code setAccessible} 后调用；多余参数按类型补默认值。
+     */
+    private static void invokeSetStreamVolume(Object audioService, int streamType, int index,
+            int flags) throws Throwable {
+        Method target = null;
+        Class<?> c = audioService.getClass();
+        while (c != null) {
+            for (Method m : c.getDeclaredMethods()) {
+                if (!METHOD_SET_STREAM_VOLUME.equals(m.getName())) {
+                    continue;
+                }
+                Class<?>[] p = m.getParameterTypes();
+                if (p.length >= 3 && p[0] == int.class && p[1] == int.class && p[2] == int.class
+                        && (target == null || p.length < target.getParameterTypes().length)) {
+                    m.setAccessible(true);
+                    target = m;
+                }
+            }
+            c = c.getSuperclass();
+        }
+        if (target == null) {
+            throw new NoSuchMethodException(METHOD_SET_STREAM_VOLUME
+                    + "(int,int,int,...) not found on " + audioService.getClass().getName());
+        }
+        Class<?>[] p = target.getParameterTypes();
+        Object[] args = new Object[p.length];
+        args[0] = streamType;
+        args[1] = index;
+        args[2] = flags;
+        for (int i = 3; i < p.length; i++) {
+            Class<?> t = p[i];
+            if (t == String.class) {
+                args[i] = SET_VOLUME_CALLING_PACKAGE;
+            } else if (t == int.class || t == Integer.class) {
+                args[i] = 0;
+            } else if (t == boolean.class || t == Boolean.class) {
+                args[i] = false;
+            } else {
+                args[i] = null;
+            }
+        }
+        try {
+            target.invoke(audioService, args);
+        } catch (InvocationTargetException e) {
+            throw (e.getCause() != null) ? e.getCause() : e;
+        }
+    }
+
+    /**
      * 音量键步进 Hooker：仅对媒体流 RAISE/LOWER 生效，以当前级 ± delta 为新目标。
      * 任何异常或不适用的调用一律 {@code chain.proceed()} 保留系统默认行为。
      */
@@ -707,9 +763,7 @@ final class AudioHooks {
                     XposedKit.log("key step: " + (raise ? "+" : "-") + delta + " "
                             + oldIndex + " -> " + newIndex);
                 }
-                audioService.getClass().getMethod(METHOD_SET_STREAM_VOLUME,
-                        int.class, int.class, int.class)
-                        .invoke(audioService, streamType, newIndex, flags);
+                invokeSetStreamVolume(audioService, streamType, newIndex, flags);
                 // 跳过原实现（它自带 ±1 或按 maxIndex/15 的步进），避免双算。
                 return null;
             } catch (Throwable t) {
