@@ -132,6 +132,14 @@ public final class Avrcp {
      *
      * <p>双模式曲线统一；maxAbs&lt;127 时最高系统档位被压缩（滑块上限受限），
      * 为软件衰减固有行为。档位 0 恒为静音。</p>
+     *
+     * <p><b>精度实测结论（诊断日志 181a202 得出）：</b>本端下发给 audioserver 的
+     * {@code AudioSystem#setStreamVolumeIndex} 的 index 恒为粗档位（与返回的
+     * {@code mapped} 一致），从不出现 ×10——{@code mIndexMap} 里的 ×10 只是
+     * system_server 内部记账。故真实可分辨级数 == maxSteps（与模式A 不同：模式A
+     * 的 0~127 是交给耳机渲染的 AVRCP 绝对音量）。因此 {@code maxAbs<127} 时不同
+     * UI 档塞入 {@code round(maxAbs/127*maxSteps)} 个落点，相邻重复为鸽笼原理
+     * 必然，算法只能重新分布、无法消除；唯一提升精度的是提高 {@code maxSteps}。</p>
      */
     public static int curveToSystemIndex(int step, int maxSteps, int minAbs, int maxAbs,
             int curveType) {
