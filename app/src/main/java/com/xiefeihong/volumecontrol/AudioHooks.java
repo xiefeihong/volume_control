@@ -652,13 +652,40 @@ final class AudioHooks {
                 + (hooked == 0 ? " (keys routed elsewhere; step stays default)" : ""));
     }
 
-    /** 反射调用单 int 参数的方法并取 int 返回（getStreamVolume / getStreamMaxVolume）。 */
-    private static int invokeIntMethod(Object target, String name, int arg) throws Exception {
-        Object r = target.getClass().getMethod(name, int.class).invoke(target, arg);
+    /**
+     * 反射调用 {@code AudioService} 上的单 int 参方法并取 int 返回（getStreamVolume / getStreamMaxVolume）。
+     * 遍历类层次 + {@code setAccessible} 以兼容非 public（{@code getMethod} 只查 public →
+     * MiAudioService / AudioServiceBinderWrapper 上 NoSuchMethodException）。
+     */
+    private static int invokeIntMethod(Object target, String name, int arg) throws Throwable {
+        Method m = findIntMethod(target.getClass(), name);
+        if (m == null) {
+            throw new NoSuchMethodException(
+                    name + "(int) not found on " + target.getClass().getName());
+        }
+        m.setAccessible(true);
+        Object r;
+        try {
+            r = m.invoke(target, arg);
+        } catch (InvocationTargetException e) {
+            throw (e.getCause() != null) ? e.getCause() : e;
+        }
         if (r instanceof Integer) {
             return (Integer) r;
         }
         throw new NoSuchMethodException(name + " not returning int");
+    }
+
+    /** 在类层次中查找名字为 name、单个 int 参数的方法（任意可见性）。 */
+    private static Method findIntMethod(Class<?> c, String name) {
+        while (c != null && c != Object.class) {
+            try {
+                return c.getDeclaredMethod(name, int.class);
+            } catch (NoSuchMethodException e) {
+                c = c.getSuperclass();
+            }
+        }
+        return null;
     }
 
     /**
@@ -735,7 +762,9 @@ final class AudioHooks {
                 if (streamType != Prefs.STREAM_MUSIC_INDEX || (!raise && !lower)) {
                     return chain.proceed();
                 }
-                Object audioService = chain.getThisObject();
+                // HyperOS 音量键可能走 AudioService$AudioServiceBinderWrapper（其上无 getStreamMaxVolume 等
+                // 方法），故优先用真正的 AudioService 实例读写音量；缺失时回退到 chain.getThisObject()。
+                Object audioService = sAudioService != null ? sAudioService : chain.getThisObject();
                 VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(audioService));
                 if (config == null || !config.enabled) {
