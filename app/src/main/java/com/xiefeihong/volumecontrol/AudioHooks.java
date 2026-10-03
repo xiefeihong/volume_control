@@ -139,11 +139,11 @@ final class AudioHooks {
             hookSoftwareVolumeCurve(classLoader, module);
             hookAbsoluteVolumeSuppression(classLoader, module);
             hookVolumeKeyStep(classLoader, module);
-            // 「拖后按键」网格吸附【已禁用】：setStreamVolumeWithAttribution 除拖后按键外还承载
-            // SystemUI 对话框同步 / 媒体会话变更等非按键写入，按时间间隔无法可靠区分，盲吸附会与
-            // SystemUI 相互回写造成音量自激振荡（实测 32%↔36% 循环）甚至反向掉档。相比拖后偶发 ~8%
-            // 跳档，稳定性优先，故不再挂载。详见 MediaVolumeGridSnapHooker 类文档。
-            // hookMediaVolumeGridSnap(classLoader, module);
+            // 「拖后按键」网格吸附（保守重启）：拖动后 HyperOS 将对话框置「直接落值」态，音量键
+            // 改走 setStreamVolumeWithAttribution 绕开 adjust 接管，落点变成 ROM 默认~7%。本 Hook 仅对
+            // 【孤立且 Δ 够大（真实按键一整步）】的媒体写入吸附到相邻网格档；密集（拖动）与 Δ 过小
+            // （SystemUI 同步/取整回写）一律原样放行，避免之前的 32%↔36% 自激振荡。详见 MediaVolumeGridSnapHooker。
+            hookMediaVolumeGridSnap(classLoader, module);
 
             // 立即读取配置填充属性拦截缓存（此时 SettingsProvider 未就绪，
             // 镜像文件通道可读）；失败由属性回调与开机校正重试。

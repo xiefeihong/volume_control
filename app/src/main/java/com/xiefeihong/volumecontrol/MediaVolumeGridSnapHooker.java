@@ -7,10 +7,10 @@ import io.github.libxposed.api.XposedInterface;
 /**
  * 服务端「拖后按键」网格吸附 Hooker（顶层类，避免内部类）。
  *
- * <p><b>当前状态：未挂载（已禁用）。</b> {@code AudioHooks.install} 中的
- * {@code hookMediaVolumeGridSnap(...)} 调用已注释：实测本 Hook 会与 SystemUI 对话框同步/媒体
- * 会话变更等非按键写入相互回写，造成音量自激振荡（如 32%↔36% 循环）与反向掉档；相比拖后
- * 偶发 ~8% 跳档，取稳定性优先。保留本类仅作将来可靠方案（能区分“用户按键”与“系统回写”）的重启点。</p>
+ * <p><b>当前状态：保守重启（带防误伤门限）。</b> 早期版本曾因①刻度不同源（用 config.mediaSteps）
+ * 与②把 SystemUI 非按键同步写入也吸附，导致音量自激振荡（32%↔36% 循环）与反向掉档。现两者已修：
+ * levels 改用<b>实时物理上限</b> getStreamMaxVolume（与 {@link AudioHooks} 的 adjust 接管同源）；并对
+ * <b>Δ 过小</b>（≈零/±1）的调用一律视为系统回写、原样放行，从根上消除误伤。</p>
  *
  * <p>背景（adb 实测 + SystemUI 抓栈定位）：未拖动时音量键走
  * {@code AudioService#adjustStreamVolume}，由 {@link AudioHooks} 的接管逻辑吸附到网格；
@@ -84,9 +84,17 @@ final class MediaVolumeGridSnapHooker implements XposedInterface.Hooker {
             if (current < 0 || index == current) {
                 return chain.proceed();
             }
+            // 【防误伤/防振荡】真实按键相对当前是一整步（~7%），而 SystemUI 对话框同步/取整写入
+            // 的 Δ 只有 0/±1。Δ 过小一律视为系统回写、原样放行，绞不改写——否则会把同步写入吸附
+            // 成反向掉档并与 SystemUI 相互回写振荡（实测按音量+反而 40→39 的根因）。
+            int delta = index - current;
+            int minKeyDelta = Math.max(2, Math.round(levels * 0.03f));
+            if (Math.abs(delta) < minKeyDelta) {
+                return chain.proceed();
+            }
             // 相对「当前档位」吸附到相邻的一个网格档（与 adjustStreamVolume 接管一致），
             // 保证每次按键恰好跳 1 段（~100/keySteps %），而非把绝对目标就近取整而跨档跳。
-            boolean raise = index > current;
+            boolean raise = delta > 0;
             int target = raise
                     ? Prefs.nextKeyStepUp(current, levels, segs)
                     : Prefs.nextKeyStepDown(current, levels, segs);
