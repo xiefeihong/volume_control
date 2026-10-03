@@ -22,4 +22,24 @@ public final class Range {
         this.max = max;
         this.curve = curve;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof Range)) {
+            return false;
+        }
+        Range other = (Range) o;
+        return min == other.min && max == other.max && curve == other.curve;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = min;
+        result = 31 * result + max;
+        result = 31 * result + curve;
+        return result;
+    }
 }

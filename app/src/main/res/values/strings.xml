@@ -24,7 +24,7 @@
     <string name="label_media_steps_default">音量级数（范围 10~127）</string>
     <string name="label_media_steps_sys_default">音量级数：默认</string>
     <string name="label_media_steps_fmt">音量级数：%1$d 级（范围 10~127）</string>
-    <string name="media_hint">可设置 10~127 级（默认为系统原生级数）。级数越多，音量条越细、可分辨级越多（实测 127 几乎每级可辨）。修改自动保存，点「重启系统框架」生效。</string>
+    <string name="media_hint">可设置 10~127 级（默认为系统原生级数）。级数越多，音量条越细、可分辨级越多（实测 127 几乎每级可辨）。修改暂存于界面，需点「保存修改」后写入并按提示重启生效。</string>
     <string name="label_key_steps_default">音量键步进（按键段数 10~29）</string>
     <string name="label_key_steps_fmt">音量键步进：%1$d 段（每次约跳 %2$d 级）</string>
     <string name="key_steps_hint">每按一次音量键约跳「音量级数 ÷ 段数」个级。段数越大跳得越细；屏幕滑条不受此限，可逐级精调。未启用或恢复默认时，步进段数默认等于手机默认音量级数。</string>
@@ -42,7 +42,7 @@
     <string name="curve_hint" formatted="false">选择档位到音量范围的映射分布；三者第 1 档=最小音量、最高档=最大音量。模式A/B 与耳机模式的曲线各自独立保存。</string>
     <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
-    <string name="default_range_info" formatted="false">默认：沿用 ROM 原生音量曲线，不做自定义映射或衰减（本标签只读展示，不可编辑曲线/最小/最大，也不会改动蓝牙A/蓝牙B/有线耳机各自已保存的范围）。当前手机默认媒体档位数：%1$d 级；下方曲线图与映射表以系统档位 1:1 直通方式展示 ROM 原生效果。</string>
+    <string name="default_range_info" formatted="false">默认：沿用 ROM 原生音量曲线，不做自定义映射或衰减（本标签只读展示，不可编辑曲线/最小/最大，也不会改动蓝牙A/蓝牙B/有线耳机各自已保存的范围）。当前手机默认媒体档位数：%1$d 级；下方曲线图横轴为系统档位、纵轴为音量，以线性直通展示 ROM 原生效果。</string>
 
     <string name="status_root_ok">Root：可用（su 已授权）</string>
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>
@@ -85,7 +85,32 @@
     <string name="toast_sys_restarting">正在重启系统框架…屏幕将短暂黑屏，本应用会被关闭</string>
 
     <string name="btn_restart_bt">重启蓝牙 (模式/音量范围调整后)</string>
-    <string name="ops_hint">修改后自动保存。切换模式或调整音量范围后需点「重启蓝牙」；仅音量级数修改后需点「重启系统框架」（音量键步进即时生效）。</string>
+    <string name="ops_hint">修改只暂存于界面，需点「保存修改」才会写入并生效；确认框会列出改动，并按需询问是否立即重启蓝牙/系统框架。</string>
+
+    <!-- 保存修改（显式生效门控） -->
+    <string name="btn_save">保存修改</string>
+    <string name="pending_unsaved">● 有未保存的修改，点击「保存修改」后生效。</string>
+    <string name="dlg_save_title">保存修改</string>
+    <string name="dlg_save_none">没有需要保存的修改。</string>
+    <string name="dlg_save_first">首次保存，将写入以下配置并使其生效：</string>
+    <string name="save_default_note">\n已选中「默认」：保存将关闭启用模块并恢复系统默认。</string>
+    <string name="change_enable">启用模块：%1$s → %2$s</string>
+    <string name="change_media_steps">音量级数：%1$d → %2$d</string>
+    <string name="change_key_steps">音量键步进：%1$d → %2$d</string>
+    <string name="change_bt_mode">蓝牙生效模式：%1$s → %2$s</string>
+    <string name="change_range">%1$s 音量范围：%2$s → %3$s</string>
+    <string name="enable_on">开启</string>
+    <string name="enable_off">关闭</string>
+    <string name="mode_name_wired">有线耳机</string>
+    <string name="restart_bt">蓝牙</string>
+    <string name="restart_system">系统框架</string>
+    <string name="restart_both">蓝牙与系统框架</string>
+    <string name="dlg_save_done_title">保存成功</string>
+    <string name="dlg_restart_now_msg">改动已保存。以下更改需重启%1$s才能生效，是否立即重启？</string>
+    <string name="dlg_restart_now">立即重启</string>
+    <string name="dlg_restart_later">稍后手动</string>
+    <string name="toast_save_done">已保存，无需重启即可生效。</string>
+    <string name="toast_restarting">正在重启…</string>
 
     <string name="log_title">模块日志（VolumeControl）</string>
     <string name="btn_logs">查看模块日志</string>

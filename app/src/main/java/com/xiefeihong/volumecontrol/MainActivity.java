@@ -31,23 +31,28 @@ import java.util.concurrent.Executors;
  *
  * <p>音量范围卡片以 {@link ChipGroup} 三个单选芯片（模式A / 模式B / 有线耳机）切换「当前
  * 编辑哪个范围」，共享同一组曲线/滑条/预览控件，按 {@link VolumeMode} 各自的键读写；
- * 各模式的值互不干扰。蓝牙生效模式（btMode）由独立的单选控件决定，切换仅保存、不实时
- * 生效。所有变更自动写入 Settings.Global，重启蓝牙 / 系统框架使其生效。</p>
+ * 各模式的值互不干扰。蓝牙生效模式（btMode）由「蓝牙A/蓝牙B」标签决定，切换仅暂存、不实时
+ * 生效。所有变更只暂存到界面/Preferences，须点「保存修改」确认后才写入 Settings.Global，
+ * 再按需重启蓝牙 / 系统框架使其生效；「默认」标签的保存会关闭启用模块并恢复系统默认。</p>
  */
 public class MainActivity extends AppCompatActivity {
-
-    /** 设置变更后自动写入系统设置的防抖延迟（毫秒），避免拖动滑条时高频写入。 */
-    private static final long AUTO_SAVE_DELAY_MS = 600;
 
     private ActivityMainBinding binding;
     private SharedPreferences prefs;
 
+    /**
+     * 上一次成功写入系统（Settings.Global）的生效配置原文，作为「未保存修改」比较基线。
+     * 界面编辑只暂存到 {@code prefs}（工作副本），必须点「保存修改」才推送到系统；启动时先按
+     * prefs 初始化，状态刷新读到系统实际值后不再重置（以保存成功时的回写为准）。
+     */
+    private String lastSavedRaw = "";
+
+    /** {@code tvPending} 在「已保存」状态下显示的（重启待生效）文案，由 renderStatus 写入。 */
+    private String pendingStatusText = "";
+
     /** 串行后台线程：所有 root / 系统查询操作都在此执行。 */
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-
-    /** 防抖后的自动保存任务（设置变更 → 写入 Settings.Global）。 */
-    private final Runnable autoSaveRunnable = () -> saveToSystem(null);
 
     /**
      * 程序化把某模式的值载入共享控件期间置为 true，抑制所有监听回调。
@@ -95,7 +100,6 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        mainHandler.removeCallbacks(autoSaveRunnable);
         executor.shutdown();
         super.onDestroy();
     }
@@ -165,12 +169,11 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton(R.string.dlg_cancel, null)
                 .show());
 
-        binding.btnReset.setOnClickListener(v -> new AlertDialog.Builder(this)
-                .setTitle(R.string.dlg_reset_title)
-                .setMessage(getString(R.string.dlg_reset_msg, systemDefaultStepsRaw()))
-                .setPositiveButton(R.string.dlg_ok, (dialog, which) -> resetToDefaults())
-                .setNegativeButton(R.string.dlg_cancel, null)
-                .show());
+        // 「保存修改」：列出相对已生效配置的改动，确认后才写入并推送系统；需重启时再询问。
+        binding.btnSave.setOnClickListener(v -> runSave(false));
+
+        // 「恢复系统默认」与「选中默认后保存修改」使用同一逻辑：强制默认态保存。
+        binding.btnReset.setOnClickListener(v -> runSave(true));
     }
 
     private void loadConfigIntoUi() {
@@ -194,6 +197,8 @@ public class MainActivity extends AppCompatActivity {
         binding.groupRangeEditors.setVisibility(View.VISIBLE);
         loadRangeIntoUi();
         suppressListeners = false;
+        lastSavedRaw = currentConfigString();
+        updateTvPending();
     }
 
     /**
@@ -230,9 +235,9 @@ public class MainActivity extends AppCompatActivity {
         loadRangeIntoUi();
         updatePreview();
         suppressListeners = false;
-        // 生效模式随标签切换而变：落盘偏好并防抖写入系统（重启蓝牙后生效）。
+        // 生效模式随标签切换而变：仅暂存偏好（改动只在「保存修改」后才推送系统）。
         persistToPrefs(false);
-        scheduleAutoSave();
+        updateTvPending();
     }
 
     /**
@@ -247,6 +252,7 @@ public class MainActivity extends AppCompatActivity {
         showingDefault = true;
         binding.groupRangeEditors.setVisibility(View.GONE);
         updatePreview();
+        updateTvPending();
     }
 
     /** 芯片 id → 编辑模式。 */
@@ -392,14 +398,13 @@ public class MainActivity extends AppCompatActivity {
         binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
                 keySteps, Prefs.keyDelta(mediaSteps, keySteps)));
 
-        // 「默认」只读标签：不重算自定义范围/曲线（编辑控件已隐藏），改用 ROM 原生直通参数
-        // 只读渲染曲线图与映射表（useSystemIndex=true + LINEAR + 0~127 使 curveToSystemIndex(step)=step）。
+        // 「默认」只读标签：不重算自定义范围/曲线（编辑控件已隐藏）。曲线图以「横轴＝音量、
+        // 纵轴＝系统档位」只读展示 ROM 原生直通；映射表以档位 1:1 直通呈现。
         if (showingDefault) {
             int nativeSteps = systemDefaultSteps();
             int previewSegs = Prefs.clampKeySteps(nativeSteps);
             binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
-            binding.curveChart.configure(nativeSteps, 0, Prefs.AVRCP_MAX_VOLUME,
-                    Prefs.CURVE_LINEAR, /*useSystemIndex*/ true, nativeSteps);
+            binding.curveChart.configureNativeVolume(nativeSteps);
             binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
                     nativeSteps, true, 0, Prefs.AVRCP_MAX_VOLUME,
                     Prefs.CURVE_LINEAR, nativeSteps, computeTableColumns(previewSegs, nativeSteps)));
@@ -498,20 +503,45 @@ public class MainActivity extends AppCompatActivity {
         return new Range(min, max, curve);
     }
 
-    /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
+    /** 界面任一设置变更：仅暂存到 Preferences 并刷新预览/未保存提示；不写系统（推送由于「保存修改」触发）。 */
     private void onConfigChanged() {
         if (suppressListeners) {
             return;
         }
         persistToPrefs(false);
         updatePreview();
-        scheduleAutoSave();
+        updateTvPending();
     }
 
-    /** 防抖合并连续变更（拖动滑条），只写入一次 Settings.Global。 */
-    private void scheduleAutoSave() {
-        mainHandler.removeCallbacks(autoSaveRunnable);
-        mainHandler.postDelayed(autoSaveRunnable, AUTO_SAVE_DELAY_MS);
+    /** 待写入系统的配置与已生效基线不一致（存在未保存修改）。 */
+    private boolean hasUnsavedChanges() {
+        return !buildPendingConfig().toRaw().equals(lastSavedRaw);
+    }
+
+    /** {@code tvPending}：有未保存修改时提示点保存，否则显示 renderStatus 的重启待生效文案。 */
+    private void updateTvPending() {
+        if (hasUnsavedChanges()) {
+            binding.tvPending.setText(R.string.pending_unsaved);
+        } else {
+            binding.tvPending.setText(pendingStatusText);
+        }
+    }
+
+    /** 构造当前待保存配置：默认态=系统默认重置；否则取暂存 prefs（已与控件同步）。 */
+    private VolumeConfig buildPendingConfig() {
+        if (showingDefault) {
+            return buildDefaultConfig();
+        }
+        VolumeConfig c = VolumeConfig.fromRaw(currentConfigString());
+        return c != null ? c : buildDefaultConfig();
+    }
+
+    /** 系统默认配置：模块关闭、媒体/键步进取原生级数、模式A、三种范围各自默认。 */
+    private VolumeConfig buildDefaultConfig() {
+        Range def = new Range(Prefs.ABS_VOLUME_MIN_DEFAULT,
+                Prefs.ABS_VOLUME_MAX_DEFAULT, Prefs.CURVE_TYPE_DEFAULT);
+        return new VolumeConfig(false, systemDefaultSteps(), defaultKeySteps(),
+                Prefs.BT_MODE_ABSOLUTE, def, def, def);
     }
 
     /**
@@ -521,7 +551,6 @@ public class MainActivity extends AppCompatActivity {
      * @param onSaved 校验成功后的后续动作（重启按钮使用）；null 表示自动保存（失败时短提示）
      */
     private void saveToSystem(Runnable onSaved) {
-        mainHandler.removeCallbacks(autoSaveRunnable);
         persistToPrefs(true);
         final String configString = currentConfigString();
         final boolean softwareMode = currentBtMode() == Prefs.BT_MODE_SOFTWARE;
@@ -544,18 +573,17 @@ public class MainActivity extends AppCompatActivity {
                 Shell.appendSysLog("push config " + configString + " saved=" + verified);
                 final boolean ok = verified;
                 mainHandler.post(() -> {
-                    if (onSaved == null) {
-                        if (!ok) {
-                            Toast.makeText(this, R.string.toast_auto_save_fail,
-                                    Toast.LENGTH_SHORT).show();
-                        }
-                        return;
-                    }
                     if (!ok) {
-                        Toast.makeText(this, R.string.toast_push_fail, Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, onSaved != null
+                                        ? R.string.toast_push_fail : R.string.toast_auto_save_fail,
+                                Toast.LENGTH_LONG).show();
                         return;
                     }
-                    onSaved.run();
+                    lastSavedRaw = configString;
+                    updateTvPending();
+                    if (onSaved != null) {
+                        onSaved.run();
+                    }
                 });
             });
         } catch (RuntimeException ignored) {
@@ -564,31 +592,163 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 关闭模块并恢复默认档位、模式A、以及三种模式各自默认音量范围，随后保存。 */
-    private void resetToDefaults() {
-        binding.switchEnable.setChecked(false);
-        setMediaSteps(systemDefaultSteps());
-        suppressListeners = true;
-        btMode = Prefs.BT_MODE_ABSOLUTE;
-        // 三种模式（A/B/有线）范围全部回到默认，写入 prefs
-        for (VolumeMode mode : VolumeMode.values()) {
-            prefs.edit()
-                    .putInt(mode.minKey, Prefs.ABS_VOLUME_MIN_DEFAULT)
-                    .putInt(mode.maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT)
-                    .putInt(mode.curveKey, Prefs.CURVE_TYPE_DEFAULT)
-                    .apply();
+    // ==================== 保存修改（显式生效门控） ====================
+
+    /**
+     * 执行「保存修改」：与已生效配置比对后弹确认框列出改动，确认才写入 prefs 并推送系统；
+     * 若需重启蓝牙/系统框架，保存成功后再询问是否立即重启。
+     *
+     * @param forceDefault 强制走「默认（系统重置）」逻辑（恢复系统默认按钮）；true 时忽略当前标签。
+     */
+    private void runSave(boolean forceDefault) {
+        final boolean asDefault = forceDefault || showingDefault;
+        final VolumeConfig pending = asDefault ? buildDefaultConfig() : buildPendingConfig();
+        final VolumeConfig base = VolumeConfig.fromRaw(lastSavedRaw);
+        if (base != null && base.toRaw().equals(pending.toRaw())) {
+            Toast.makeText(this, R.string.dlg_save_none, Toast.LENGTH_SHORT).show();
+            return;
         }
-        editingMode = VolumeMode.ofBtMode(Prefs.BT_MODE_ABSOLUTE);
-        binding.chipGroupRange.check(modeToChipId(editingMode));
-        showingDefault = false;
-        binding.groupRangeEditors.setVisibility(View.VISIBLE);
-        loadRangeIntoUi();
-        binding.seekKeySteps.setProgress(defaultKeySteps() - Prefs.KEY_STEP_MIN);
-        suppressListeners = false;
+        final List<String> changes = describeChanges(base, pending);
+        final boolean modeOrRangeChanged = base == null
+                || pending.btMode != base.btMode
+                || !pending.absolute.equals(base.absolute)
+                || !pending.software.equals(base.software)
+                || !pending.wired.equals(base.wired);
+        // 启用开关变化会同时影响蓝牙 Hook 与系统档位，两侧都需重启。
+        final boolean enabledChanged = base == null || pending.enabled != base.enabled;
+        final boolean needsSystem = enabledChanged
+                || base != null && pending.mediaSteps != base.mediaSteps;
+        final boolean needsBt = enabledChanged || modeOrRangeChanged;
+
+        StringBuilder sb = new StringBuilder();
+        if (changes.isEmpty()) {
+            sb.append(getString(R.string.dlg_save_first));
+        } else {
+            for (String line : changes) {
+                sb.append("• ").append(line).append('\n');
+            }
+        }
+        if (asDefault) {
+            sb.append(getString(R.string.save_default_note));
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.dlg_save_title)
+                .setMessage(sb.toString())
+                .setPositiveButton(R.string.btn_save,
+                        (d, w) -> commitSave(pending, asDefault, needsBt, needsSystem))
+                .setNegativeButton(R.string.dlg_cancel, null)
+                .show();
+    }
+
+    /** 确认保存：把待写配置落到 prefs 并回读界面（默认态据此关闭启用开关），再推送系统。 */
+    private void commitSave(VolumeConfig pending, boolean asDefault,
+            boolean needsBt, boolean needsSystem) {
+        applyConfigToPrefs(pending);
+        loadConfigIntoUi();
         updatePreview();
-        mainHandler.removeCallbacks(autoSaveRunnable);
-        saveToSystem(() -> Toast.makeText(this, R.string.toast_reset_done,
-                Toast.LENGTH_LONG).show());
+        saveToSystem(() -> promptRestart(needsBt, needsSystem));
+    }
+
+    /** 把一个完整配置写入 prefs（供保存/默认重置后统一回读界面）。 */
+    private void applyConfigToPrefs(VolumeConfig c) {
+        prefs.edit()
+                .putBoolean(Prefs.KEY_ENABLED, c.enabled)
+                .putInt(Prefs.KEY_MEDIA_STEPS, c.mediaSteps)
+                .putInt(Prefs.KEY_KEY_STEPS, c.keySteps)
+                .putInt(Prefs.KEY_BT_MODE, c.btMode)
+                .putInt(VolumeMode.ABSOLUTE.minKey, c.absolute.min)
+                .putInt(VolumeMode.ABSOLUTE.maxKey, c.absolute.max)
+                .putInt(VolumeMode.ABSOLUTE.curveKey, c.absolute.curve)
+                .putInt(VolumeMode.SOFTWARE.minKey, c.software.min)
+                .putInt(VolumeMode.SOFTWARE.maxKey, c.software.max)
+                .putInt(VolumeMode.SOFTWARE.curveKey, c.software.curve)
+                .putInt(VolumeMode.WIRED.minKey, c.wired.min)
+                .putInt(VolumeMode.WIRED.maxKey, c.wired.max)
+                .putInt(VolumeMode.WIRED.curveKey, c.wired.curve)
+                .commit();
+    }
+
+    /** 列出待保存配置相对已生效配置的改动（可读条目）；{@code base} 为 null 时返回空。 */
+    private List<String> describeChanges(VolumeConfig base, VolumeConfig pending) {
+        List<String> out = new ArrayList<>();
+        if (base == null) {
+            return out;
+        }
+        if (base.enabled != pending.enabled) {
+            out.add(getString(R.string.change_enable,
+                    enabledLabel(base.enabled), enabledLabel(pending.enabled)));
+        }
+        if (base.mediaSteps != pending.mediaSteps) {
+            out.add(getString(R.string.change_media_steps, base.mediaSteps, pending.mediaSteps));
+        }
+        if (base.keySteps != pending.keySteps) {
+            out.add(getString(R.string.change_key_steps, base.keySteps, pending.keySteps));
+        }
+        if (base.btMode != pending.btMode) {
+            out.add(getString(R.string.change_bt_mode,
+                    modeLabel(base.btMode), modeLabel(pending.btMode)));
+        }
+        addRangeChange(out, getString(R.string.mode_name_absolute), base.absolute, pending.absolute);
+        addRangeChange(out, getString(R.string.mode_name_software), base.software, pending.software);
+        addRangeChange(out, getString(R.string.mode_name_wired), base.wired, pending.wired);
+        return out;
+    }
+
+    private void addRangeChange(List<String> out, String name, Range from, Range to) {
+        if (from.equals(to)) {
+            return;
+        }
+        out.add(getString(R.string.change_range, name, rangeLabel(from), rangeLabel(to)));
+    }
+
+    private String rangeLabel(Range r) {
+        return r.min + "~" + r.max + "/" + Avrcp.curveLabel(r.curve);
+    }
+
+    private String enabledLabel(boolean enabled) {
+        return getString(enabled ? R.string.enable_on : R.string.enable_off);
+    }
+
+    private String modeLabel(int mode) {
+        return getString(mode == Prefs.BT_MODE_SOFTWARE
+                ? R.string.mode_name_software : R.string.mode_name_absolute);
+    }
+
+    /** 保存成功后，如需要则询问是否立即重启对应组件。 */
+    private void promptRestart(boolean needsBt, boolean needsSystem) {
+        refreshStatus();
+        if (!needsBt && !needsSystem) {
+            Toast.makeText(this, R.string.toast_save_done, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String what = (needsBt && needsSystem)
+                ? getString(R.string.restart_both)
+                : needsBt ? getString(R.string.restart_bt) : getString(R.string.restart_system);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.dlg_save_done_title)
+                .setMessage(getString(R.string.dlg_restart_now_msg, what))
+                .setPositiveButton(R.string.dlg_restart_now,
+                        (d, w) -> performRestart(needsBt, needsSystem))
+                .setNegativeButton(R.string.dlg_restart_later, null)
+                .show();
+    }
+
+    /** 按需重启蓝牙与/或系统框架（不重复写配置，配置已在保存时推送）。 */
+    private void performRestart(boolean needsBt, boolean needsSystem) {
+        Toast.makeText(this, R.string.toast_restarting, Toast.LENGTH_LONG).show();
+        try {
+            executor.execute(() -> {
+                if (needsBt) {
+                    Shell.restartBluetooth();
+                }
+                if (needsSystem) {
+                    Shell.restartSystemServer();
+                }
+            });
+        } catch (RuntimeException ignored) {
+            // 页面已销毁、线程池已关闭：记录后忽略（配置已保存）
+            Log.i(LOG_TAG, "restart task rejected", ignored);
+        }
     }
 
     /** 保存配置并重启蓝牙（音量模式 / 音量范围修改后的生效方式，不重启系统框架）。 */

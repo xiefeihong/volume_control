@@ -36,6 +36,8 @@ public final class CurveChartView extends View {
     private int curveType = Prefs.CURVE_LOG;
     private boolean useSystemIndex;
     private int keySteps = Prefs.KEY_STEP_DEFAULT;
+    /** 「默认/系统原生」模式：true 时横轴＝音量(0~100%)、纵轴＝系统档位，线性直通渲染。 */
+    private boolean nativeVolumeMode;
 
     public CurveChartView(Context context) {
         this(context, null);
@@ -73,12 +75,23 @@ public final class CurveChartView extends View {
     /** 设置映射参数并刷新。 */
     public void configure(int maxSteps, int minAbs, int maxAbs, int curveType,
             boolean useSystemIndex, int keySteps) {
+        this.nativeVolumeMode = false;
         this.maxSteps = Math.max(1, maxSteps);
         this.minAbs = minAbs;
         this.maxAbs = maxAbs;
         this.curveType = curveType;
         this.useSystemIndex = useSystemIndex;
         this.keySteps = keySteps;
+        invalidate();
+    }
+
+    /**
+     * 「默认（系统原生）」专用：横轴＝音量(0~100%)、纵轴＝系统音量档位(0~nativeSteps)，
+     * 因不做任何重映射故按线性直通绘制（音量→档位对角直线）。与普通映射模式互斥。
+     */
+    public void configureNativeVolume(int nativeSteps) {
+        this.maxSteps = Math.max(1, nativeSteps);
+        this.nativeVolumeMode = true;
         invalidate();
     }
 
@@ -94,6 +107,10 @@ public final class CurveChartView extends View {
         float top = getPaddingTop() + padT;
         float bottom = getHeight() - getPaddingBottom() - padB;
         if (right <= left || bottom <= top) {
+            return;
+        }
+        if (nativeVolumeMode) {
+            drawNative(canvas, left, right, top, bottom);
             return;
         }
         int yMax = useSystemIndex ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
@@ -143,6 +160,50 @@ public final class CurveChartView extends View {
                 + (useSystemIndex ? "系统档位" : "AVRCP")
                 + " " + minAbs + "~" + maxAbs + " · ○=每次按键落点";
         canvas.drawText(caption, left, top - 6f * density, labelPaint);
+    }
+
+    /**
+     * 「默认（系统原生）」渲染：横轴＝系统音量档位(0~maxSteps)，纵轴＝音量(0~100%)。
+     * 模块不生效时音量随档位线性变化，故画为对角直线，圆点为每个系统档位落点。
+     */
+    private void drawNative(Canvas canvas, float left, float right, float top, float bottom) {
+        int xMax = Math.max(1, maxSteps);   // 横轴＝系统档位 0~xMax；纵轴＝音量 0~100%
+        // 纵向网格：0 / 半 / 满 档位
+        for (int p = 0; p <= 2; p++) {
+            float gx = left + (right - left) * p / 2f;
+            canvas.drawLine(gx, top, gx, bottom, gridPaint);
+        }
+        // 横向网格：0% / 50% / 100% 音量
+        for (int p = 0; p <= 2; p++) {
+            float gy = bottom - (bottom - top) * (p / 2f);
+            canvas.drawLine(left, gy, right, gy, gridPaint);
+        }
+        canvas.drawRect(left, top, right, bottom, axisPaint);
+        // 系统原生＝音量随档位线性变化：对角直线
+        canvas.drawLine(left, bottom, right, top, curvePaint);
+        // 落点圆点：每个系统档位
+        float r = 3f * density;
+        for (int level = 0; level <= xMax; level++) {
+            float frac = level / (float) xMax;
+            canvas.drawCircle(left + (right - left) * frac, bottom - (bottom - top) * frac,
+                    r, dotPaint);
+        }
+        // 横轴标签：系统档位 0 ~ xMax
+        drawLabel(canvas, "0", left, bottom + 3f * density, false);
+        drawLabel(canvas, String.valueOf(xMax), right, bottom + 3f * density, true);
+        // 纵轴标签：音量百分比
+        drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
+        drawYText(canvas, "100%", top, left);
+        canvas.drawText("系统原生 · 音量随档位线性变化（不做映射/衰减）· ○=每档落点",
+                left, top - 6f * density, labelPaint);
+    }
+
+    /** 在 y 轴左侧绘制右对齐、垂直居中于 centerY 的字符串标签。 */
+    private void drawYText(Canvas canvas, String s, float centerY, float axisLeft) {
+        labelPaint.getTextBounds(s, 0, s.length(), textBounds);
+        float tx = axisLeft - 5f * density - textBounds.width();
+        float baseline = centerY + textBounds.height() / 2f;
+        canvas.drawText(s, Math.max(0, tx), baseline, labelPaint);
     }
 
     private float valueAt(int step) {
