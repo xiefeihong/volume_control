@@ -56,6 +56,9 @@ final class AudioHooks {
     private static final String METHOD_ADJUST_STREAM_VOLUME = "adjustStreamVolume";
     private static final String METHOD_GET_STREAM_VOLUME = "getStreamVolume";
     private static final String METHOD_SET_STREAM_VOLUME = "setStreamVolume";
+    /** 拖后按键绕过 adjustStreamVolume、经 Binder 下发的服务端同步入口（优先挂此名）。 */
+    private static final String METHOD_SET_STREAM_VOLUME_WITH_ATTRIBUTION =
+            "setStreamVolumeWithAttribution";
     /** setStreamVolume 若仅有带 callingPackage 的重载时补传的调用方包名（system_server 内调用可过权限）。 */
     private static final String SET_VOLUME_CALLING_PACKAGE = "com.android.systemui";
     private static final String PROP_MEDIA_VOL_STEPS = "ro.config.media_vol_steps";
@@ -136,6 +139,7 @@ final class AudioHooks {
             hookSoftwareVolumeCurve(classLoader, module);
             hookAbsoluteVolumeSuppression(classLoader, module);
             hookVolumeKeyStep(classLoader, module);
+            hookMediaVolumeGridSnap(classLoader, module);
 
             // 立即读取配置填充属性拦截缓存（此时 SettingsProvider 未就绪，
             // 镜像文件通道可读）；失败由属性回调与开机校正重试。
@@ -655,6 +659,37 @@ final class AudioHooks {
         XposedKit.log("key step: " + audioService.getName() + "#" + METHOD_ADJUST_STREAM_VOLUME
                 + " hooked: " + hooked
                 + (hooked == 0 ? " (keys routed elsewhere; step stays default)" : ""));
+    }
+
+    /**
+     * 「拖后按键」网格吸附：挂 {@code AudioService#setStreamVolumeWithAttribution}（拖后音量键
+     * 绕开 adjustStreamVolume、经 Binder 落到服务端的同步入口），按时间间隔区分拖动（密集放行、
+     * 保留全精度）与按键（孤立吸附到网格）。取不到该方法时回退挂 {@code setStreamVolume}。
+     *
+     * <p>详见 {@link MediaVolumeGridSnapHooker}。与 {@link #hookVolumeKeyStep} 互补：正常按键走
+     * adjustStreamVolume 已被接管吸附，本 Hook 专门兜住「拖动之后」改走 setStreamVolume 的按键。</p>
+     */
+    private static void hookMediaVolumeGridSnap(ClassLoader classLoader, XposedModule module) {
+        Class<?> audioService = sAudioServiceClass;
+        if (audioService == null) {
+            try {
+                audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
+            } catch (Throwable t) {
+                XposedKit.logError("grid snap: AudioService class load failed: " + t);
+                return;
+            }
+        }
+        int hooked = XposedKit.hookAllMethodsNamed(module, audioService,
+                METHOD_SET_STREAM_VOLUME_WITH_ATTRIBUTION, new MediaVolumeGridSnapHooker());
+        String method = METHOD_SET_STREAM_VOLUME_WITH_ATTRIBUTION;
+        if (hooked == 0) {
+            method = METHOD_SET_STREAM_VOLUME;
+            hooked = XposedKit.hookAllMethodsNamed(module, audioService,
+                    method, new MediaVolumeGridSnapHooker());
+        }
+        XposedKit.log("grid snap: " + audioService.getName() + "#" + method
+                + " hooked: " + hooked
+                + (hooked == 0 ? " (no setStreamVolume entry; post-drag keys stay default)" : ""));
     }
 
     /**
