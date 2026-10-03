@@ -105,7 +105,7 @@ final class BtHooks {
                     return result;
                 }
                 int step = (Integer) arg0;
-                VolumeConfig.Range range = m.range(config);
+                Range range = m.range(config);
                 int minA = range.min;
                 int maxA = range.max;
                 int curveType = range.curve;
@@ -161,7 +161,7 @@ final class BtHooks {
                 if (!(arg0 instanceof Integer)) {
                     return result;
                 }
-                VolumeConfig.Range range = m.range(config);
+                Range range = m.range(config);
                 int minA = range.min;
                 int maxA = range.max;
                 int curveType = range.curve;

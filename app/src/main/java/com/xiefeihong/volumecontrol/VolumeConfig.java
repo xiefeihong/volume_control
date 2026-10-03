@@ -31,19 +31,7 @@ public final class VolumeConfig {
     /** 耳机模式：有线 + 外放软件衰减范围。 */
     public final Range wired;
 
-    /** 单个模式的音量范围（最小~最大 + 映射曲线类型）。不可变。 */
-    public static final class Range {
-        public final int min;
-        public final int max;
-        /** 曲线类型：{@link Prefs#CURVE_LOG} / {@link Prefs#CURVE_LINEAR} / {@link Prefs#CURVE_SQRT}。 */
-        public final int curve;
-
-        public Range(int min, int max, int curve) {
-            this.min = min;
-            this.max = max;
-            this.curve = curve;
-        }
-    }
+    // 单模式范围值对象 Range 已提取为独立顶层类（见 Range.java）。
 
     public VolumeConfig(boolean enabled, int mediaSteps, int keySteps, int btMode,
             Range absolute, Range software, Range wired) {

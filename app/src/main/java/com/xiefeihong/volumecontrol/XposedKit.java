@@ -386,13 +386,7 @@ public final class XposedKit {
         return null;
     }
 
-    /** Settings.Global 的薄封装（隔离 import，便于阅读）。 */
-    private static final class SettingsGlobal {
-        static String getString(Context context, String key) {
-            return android.provider.Settings.Global.getString(
-                    context.getContentResolver(), key);
-        }
-    }
+    // Settings.Global 薄封装已提取为独立顶层类（见 SettingsGlobal.java）。
 
     /** 读取 App 以 root 写入的配置镜像（{@link Prefs#MIRROR_CONFIG_FILE}）。 */
     private static String readMirrorConfig() {

@@ -3,7 +3,7 @@ package com.xiefeihong.volumecontrol;
 /**
  * 三种音量模式的统一抽象（「枚举即策略」），App 与 Xposed Hook 共用。
  *
- * <p>每个枚举常量封装：该模式在 {@link VolumeConfig} 中对应的 {@link VolumeConfig.Range}、
+ * <p>每个枚举常量封装：该模式在 {@link VolumeConfig} 中对应的 {@link Range}、
  * SharedPreferences 键、映射空间（AVRCP 绝对音量 vs system_server 软件衰减）、以及适用的
  * 输出设备。配置读取统一为 {@code mode.range(cfg)}（如 {@code .min}/{@code .max}/{@code .curve}），
  * 不再使用魔法下标。</p>
@@ -17,21 +17,21 @@ public enum VolumeMode {
     ABSOLUTE(Prefs.KEY_MIN_ABS_A, Prefs.KEY_MAX_ABS_A, Prefs.KEY_CURVE_TYPE_A) {
         @Override public boolean attenuatesInSystemServer() { return false; }
         @Override public boolean drivesAvrcp() { return true; }
-        @Override public VolumeConfig.Range range(VolumeConfig cfg) { return cfg.absolute; }
+        @Override public Range range(VolumeConfig cfg) { return cfg.absolute; }
     },
 
     /** 模式B：停用绝对音量，由手机端在 system_server 软件衰减音频（仅蓝牙）。 */
     SOFTWARE(Prefs.KEY_MIN_ABS_B, Prefs.KEY_MAX_ABS_B, Prefs.KEY_CURVE_TYPE_B) {
         @Override public boolean attenuatesInSystemServer() { return true; }
         @Override public boolean drivesAvrcp() { return false; }
-        @Override public VolumeConfig.Range range(VolumeConfig cfg) { return cfg.software; }
+        @Override public Range range(VolumeConfig cfg) { return cfg.software; }
     },
 
     /** 耳机模式：有线耳机 + 外放扬声器，在 system_server 软件衰减（与蓝牙模式无关）。 */
     WIRED(Prefs.KEY_MIN_ABS_W, Prefs.KEY_MAX_ABS_W, Prefs.KEY_CURVE_TYPE_W) {
         @Override public boolean attenuatesInSystemServer() { return true; }
         @Override public boolean drivesAvrcp() { return false; }
-        @Override public VolumeConfig.Range range(VolumeConfig cfg) { return cfg.wired; }
+        @Override public Range range(VolumeConfig cfg) { return cfg.wired; }
     };
 
     /** 是否在 system_server 通过改写系统音量档位做软件衰减（模式B/耳机模式）。 */
@@ -41,12 +41,12 @@ public enum VolumeMode {
     public abstract boolean drivesAvrcp();
 
     /** 该模式在配置中对应的音量范围（最小~最大 + 曲线）。 */
-    public abstract VolumeConfig.Range range(VolumeConfig config);
+    public abstract Range range(VolumeConfig config);
 
     /**
      * 该模式三元组各自的 SharedPreferences 键（仅 App 侧持久化使用，Hook 端不读）。
      *
-     * <p>与 {@link VolumeConfig.Range}（保存 min/max/curve 三个「值」）互补：Range 是随配置
+     * <p>与 {@link Range}（保存 min/max/curve 三个「值」）互补：Range 是随配置
      * 下发的不可变快照，本字段是 App 读写 prefs 时对应的「键」。每个模式在枚举构造器里一次性
      * 声明自己的三个键，避免 {@code range(cfg)} 之外再散落的样板常量方法。</p>
      */

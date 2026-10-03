@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.View;
 import android.widget.SeekBar;
 import android.widget.Toast;
 
@@ -60,6 +61,12 @@ public class MainActivity extends AppCompatActivity {
 
     /** 当前标签对应编辑/查看的音量模式（ABSOLUTE / SOFTWARE / WIRED）。 */
     private VolumeMode editingMode = VolumeMode.ABSOLUTE;
+
+    /**
+     * 是否处于「默认」只读标签：为 true 时隐藏曲线/最小/最大等编辑控件（{@code groupRangeControls}），
+     * 仅在 {@code tvSummary} 展示系统默认信息；不改变生效模式、不落盘任何音量范围。
+     */
+    private boolean showingDefault = false;
 
     /** 蓝牙生效模式（ABSOLUTE/SOFTWARE）：由「蓝牙A/蓝牙B」标签决定，有线标签不改；持久化保存。 */
     private int btMode = Prefs.BT_MODE_ABSOLUTE;
@@ -130,12 +137,18 @@ public class MainActivity extends AppCompatActivity {
 
         binding.radioCurveType.setOnCheckedChangeListener((group, checkedId) -> onConfigChanged());
 
-        // 编辑芯片（单选）：切换当前查看/编辑哪个模式的范围；蓝牙A/蓝牙B 同时切换生效模式。
+        // 编辑芯片（单选）：切换当前查看/编辑哪个模式的范围；蓝牙A/蓝牙B 同时切换生效模式；
+        // 「默认」芯片为只读信息标签，隐藏编辑控件、只显示系统默认信息。
         binding.chipGroupRange.setOnCheckedStateChangeListener((group, checkedIds) -> {
             if (checkedIds.isEmpty()) {
                 return;
             }
-            switchEditingTab(chipIdToMode(checkedIds.get(0)));
+            int checkedId = checkedIds.get(0);
+            if (checkedId == R.id.chipDefault) {
+                showDefaultTab();
+            } else {
+                switchEditingTab(chipIdToMode(checkedId));
+            }
         });
 
         binding.btnRefresh.setOnClickListener(v -> refreshStatus());
@@ -177,6 +190,8 @@ public class MainActivity extends AppCompatActivity {
         editingMode = isWiredOrSpeakerOutput()
                 ? VolumeMode.WIRED : VolumeMode.ofBtMode(btMode);
         binding.chipGroupRange.check(modeToChipId(editingMode));
+        showingDefault = false;
+        binding.groupRangeControls.setVisibility(View.VISIBLE);
         loadRangeIntoUi();
         suppressListeners = false;
     }
@@ -203,6 +218,8 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         // 蓝牙A/蓝牙B 芯片即「生效模式」；有线耳机芯片不改变生效模式。
+        showingDefault = false;
+        binding.groupRangeControls.setVisibility(View.VISIBLE);
         if (target == VolumeMode.ABSOLUTE) {
             btMode = Prefs.BT_MODE_ABSOLUTE;
         } else if (target == VolumeMode.SOFTWARE) {
@@ -216,6 +233,20 @@ public class MainActivity extends AppCompatActivity {
         // 生效模式随标签切换而变：落盘偏好并防抖写入系统（重启蓝牙后生效）。
         persistToPrefs(false);
         scheduleAutoSave();
+    }
+
+    /**
+     * 选中「默认」标签：只读展示系统默认音量信息。隐藏曲线/最小/最大编辑控件，仅在
+     * {@code tvSummary} 显示说明；不调 {@code btMode}、不落盘、不改动各模式已保存的范围。
+     */
+    private void showDefaultTab() {
+        if (suppressListeners) {
+            // 程序化 check 触发（初始/恢复阶段）：不切换到只读展示。
+            return;
+        }
+        showingDefault = true;
+        binding.groupRangeControls.setVisibility(View.GONE);
+        updatePreview();
     }
 
     /** 芯片 id → 编辑模式。 */
@@ -361,6 +392,12 @@ public class MainActivity extends AppCompatActivity {
         binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
                 keySteps, Prefs.keyDelta(mediaSteps, keySteps)));
 
+        // 「默认」只读标签：不重算范围/曲线/图表（控件已隐藏），只显示系统默认信息。
+        if (showingDefault) {
+            binding.tvSummary.setText(getString(R.string.default_range_info, systemDefaultSteps()));
+            return;
+        }
+
         int minAbs = currentMinAbs();
         int maxAbs = currentMaxAbs();
         binding.tvMinAbs.setText(getString(R.string.label_min_abs_fmt, minAbs,
@@ -446,11 +483,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 从 prefs 读取某模式的最小/最大/曲线三元组。 */
-    private VolumeConfig.Range readRangeFromPrefs(VolumeMode mode) {
+    private Range readRangeFromPrefs(VolumeMode mode) {
         int min = Prefs.clampAbs(prefs.getInt(mode.minKey, Prefs.ABS_VOLUME_MIN_DEFAULT));
         int max = Prefs.clampAbs(prefs.getInt(mode.maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT));
         int curve = Prefs.clampCurve(prefs.getInt(mode.curveKey, Prefs.CURVE_TYPE_DEFAULT));
-        return new VolumeConfig.Range(min, max, curve);
+        return new Range(min, max, curve);
     }
 
     /** 界面任一设置变更：立即落盘 Preferences，并防抖写入 Settings.Global。 */
@@ -484,7 +521,7 @@ public class MainActivity extends AppCompatActivity {
         final int mediaSteps = currentMediaSteps();
         try {
             executor.execute(() -> {
-                Shell.Result putResult = Shell.putGlobalConfig(Prefs.GLOBAL_KEY, configString);
+                ShellResult putResult = Shell.putGlobalConfig(Prefs.GLOBAL_KEY, configString);
                 // 配置镜像备份：Hook 端可在 Settings.Global 读取失败时直读该文件（独立通道兑底）
                 Shell.writeGlobalMirror(configString);
                 // post-fs-data 开机脚本：开机最早阶段直接设置档位属性（不依赖任何 Hook 的终极保险）
@@ -535,6 +572,8 @@ public class MainActivity extends AppCompatActivity {
         }
         editingMode = VolumeMode.ofBtMode(Prefs.BT_MODE_ABSOLUTE);
         binding.chipGroupRange.check(modeToChipId(editingMode));
+        showingDefault = false;
+        binding.groupRangeControls.setVisibility(View.VISIBLE);
         loadRangeIntoUi();
         binding.seekKeySteps.setProgress(defaultKeySteps() - Prefs.KEY_STEP_MIN);
         suppressListeners = false;
@@ -550,7 +589,7 @@ public class MainActivity extends AppCompatActivity {
         saveToSystem(() -> {
             try {
                 executor.execute(() -> {
-                    Shell.Result result = Shell.restartBluetooth();
+                    ShellResult result = Shell.restartBluetooth();
                     if (!result.isSuccess()) {
                         mainHandler.post(() -> Toast.makeText(this, R.string.toast_bt_restart_fail,
                                 Toast.LENGTH_LONG).show());

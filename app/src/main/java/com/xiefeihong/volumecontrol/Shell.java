@@ -30,27 +30,15 @@ public final class Shell {
     private Shell() {
     }
 
-    public static final class Result {
-        public final int code;
-        public final String output;
-
-        Result(int code, String output) {
-            this.code = code;
-            this.output = output;
-        }
-
-        public boolean isSuccess() {
-            return code == 0;
-        }
-    }
+    // 命令执行结果值对象 ShellResult 已提取为独立顶层类（见 ShellResult.java）。
 
     /** 在 root 身份下执行一条 shell 命令。 */
-    public static Result su(String command) {
+    public static ShellResult su(String command) {
         return exec("su", "-c", command);
     }
 
     /** 执行命令并读取合并后的输出（stdout + stderr）。 */
-    public static Result exec(String... command) {
+    public static ShellResult exec(String... command) {
         Process process = null;
         try {
             ProcessBuilder builder = new ProcessBuilder(command);
@@ -71,11 +59,11 @@ public final class Shell {
 
             if (!process.waitFor(DEFAULT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();
-                return new Result(-1, output + "\n[timeout]");
+                return new ShellResult(-1, output + "\n[timeout]");
             }
-            return new Result(process.exitValue(), output.toString());
+            return new ShellResult(process.exitValue(), output.toString());
         } catch (Exception e) {
-            return new Result(-1, e.toString());
+            return new ShellResult(-1, e.toString());
         } finally {
             if (process != null) {
                 process.destroy();
@@ -85,13 +73,13 @@ public final class Shell {
 
     /** 检测 root 是否可用（su 已授权且可执行）。 */
     public static boolean isRootAvailable() {
-        Result result = su("id");
+        ShellResult result = su("id");
         return result.isSuccess() && result.output.contains("uid=0");
     }
 
     /** 检测 LSPosed 是否存在（安装目录存在性检查）。 */
     public static boolean isLsposedPresent() {
-        Result result = su("ls -d /data/adb/lspd 2>/dev/null");
+        ShellResult result = su("ls -d /data/adb/lspd 2>/dev/null");
         return result.isSuccess() && !result.output.trim().isEmpty();
     }
 
@@ -99,12 +87,12 @@ public final class Shell {
      * 写入 Settings.Global 配置（供 Hook 端在 system_server 中读取）。
      * 注意：值必须单引号包裹，避免分号被 shell 解析为命令分隔符。
      */
-    public static Result putGlobalConfig(String key, String value) {
+    public static ShellResult putGlobalConfig(String key, String value) {
         return su("settings put global " + key + " '" + value + "'");
     }
 
     /** 读取 Settings.Global 中的值（root 方式，用于校验写入结果）。 */
-    public static Result getGlobalConfig(String key) {
+    public static ShellResult getGlobalConfig(String key) {
         return su("settings get global " + key);
     }
 
@@ -112,7 +100,7 @@ public final class Shell {
      * 写入配置镜像文件（root）。Hook 端在 Settings.Global 读取失败时直读该文件兜底：
      * chmod 644 使 system 用户可读；restorecon 修正 SELinux 上下文（不可用时静默跳过）。
      */
-    public static Result writeGlobalMirror(String value) {
+    public static ShellResult writeGlobalMirror(String value) {
         return su("echo '" + value + "' > " + Prefs.MIRROR_CONFIG_FILE
                 + "; chmod 644 " + Prefs.MIRROR_CONFIG_FILE
                 + "; restorecon " + Prefs.MIRROR_CONFIG_FILE + " 2>/dev/null");
@@ -128,7 +116,7 @@ public final class Shell {
      * resetprop 对 ro. 属性的修改只能通过 Magisk / KernelSU 的 resetprop 工具
      * （setprop 不允许改 ro.），两者都不可用时静默失败，不影响其他保险。</p>
      */
-    public static Result writeBootScript(boolean enabled, int mediaSteps) {
+    public static ShellResult writeBootScript(boolean enabled, int mediaSteps) {
         String[] lines = {
                 "#!/system/bin/sh",
                 "# VolumeControl boot script: set media volume steps before system_server starts.",
@@ -151,7 +139,7 @@ public final class Shell {
         command.append(" > ").append(BOOT_SCRIPT_FILE)
                 .append("; chmod 755 ").append(BOOT_SCRIPT_FILE)
                 .append("; restorecon ").append(BOOT_SCRIPT_FILE).append(" 2>/dev/null");
-        Result write = su(command.toString());
+        ShellResult write = su(command.toString());
 
         // 立即对齐当前属性值（供本周期内任何 system_server 重启使用）
         if (enabled) {
@@ -169,7 +157,7 @@ public final class Shell {
      * 重启蓝牙（关闭再打开），使模块在蓝牙进程中的 Hook 重新加载。
      * 蓝牙耳机等设备会断开，需要重新连接。
      */
-    public static Result restartBluetooth() {
+    public static ShellResult restartBluetooth() {
         return su("echo \"[$(date '+%m-%d %H:%M:%S')][App] restart bluetooth requested\" "
                 + ">> " + SYS_LOG_FILE + " 2>/dev/null; "
                 + "svc bluetooth disable 2>/dev/null || cmd bluetooth_manager disable; "
@@ -184,7 +172,7 @@ public final class Shell {
      * <p>重启请求与新旧进程号会写入模块日志（/data/system/volumecontrol_sys.log），
      * 可在应用内「查看模块日志」核对是否真正重启（old != new 即已重启）。</p>
      */
-    public static Result restartSystemServer() {
+    public static ShellResult restartSystemServer() {
         return su("echo \"[$(date '+%m-%d %H:%M:%S')][App] restart system_server requested\" "
                 + ">> " + SYS_LOG_FILE + " 2>/dev/null; "
                 + "OLD=$(pidof system_server); "
@@ -220,7 +208,7 @@ public final class Shell {
      * 再合并 LSPosed 日志文件与 logcat 结果；全部为空时附上诊断信息。</p>
      */
     public static String readModuleLogs() {
-        Result result = su(
+        ShellResult result = su(
                 "echo '@SYS@'; "
                         + "tail -n 200 /data/system/volumecontrol_sys.log 2>/dev/null; "
                         + "tail -n 200 /data/misc/volumecontrol_sys.log 2>/dev/null; "

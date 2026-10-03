@@ -11,6 +11,7 @@
     <string name="target_wired">有线耳机</string>
     <string name="tab_mode_a">蓝牙A</string>
     <string name="tab_mode_b">蓝牙B</string>
+    <string name="tab_default">默认</string>
     <string name="sec_actions">操作</string>
     <string name="sec_guide">使用说明</string>
 
@@ -41,6 +42,7 @@
     <string name="curve_hint" formatted="false">选择档位到音量范围的映射分布；三者第 1 档=最小音量、最高档=最大音量。模式A/B 与耳机模式的曲线各自独立保存。</string>
     <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
+    <string name="default_range_info" formatted="false">默认：沿用 ROM 原生音量曲线，不做自定义映射或衰减（本标签只读展示，不可编辑曲线/最小/最大，也不会改动蓝牙A/蓝牙B/有线耳机各自已保存的范围）。当前手机默认媒体档位数：%1$d 级。</string>
 
     <string name="status_root_ok">Root：可用（su 已授权）</string>
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>

@@ -47,14 +47,6 @@
                     android:text="@string/sec_status"
                     android:textStyle="bold" />
 
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/switchEnable"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/label_enable"
-                    android:textStyle="bold" />
-
                 <TextView
                     android:id="@+id/tvStatusRoot"
                     android:layout_width="match_parent"
@@ -159,6 +151,14 @@
                     android:text="@string/sec_media"
                     android:textStyle="bold" />
 
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/switchEnable"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/label_enable"
+                    android:textStyle="bold" />
+
                 <TextView
                     android:id="@+id/tvMediaSteps"
                     android:layout_width="match_parent"
@@ -254,6 +254,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/target_wired" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipDefault"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/tab_default" />
                 </com.google.android.material.chip.ChipGroup>
 
                 <!-- 共享范围编辑器：曲线 + 最小/最大滑条 + 预览，随当前标签绑定对应 VolumeMode -->
@@ -269,6 +276,13 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
                         android:textSize="13sp" />
+
+                    <!-- 可编辑控件组：选中「默认」标签时整组隐藏，只保留上方 tvSummary 显示系统默认信息 -->
+                    <LinearLayout
+                        android:id="@+id/groupRangeControls"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -360,6 +374,7 @@
                         android:layout_marginTop="10dp"
                         android:fontFamily="monospace"
                         android:textSize="11sp" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
