@@ -26,7 +26,7 @@
     <string name="media_hint">可设置 10~127 级（默认为系统原生级数）。级数越多，音量条越细、可分辨级越多（实测 127 几乎每级可辨）。修改自动保存，点「重启系统框架」生效。</string>
     <string name="label_key_steps_default">音量键步进（按键段数 10~29）</string>
     <string name="label_key_steps_fmt">音量键步进：%1$d 段（每次约跳 %2$d 级）</string>
-    <string name="key_steps_hint">每按一次音量键约跳「音量级数 ÷ 段数」个级。段数越大跳得越细；屏幕滑条不受此限，可逐级精调。</string>
+    <string name="key_steps_hint">每按一次音量键约跳「音量级数 ÷ 段数」个级。段数越大跳得越细；屏幕滑条不受此限，可逐级精调。未启用或恢复默认时，步进段数默认等于手机默认音量级数。</string>
 
     <string name="mode_absolute">模式A：保持绝对音量（默认）</string>
     <string name="mode_software">模式B：停用绝对音量（手机端衰减）</string>
@@ -70,7 +70,7 @@
 • 正在播放的声音会中断，本应用会被关闭 \n
 • 耗时约 5~30 秒</string>
     <string name="dlg_reset_title">恢复系统默认</string>
-    <string name="dlg_reset_msg">将关闭模块并恢复系统默认级数（%1$d 级）、模式A 与默认音量范围，并立即保存。音量级数需点「重启系统框架」后恢复。确定继续吗？</string>
+    <string name="dlg_reset_msg">将关闭模块并恢复系统默认级数（%1$d 级，音量键步进默认也为此值）、模式A 与默认音量范围，并立即保存。音量级数需点「重启系统框架」后恢复。确定继续吗？</string>
     <string name="dlg_restart_bt_title">重启蓝牙</string>
     <string name="dlg_restart_bt_msg">将关闭并重新打开蓝牙（设置已自动保存）：\n\n• 蓝牙耳机/设备会断开，请重新连接\n• 耗时约数秒，不需要重启系统框架</string>
 

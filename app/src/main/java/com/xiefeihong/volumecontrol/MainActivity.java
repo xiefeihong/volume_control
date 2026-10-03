@@ -170,7 +170,7 @@ public class MainActivity extends AppCompatActivity {
         binding.switchEnable.setChecked(enabled);
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
         int keySteps = Prefs.clampKeySteps(
-                prefs.getInt(Prefs.KEY_KEY_STEPS, Prefs.KEY_STEP_DEFAULT));
+                prefs.getInt(Prefs.KEY_KEY_STEPS, defaultKeySteps()));
         binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
 
         // 初始选中芯片：当前为有线/USB/外放输出则选中「有线耳机」，否则选中当前生效的蓝牙模式（蓝牙A/蓝牙B）。
@@ -328,6 +328,14 @@ public class MainActivity extends AppCompatActivity {
         return Prefs.clampMediaSteps(systemDefaultStepsRaw());
     }
 
+    /**
+     * 音量键步进（段数）的默认/恢复目标：与媒体级数一致，未启用/恢复默认时都取手机
+     * 默认音量级数（再 {@code clampKeySteps} 限制到 10~29），使两者默认值统一为原生级数。
+     */
+    private int defaultKeySteps() {
+        return Prefs.clampKeySteps(systemDefaultSteps());
+    }
+
     private void setMediaSteps(int steps) {
         binding.seekMediaSteps.setProgress(
                 Prefs.clampMediaSteps(steps) - Prefs.MEDIA_STEPS_MIN);
@@ -429,7 +437,7 @@ public class MainActivity extends AppCompatActivity {
         int mediaSteps = Prefs.clampMediaSteps(
                 prefs.getInt(Prefs.KEY_MEDIA_STEPS, systemDefaultSteps()));
         int keySteps = Prefs.clampKeySteps(
-                prefs.getInt(Prefs.KEY_KEY_STEPS, Prefs.KEY_STEP_DEFAULT));
+                prefs.getInt(Prefs.KEY_KEY_STEPS, defaultKeySteps()));
         int btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
         return new VolumeConfig(enabled, mediaSteps, keySteps, btMode,
                 readRangeFromPrefs(VolumeMode.ABSOLUTE),
@@ -528,7 +536,7 @@ public class MainActivity extends AppCompatActivity {
         editingMode = VolumeMode.ofBtMode(Prefs.BT_MODE_ABSOLUTE);
         binding.chipGroupRange.check(modeToChipId(editingMode));
         loadRangeIntoUi();
-        binding.seekKeySteps.setProgress(Prefs.KEY_STEP_DEFAULT - Prefs.KEY_STEP_MIN);
+        binding.seekKeySteps.setProgress(defaultKeySteps() - Prefs.KEY_STEP_MIN);
         suppressListeners = false;
         updatePreview();
         mainHandler.removeCallbacks(autoSaveRunnable);
