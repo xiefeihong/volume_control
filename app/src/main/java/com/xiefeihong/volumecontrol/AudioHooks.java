@@ -93,6 +93,8 @@ final class AudioHooks {
     /** 诊断：最近一次音量键接管时间戳；绕过路径日志节流时间戳。 */
     private static volatile long sLastKeyAdjustNanos;
     private static long sLastBypassLogNanos;
+    /** 诊断：setStreamVolume 调用来源抓栈节流时间戳。 */
+    private static long sLastSetVolOriginNanos;
 
     /** ROM 原始档位数组：只在首次调用时备份。 */
     private static int[] sOriginalMaxStreamVolumes;
@@ -136,6 +138,7 @@ final class AudioHooks {
             hookSoftwareVolumeCurve(classLoader, module);
             hookAbsoluteVolumeSuppression(classLoader, module);
             hookVolumeKeyStep(classLoader, module);
+            hookVolumeKeyOrigin(classLoader, module);
 
             // 立即读取配置填充属性拦截缓存（此时 SettingsProvider 未就绪，
             // 镜像文件通道可读）；失败由属性回调与开机校正重试。
@@ -655,6 +658,88 @@ final class AudioHooks {
         XposedKit.log("key step: " + audioService.getName() + "#" + METHOD_ADJUST_STREAM_VOLUME
                 + " hooked: " + hooked
                 + (hooked == 0 ? " (keys routed elsewhere; step stays default)" : ""));
+    }
+
+    /**
+     * 诊断（音量键绕过定位）：Hook {@code AudioService#setStreamVolume}，当媒体流被设置为
+     * 「非按键网格」档位、且近期没有发生过我们接管的 adjustStreamVolume 时，抓取一次
+     * <b>同步</b>调用栈（≥6s 节流）。
+     *
+     * <p>与 setStreamVolumeIndex 处经异步 {@code AudioHandler} 消息到达、栈顶只剩 handleMessage
+     * 不同，setStreamVolume 是音量变化在 system_server 内的同步必经点：拖动滑块（SystemUI 音量条）
+     * 与音量键（ROM/MIUI 按键处理）都会同步走到这里，故其栈能真实暴露按键那次变更的入口方法名，
+     * 供后续把网格吸附补到该入口（而非必经写入点，避免影响拖动全精度）。仅读日志、放行原实现。</p>
+     */
+    private static void hookVolumeKeyOrigin(ClassLoader classLoader, XposedModule module) {
+        Class<?> audioService = sAudioServiceClass;
+        if (audioService == null) {
+            try {
+                audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
+            } catch (Throwable t) {
+                XposedKit.logError("key origin: AudioService class load failed: " + t);
+                return;
+            }
+        }
+        int hooked = XposedKit.hookAllMethodsNamed(module, audioService,
+                METHOD_SET_STREAM_VOLUME, new SetStreamVolumeOriginHooker());
+        XposedKit.log("key origin diag: " + audioService.getName() + "#" + METHOD_SET_STREAM_VOLUME
+                + " hooked: " + hooked);
+    }
+
+    /** setStreamVolume 诊断 Hooker：放行原实现，仅在疑似绕过的媒体档位变更时抓同步栈。 */
+    private static final class SetStreamVolumeOriginHooker implements XposedInterface.Hooker {
+        @Override
+        public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            List<Object> args = chain.getArgs();
+            try {
+                if (args.size() >= 2 && args.get(0) instanceof Integer
+                        && args.get(1) instanceof Integer
+                        && (Integer) args.get(0) == Prefs.STREAM_MUSIC_INDEX) {
+                    VolumeConfig config = XposedKit.readConfig(
+                            XposedKit.systemServerContext(chain.getThisObject()));
+                    logIfKeyBypassOrigin((Integer) args.get(1), config);
+                }
+            } catch (Throwable t) {
+                XposedKit.logErrorOnce("key-origin", "setStreamVolume origin diag error: " + t);
+            }
+            return chain.proceed();
+        }
+    }
+
+    /**
+     * 若媒体档位落到「非按键网格」且近 200ms 内没有按键接管记录，则低频抓取一次同步调用栈，
+     * 用于定位音量键绕过 adjustStreamVolume 的真实入口方法（拖动入口同样在此，据栈可区分）。
+     */
+    private static void logIfKeyBypassOrigin(int index, VolumeConfig config) {
+        if (config == null || !config.enabled || index <= 0) {
+            return;
+        }
+        long now = System.nanoTime();
+        if (now - sLastKeyAdjustNanos < 200_000_000L) {
+            return;   // 刚由 adjustStreamVolume 接管，正常网格落点
+        }
+        int levels = Prefs.clampMediaSteps(config.mediaSteps);
+        int segs = Prefs.clampKeySteps(config.keySteps);
+        if (levels <= 0 || segs >= levels) {
+            return;   // 网格间距<1，逐级即正确
+        }
+        int nearest = (int) Math.round(index * (double) segs / levels);
+        if (Prefs.keyStepLevel(nearest, levels, segs) == index) {
+            return;   // 恰在网格上
+        }
+        if (now - sLastSetVolOriginNanos < 6_000_000_000L) {
+            return;   // 节流：6s 一次
+        }
+        sLastSetVolOriginNanos = now;
+        StringBuilder sb = new StringBuilder("key origin (setStreamVolume): media idx ")
+                .append(index).append('/').append(levels)
+                .append(" off-grid (~").append(Math.round(index * 100.0 / levels))
+                .append("%), no recent adjust. stack:");
+        StackTraceElement[] st = Thread.currentThread().getStackTrace();
+        for (int i = 2; i < Math.min(st.length, 16); i++) {
+            sb.append("\n  at ").append(st[i]);
+        }
+        XposedKit.log(sb.toString());
     }
 
     /**
