@@ -85,7 +85,7 @@ public final class CurveChartView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        float padL = 30f * density;
+        float padL = 34f * density;
         float padR = 8f * density;
         float padT = 18f * density;
         float padB = 20f * density;
@@ -133,10 +133,12 @@ public final class CurveChartView extends View {
             canvas.drawCircle(x, y, r, dotPaint);
         }
 
-        // 轴标签
+        // 轴标签：x 轴（音量级数）起止
         drawLabel(canvas, "0", left, bottom + 3f * density, false);
         drawLabel(canvas, String.valueOf(maxSteps), right, bottom + 3f * density, true);
-        drawLabel(canvas, String.valueOf(yMax), left, top - labelPaint.getTextSize(), false);
+        // y 轴数值标签：靠左、右对齐，垂直居中于对应横向网格线（0 与 x 轴原点共用，故省略）
+        drawYLabel(canvas, yMax / 2, mapY(yMax / 2.0, top, bottom, yMax), left);
+        drawYLabel(canvas, yMax, mapY(yMax, top, bottom, yMax), left);
         String caption = Avrcp.curveLabel(curveType) + "曲线 · "
                 + (useSystemIndex ? "系统档位" : "AVRCP")
                 + " " + minAbs + "~" + maxAbs + " · ○=每次按键落点";
@@ -162,6 +164,15 @@ public final class CurveChartView extends View {
         labelPaint.getTextBounds(s, 0, s.length(), textBounds);
         float tx = alignRight ? x - textBounds.width() : x;
         canvas.drawText(s, Math.max(0, tx), y + textBounds.height(), labelPaint);
+    }
+
+    /** 在 y 轴左侧绘制右对齐、垂直居中于 {@code centerY} 的数值标签。 */
+    private void drawYLabel(Canvas canvas, int v, float centerY, float axisLeft) {
+        String s = String.valueOf(v);
+        labelPaint.getTextBounds(s, 0, s.length(), textBounds);
+        float tx = axisLeft - 5f * density - textBounds.width();
+        float baseline = centerY + textBounds.height() / 2f;
+        canvas.drawText(s, Math.max(0, tx), baseline, labelPaint);
     }
 
     private static int withAlpha(int color, float factor) {

@@ -186,10 +186,10 @@ public class MainActivity extends AppCompatActivity {
      * 调用方负责在 {@code suppressListeners == true} 下调用，避免触发写回。
      */
     private void loadRangeIntoUi() {
-        int min = Prefs.clampAbs(prefs.getInt(editingMode.minKey(), Prefs.ABS_VOLUME_MIN_DEFAULT));
-        int max = Prefs.clampAbs(prefs.getInt(editingMode.maxKey(), Prefs.ABS_VOLUME_MAX_DEFAULT));
+        int min = Prefs.clampAbs(prefs.getInt(editingMode.minKey, Prefs.ABS_VOLUME_MIN_DEFAULT));
+        int max = Prefs.clampAbs(prefs.getInt(editingMode.maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT));
         int curve = Prefs.clampCurve(
-                prefs.getInt(editingMode.curveKey(), Prefs.CURVE_TYPE_DEFAULT));
+                prefs.getInt(editingMode.curveKey, Prefs.CURVE_TYPE_DEFAULT));
         binding.seekMinAbs.setProgress(min);
         binding.seekMaxAbs.setProgress(max);
         binding.radioCurveType.check(curveRadioId(curve));
@@ -413,9 +413,9 @@ public class MainActivity extends AppCompatActivity {
                 .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
                 .putInt(Prefs.KEY_KEY_STEPS, currentKeySteps())
                 .putInt(Prefs.KEY_BT_MODE, currentBtMode())
-                .putInt(editingMode.minKey(), currentMinAbs())
-                .putInt(editingMode.maxKey(), currentMaxAbs())
-                .putInt(editingMode.curveKey(), currentCurveType());
+                .putInt(editingMode.minKey, currentMinAbs())
+                .putInt(editingMode.maxKey, currentMaxAbs())
+                .putInt(editingMode.curveKey, currentCurveType());
         if (synchronous) {
             editor.commit();
         } else {
@@ -439,9 +439,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** 从 prefs 读取某模式的最小/最大/曲线三元组。 */
     private VolumeConfig.Range readRangeFromPrefs(VolumeMode mode) {
-        int min = Prefs.clampAbs(prefs.getInt(mode.minKey(), Prefs.ABS_VOLUME_MIN_DEFAULT));
-        int max = Prefs.clampAbs(prefs.getInt(mode.maxKey(), Prefs.ABS_VOLUME_MAX_DEFAULT));
-        int curve = Prefs.clampCurve(prefs.getInt(mode.curveKey(), Prefs.CURVE_TYPE_DEFAULT));
+        int min = Prefs.clampAbs(prefs.getInt(mode.minKey, Prefs.ABS_VOLUME_MIN_DEFAULT));
+        int max = Prefs.clampAbs(prefs.getInt(mode.maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT));
+        int curve = Prefs.clampCurve(prefs.getInt(mode.curveKey, Prefs.CURVE_TYPE_DEFAULT));
         return new VolumeConfig.Range(min, max, curve);
     }
 
@@ -520,9 +520,9 @@ public class MainActivity extends AppCompatActivity {
         // 三种模式（A/B/有线）范围全部回到默认，写入 prefs
         for (VolumeMode mode : VolumeMode.values()) {
             prefs.edit()
-                    .putInt(mode.minKey(), Prefs.ABS_VOLUME_MIN_DEFAULT)
-                    .putInt(mode.maxKey(), Prefs.ABS_VOLUME_MAX_DEFAULT)
-                    .putInt(mode.curveKey(), Prefs.CURVE_TYPE_DEFAULT)
+                    .putInt(mode.minKey, Prefs.ABS_VOLUME_MIN_DEFAULT)
+                    .putInt(mode.maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT)
+                    .putInt(mode.curveKey, Prefs.CURVE_TYPE_DEFAULT)
                     .apply();
         }
         editingMode = VolumeMode.ofBtMode(Prefs.BT_MODE_ABSOLUTE);
