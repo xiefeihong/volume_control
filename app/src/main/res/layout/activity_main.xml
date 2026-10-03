@@ -277,9 +277,9 @@
                         android:layout_marginTop="10dp"
                         android:textSize="13sp" />
 
-                    <!-- 可编辑控件组：选中「默认」标签时整组隐藏，只保留上方 tvSummary 显示系统默认信息 -->
+                    <!-- 可编辑控件组：选中「默认」标签时隐藏（曲线单选/最小最大滑条及其标签） -->
                     <LinearLayout
-                        android:id="@+id/groupRangeControls"
+                        android:id="@+id/groupRangeEditors"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
@@ -360,6 +360,14 @@
                         android:alpha="0.7"
                         android:text="@string/range_hint"
                         android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <!-- 预览组：曲线图 + 映射表，普通标签与「默认」标签均常显 -->
+                    <LinearLayout
+                        android:id="@+id/groupRangePreview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
 
                     <com.xiefeihong.volumecontrol.CurveChartView
                         android:id="@+id/curveChart"

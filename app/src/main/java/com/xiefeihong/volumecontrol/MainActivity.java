@@ -63,8 +63,8 @@ public class MainActivity extends AppCompatActivity {
     private VolumeMode editingMode = VolumeMode.ABSOLUTE;
 
     /**
-     * 是否处于「默认」只读标签：为 true 时隐藏曲线/最小/最大等编辑控件（{@code groupRangeControls}），
-     * 仅在 {@code tvSummary} 展示系统默认信息；不改变生效模式、不落盘任何音量范围。
+     * 是否处于「默认」只读标签：为 true 时隐藏可交互编辑控件（{@code groupRangeEditors}：曲线单选/最小最大滑条），
+     * 保留 {@code tvSummary} + 曲线图 + 映射表，均以 ROM 原生直通参数只读展示；不改变生效模式、不落盘任何音量范围。
      */
     private boolean showingDefault = false;
 
@@ -191,7 +191,7 @@ public class MainActivity extends AppCompatActivity {
                 ? VolumeMode.WIRED : VolumeMode.ofBtMode(btMode);
         binding.chipGroupRange.check(modeToChipId(editingMode));
         showingDefault = false;
-        binding.groupRangeControls.setVisibility(View.VISIBLE);
+        binding.groupRangeEditors.setVisibility(View.VISIBLE);
         loadRangeIntoUi();
         suppressListeners = false;
     }
@@ -219,7 +219,7 @@ public class MainActivity extends AppCompatActivity {
         }
         // 蓝牙A/蓝牙B 芯片即「生效模式」；有线耳机芯片不改变生效模式。
         showingDefault = false;
-        binding.groupRangeControls.setVisibility(View.VISIBLE);
+        binding.groupRangeEditors.setVisibility(View.VISIBLE);
         if (target == VolumeMode.ABSOLUTE) {
             btMode = Prefs.BT_MODE_ABSOLUTE;
         } else if (target == VolumeMode.SOFTWARE) {
@@ -245,7 +245,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         showingDefault = true;
-        binding.groupRangeControls.setVisibility(View.GONE);
+        binding.groupRangeEditors.setVisibility(View.GONE);
         updatePreview();
     }
 
@@ -392,9 +392,17 @@ public class MainActivity extends AppCompatActivity {
         binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
                 keySteps, Prefs.keyDelta(mediaSteps, keySteps)));
 
-        // 「默认」只读标签：不重算范围/曲线/图表（控件已隐藏），只显示系统默认信息。
+        // 「默认」只读标签：不重算自定义范围/曲线（编辑控件已隐藏），改用 ROM 原生直通参数
+        // 只读渲染曲线图与映射表（useSystemIndex=true + LINEAR + 0~127 使 curveToSystemIndex(step)=step）。
         if (showingDefault) {
-            binding.tvSummary.setText(getString(R.string.default_range_info, systemDefaultSteps()));
+            int nativeSteps = systemDefaultSteps();
+            int previewSegs = Prefs.clampKeySteps(nativeSteps);
+            binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
+            binding.curveChart.configure(nativeSteps, 0, Prefs.AVRCP_MAX_VOLUME,
+                    Prefs.CURVE_LINEAR, /*useSystemIndex*/ true, nativeSteps);
+            binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
+                    nativeSteps, true, 0, Prefs.AVRCP_MAX_VOLUME,
+                    Prefs.CURVE_LINEAR, nativeSteps, computeTableColumns(previewSegs, nativeSteps)));
             return;
         }
 
@@ -573,7 +581,7 @@ public class MainActivity extends AppCompatActivity {
         editingMode = VolumeMode.ofBtMode(Prefs.BT_MODE_ABSOLUTE);
         binding.chipGroupRange.check(modeToChipId(editingMode));
         showingDefault = false;
-        binding.groupRangeControls.setVisibility(View.VISIBLE);
+        binding.groupRangeEditors.setVisibility(View.VISIBLE);
         loadRangeIntoUi();
         binding.seekKeySteps.setProgress(defaultKeySteps() - Prefs.KEY_STEP_MIN);
         suppressListeners = false;
