@@ -139,7 +139,11 @@ final class AudioHooks {
             hookSoftwareVolumeCurve(classLoader, module);
             hookAbsoluteVolumeSuppression(classLoader, module);
             hookVolumeKeyStep(classLoader, module);
-            hookMediaVolumeGridSnap(classLoader, module);
+            // 「拖后按键」网格吸附【已禁用】：setStreamVolumeWithAttribution 除拖后按键外还承载
+            // SystemUI 对话框同步 / 媒体会话变更等非按键写入，按时间间隔无法可靠区分，盲吸附会与
+            // SystemUI 相互回写造成音量自激振荡（实测 32%↔36% 循环）甚至反向掉档。相比拖后偶发 ~8%
+            // 跳档，稳定性优先，故不再挂载。详见 MediaVolumeGridSnapHooker 类文档。
+            // hookMediaVolumeGridSnap(classLoader, module);
 
             // 立即读取配置填充属性拦截缓存（此时 SettingsProvider 未就绪，
             // 镜像文件通道可读）；失败由属性回调与开机校正重试。
@@ -743,6 +747,26 @@ final class AudioHooks {
                     Prefs.STREAM_MUSIC_INDEX);
         } catch (Throwable t) {
             XposedKit.logErrorOnce("read-cur-vol", "read current media index failed: " + t);
+            return -1;
+        }
+    }
+
+    /**
+     * 供 {@link MediaVolumeGridSnapHooker}：读取媒体流<b>当前物理最大档位</b>（getStreamMaxVolume）。
+     * 必须与 {@link AdjustStreamVolumeHooker} 同源（都取实时物理上限），<b>不能</b>用
+     * {@code config.mediaSteps}（那是「期望值」，改档位数后未重启框架时物理上限仍为旧值，
+     * 两者不一致会令两个 Hook 对网格刻度产生分歧而自激振荡）。失败返回 -1（调用方保守放行）。
+     */
+    static int readMediaMaxIndex(Object fallbackThis) {
+        Object audioService = sAudioService != null ? sAudioService : fallbackThis;
+        if (audioService == null) {
+            return -1;
+        }
+        try {
+            return invokeIntMethod(audioService, METHOD_GET_STREAM_MAX_VOLUME,
+                    Prefs.STREAM_MUSIC_INDEX);
+        } catch (Throwable t) {
+            XposedKit.logErrorOnce("read-max-vol", "read media max index failed: " + t);
             return -1;
         }
     }

@@ -7,6 +7,11 @@ import io.github.libxposed.api.XposedInterface;
 /**
  * 服务端「拖后按键」网格吸附 Hooker（顶层类，避免内部类）。
  *
+ * <p><b>当前状态：未挂载（已禁用）。</b> {@code AudioHooks.install} 中的
+ * {@code hookMediaVolumeGridSnap(...)} 调用已注释：实测本 Hook 会与 SystemUI 对话框同步/媒体
+ * 会话变更等非按键写入相互回写，造成音量自激振荡（如 32%↔36% 循环）与反向掉档；相比拖后
+ * 偶发 ~8% 跳档，取稳定性优先。保留本类仅作将来可靠方案（能区分“用户按键”与“系统回写”）的重启点。</p>
+ *
  * <p>背景（adb 实测 + SystemUI 抓栈定位）：未拖动时音量键走
  * {@code AudioService#adjustStreamVolume}，由 {@link AudioHooks} 的接管逻辑吸附到网格；
  * 但一旦拖过一次滑条，HyperOS 会把音量对话框置为「直接落值」状态，随后的音量键改走
@@ -67,10 +72,12 @@ final class MediaVolumeGridSnapHooker implements XposedInterface.Hooker {
             if (config == null || !config.enabled) {
                 return chain.proceed();
             }
-            int levels = Prefs.clampMediaSteps(config.mediaSteps);
+            // levels 必须取【实时物理上限】(getStreamMaxVolume)，与 AdjustStreamVolumeHooker 同源；
+            // 绝不能用 config.mediaSteps（改档位数后未重启框架时物理上限仍为旧值，两者不一致会自激振荡）。
+            int levels = AudioHooks.readMediaMaxIndex(chain.getThisObject());
             int segs = Prefs.clampKeySteps(config.keySteps);
             if (levels <= 0 || segs >= levels) {
-                return chain.proceed();   // 网格不稀疏，逐级即正确
+                return chain.proceed();   // 读不到上限或网格不稀疏，逐级即正确
             }
             // 读当前媒体档位（优先真实 AudioService 实例，回退 this）；读不到或无变化保守放行。
             int current = AudioHooks.readMediaVolumeIndex(chain.getThisObject());
