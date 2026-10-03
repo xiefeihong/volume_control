@@ -20,8 +20,9 @@ import io.github.libxposed.api.XposedInterface;
  * <ul>
  *   <li>媒体档位变更且与上一次媒体变更间隔 &lt; {@link #KEY_SNAP_GAP_NS}（密集）→ 判为拖动，
  *       直接放行，<b>保留拖动全精度</b>（不读配置，热路径仅整数比较）；</li>
- *   <li>间隔足够大（孤立）且目标档位不在 {@code keySteps} 网格上 → 吸附到最近网格档再放行，
- *       修复「拖后按键跑偏」。</li>
+ *   <li>间隔足够大（孤立）→ 读当前档位，按变化方向吸附到<b>相邻的一个网格档</b>
+ *       （与 adjustStreamVolume 接管同用 {@code Prefs.nextKeyStepUp/Down}），
+ *       修复「拖后按键跑偏」并保证每次恰好跳 1 段（不会出现跨档的 8%）。</li>
  * </ul>
  *
  * <p>时间戳 {@link #sLastSetNanos} 在每次媒体档位变更时刷新，使连续拖动期间判据稳定为「密集」。</p>
@@ -71,19 +72,27 @@ final class MediaVolumeGridSnapHooker implements XposedInterface.Hooker {
             if (levels <= 0 || segs >= levels) {
                 return chain.proceed();   // 网格不稀疏，逐级即正确
             }
-            int nearest = (int) Math.round(index * (double) segs / levels);
-            int gridIndex = Prefs.keyStepLevel(nearest, levels, segs);
-            if (gridIndex == index) {
-                return chain.proceed();   // 已在网格上
+            // 读当前媒体档位（优先真实 AudioService 实例，回退 this）；读不到或无变化保守放行。
+            int current = AudioHooks.readMediaVolumeIndex(chain.getThisObject());
+            if (current < 0 || index == current) {
+                return chain.proceed();
             }
-            if (gridIndex != sLastSnapLogged) {
-                sLastSnapLogged = gridIndex;
-                XposedKit.log("post-drag key snap: media " + index + " -> " + gridIndex
-                        + "/" + levels + " (~" + Math.round(index * 100.0 / levels)
-                        + "% → " + Math.round(gridIndex * 100.0 / levels) + "%)");
+            // 相对「当前档位」吸附到相邻的一个网格档（与 adjustStreamVolume 接管一致），
+            // 保证每次按键恰好跳 1 段（~100/keySteps %），而非把绝对目标就近取整而跨档跳。
+            boolean raise = index > current;
+            int target = raise
+                    ? Prefs.nextKeyStepUp(current, levels, segs)
+                    : Prefs.nextKeyStepDown(current, levels, segs);
+            if (target == current || target == index) {
+                return chain.proceed();   // 顶/底，或本就在正确的网格步上
+            }
+            if (target != sLastSnapLogged) {
+                sLastSnapLogged = target;
+                XposedKit.log("post-drag key snap: media " + index + " -> " + target
+                        + " (cur=" + current + ", " + (raise ? "up" : "down") + ")/" + levels);
             }
             Object[] newArgs = args.toArray();
-            newArgs[1] = gridIndex;
+            newArgs[1] = target;
             return chain.proceed(newArgs);
         } catch (Throwable t) {
             XposedKit.logErrorOnce("grid-snap", "media grid snap error: " + t);

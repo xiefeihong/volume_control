@@ -729,6 +729,25 @@ final class AudioHooks {
     }
 
     /**
+     * 供 {@link MediaVolumeGridSnapHooker}：读取当前媒体流逻辑档位（0~levels）。
+     * 优先用真实 {@link #sAudioService} 实例（{@code AudioServiceBinderWrapper} 上无
+     * getStreamVolume），回退 {@code fallbackThis}；任何异常返回 -1（调用方保守放行）。
+     */
+    static int readMediaVolumeIndex(Object fallbackThis) {
+        Object audioService = sAudioService != null ? sAudioService : fallbackThis;
+        if (audioService == null) {
+            return -1;
+        }
+        try {
+            return invokeIntMethod(audioService, METHOD_GET_STREAM_VOLUME,
+                    Prefs.STREAM_MUSIC_INDEX);
+        } catch (Throwable t) {
+            XposedKit.logErrorOnce("read-cur-vol", "read current media index failed: " + t);
+            return -1;
+        }
+    }
+
+    /**
      * 反射调用 {@code AudioService#setStreamVolume(int, int, int)}：HyperOS 的 MiAudioService
      * 继承 AudioService，该方法可能非 public（{@code getMethod} 只查 public → NoSuchMethodException）
      * 或仅存在带 {@code callingPackage} 的重载。故遍历类层次查找名字为 setStreamVolume、
