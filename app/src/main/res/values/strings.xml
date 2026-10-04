@@ -46,11 +46,11 @@
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>
     <string name="status_lsposed_ok">LSPosed：已安装（请启用本模块）</string>
     <string name="status_lsposed_fail">LSPosed：未检测到，模块将无法加载</string>
-    <string name="status_volume_line">媒体档位：当前 %1$d 档 · 目标 %2$d 档</string>
-    <string name="status_module_on_fmt">模块配置：已生效（媒体 %1$d 档）</string>
-    <string name="status_module_pending_fmt">模块配置：未生效，需重启系统框架（媒体 %1$d 档）</string>
-    <string name="status_module_off">模块配置：未启用，当前为系统默认档位</string>
-    <string name="status_module_off_pending_fmt">模块配置：已关闭，但系统仍为修改后的档位（当前 %1$d 档），需重启系统框架恢复</string>
+    <string name="status_module_on">模块配置：已生效</string>
+    <string name="status_module_pending">模块配置：未生效，需重启系统框架</string>
+    <string name="status_module_off">模块配置：未启用（系统默认）</string>
+    <string name="status_module_off_pending">模块配置：已关闭，需重启系统框架恢复</string>
+    <string name="status_volume_line">音量级数：当前 %1$d · 默认 %2$d · 音量键步进 %3$d</string>
     <string name="status_bt_none">蓝牙音频设备：未连接（连接耳机后可回来看映射预览）</string>
     <string name="status_bt_fmt">蓝牙音频设备：%1$s</string>
     <string name="status_config_fmt">系统配置键：%1$s</string>
@@ -67,10 +67,7 @@
     <string name="dlg_ok">继续</string>
     <string name="dlg_cancel">取消</string>
     <string name="dlg_restart_title">重启系统框架</string>
-    <string name="dlg_restart_msg">将软重启系统框架，使音量级数生效：\n\n
-• 屏幕会短暂黑屏，随后自动恢复 \n
-• 正在播放的声音会中断，本应用会被关闭 \n
-• 耗时约 5~30 秒</string>
+    <string name="dlg_restart_msg">将软重启系统框架，使音量级数生效。</string>
     <string name="dlg_reset_title">恢复系统默认</string>
     <string name="dlg_reset_msg">将关闭模块并恢复系统默认（档位数 %1$d、模式与默认范围）。音量级数需重启系统框架恢复。继续？</string>
     <string name="dlg_restart_bt_title">重启蓝牙</string>
@@ -88,7 +85,7 @@
     <string name="ops_hint">修改只暂存于界面，需点「保存修改」才会写入并生效；确认框会列出改动，并按需询问是否立即重启蓝牙/系统框架。</string>
 
     <!-- 保存修改（显式生效门控） -->
-    <string name="btn_save">保存修改</string>
+    <string name="btn_save">保存修改 (修改参数后)</string>
     <string name="pending_unsaved">● 有未保存的修改，点击「保存修改」后生效。</string>
     <string name="dlg_save_title">保存修改</string>
     <string name="dlg_save_none">没有需要保存的修改。</string>
@@ -99,7 +96,7 @@
     <string name="change_media_steps">音量级数：%1$d → %2$d</string>
     <string name="change_key_steps">音量键步进：%1$d → %2$d</string>
     <string name="change_bt_mode">模式：%1$s → %2$s</string>
-    <string name="change_range">%1$s 音量范围：%2$s → %3$s</string>
+    <string name="change_range">%1$s范围：%2$s → %3$s</string>
     <string name="enable_on">开启</string>
     <string name="enable_off">关闭</string>
     <string name="restart_bt">蓝牙</string>

@@ -26,7 +26,7 @@ public final class Avrcp {
      * 最小音量下限比例：当用户将「最小音量」设为 0 时，第 1 档自动取 {@code maxAbs} 的此比例
      * 作为可闻下限（自适应耳机量程），而非退化为接近无声的 1。可据实机听感微调此常量。
      */
-    public static final double MIN_VOLUME_FLOOR_RATIO = 0.15;
+    public static final double MIN_VOLUME_FLOOR_RATIO = 0.1;
 
     private Avrcp() {
     }
@@ -62,7 +62,7 @@ public final class Avrcp {
     }
 
     /**
-     * 正向曲线：step → [lo,hi] 区间内的音量值。三曲线共用 logRange 的 lo/hi（min=0 时含 15% 自适应下限）。
+     * 正向曲线：step → [lo,hi] 区间内的音量值。三曲线共用 logRange 的 lo/hi（min=0 时含 10% 自适应下限）。
      * {@code e=(step-1)/(maxSteps-1)}：线性 {@code lo+(hi-lo)·e}；平方根 {@code lo+(hi-lo)·√e}；对数 {@code lo·(hi/lo)^e}。
      */
     private static int applyCurve(int step, int maxSteps, int lo, int hi, int curveType) {

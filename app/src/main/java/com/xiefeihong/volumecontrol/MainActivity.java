@@ -693,8 +693,8 @@ public class MainActivity extends AppCompatActivity {
             out.add(getString(R.string.change_bt_mode,
                     modeLabelShort(base.btMode), modeLabelShort(pending.btMode)));
         }
-        addRangeChange(out, getString(R.string.mode_name_absolute), base.absolute, pending.absolute);
-        addRangeChange(out, getString(R.string.mode_name_software), base.software, pending.software);
+        addRangeChange(out, getString(R.string.mode_short_absolute), base.absolute, pending.absolute);
+        addRangeChange(out, getString(R.string.mode_short_software), base.software, pending.software);
         return out;
     }
 
@@ -882,22 +882,20 @@ public class MainActivity extends AppCompatActivity {
         int targetMedia = enabled ? currentMediaSteps() : actualMedia;
 
         binding.tvStatusVolume.setText(getString(R.string.status_volume_line,
-                actualMedia, targetMedia));
+                actualMedia, systemDefaultStepsRaw(), currentKeySteps()));
 
         if (enabled) {
             if (actualMedia == targetMedia) {
-                binding.tvStatusModule.setText(getString(R.string.status_module_on_fmt, targetMedia));
+                binding.tvStatusModule.setText(R.string.status_module_on);
             } else {
-                binding.tvStatusModule.setText(
-                        getString(R.string.status_module_pending_fmt, targetMedia));
+                binding.tvStatusModule.setText(R.string.status_module_pending);
             }
         } else if (actualMedia == systemDefaultStepsRaw()
                 || actualMedia < Prefs.MEDIA_STEPS_MIN
                 || actualMedia > Prefs.MEDIA_STEPS_MAX) {
             binding.tvStatusModule.setText(R.string.status_module_off);
         } else {
-            binding.tvStatusModule.setText(
-                    getString(R.string.status_module_off_pending_fmt, actualMedia));
+            binding.tvStatusModule.setText(R.string.status_module_off_pending);
         }
 
         if (btSummary == null) {
