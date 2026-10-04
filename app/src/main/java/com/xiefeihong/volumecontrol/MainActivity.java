@@ -399,17 +399,14 @@ public class MainActivity extends AppCompatActivity {
         binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
                 keySteps, Prefs.keyDelta(mediaSteps, keySteps)));
 
-        // 「默认」只读标签：不重算自定义范围/曲线（编辑控件已隐藏）。曲线图以「横轴＝音量、
-        // 纵轴＝系统档位」只读展示 ROM 原生直通；映射表以档位 1:1 直通呈现。
+        // 「默认」只读标签：不重算自定义范围/曲线（编辑控件已隐藏）。曲线图以「横轴＝系统档位、
+        // 纵轴＝音量百分比」展示 ROM 原生直通；映射表为直通恒等（第 i 次→round(i*100/nativeSteps)%）。
         if (showingDefault) {
             int nativeSteps = systemDefaultSteps();
-            int previewSegs = Prefs.clampKeySteps(nativeSteps);
             binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
             binding.curveChart.configureNativeVolume(nativeSteps);
-            binding.tvRangeMapping.setText(Avrcp.buildMappingTablePercent(
-                    nativeSteps, true, 0, Prefs.AVRCP_MAX_VOLUME,
-                    Prefs.CURVE_LINEAR, nativeSteps,
-                    computeTableColumns(previewSegs, 100, /*percent*/ true)));
+            binding.tvRangeMapping.setText(Avrcp.buildNativePassthroughTable(
+                    nativeSteps, computeTableColumns(nativeSteps, 100, /*percent*/ true)));
             return;
         }
 
