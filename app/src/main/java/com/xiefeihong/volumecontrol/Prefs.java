@@ -25,8 +25,6 @@ public final class Prefs {
     /** 音量键步进（按键段数）SharedPreferences 键。 */
     public static final String KEY_KEY_STEPS = "key_steps";
     public static final String KEY_BT_MODE = "bt_volume_mode";
-    /** 默认（系统直通）模式：为 true 时模块不改写系统音量逻辑，与启用开关解耦；也决定下次打开显示「默认」标签。 */
-    public static final String KEY_DEFAULT_MODE = "default_mode";
     /** 首次运行时捕获的系统原生媒体档位数（模块未覆盖时的 getStreamMaxVolume）。 */
     public static final String KEY_SYSTEM_DEFAULT_STEPS = "system_default_steps";
     /** 模式A 映射曲线类型 SharedPreferences 键。 */
@@ -59,6 +57,12 @@ public final class Prefs {
      * Hook 蓝牙栈使系统以手机端软件衰减控制音量，耳机固定于自身硬件音量。
      */
     public static final int BT_MODE_SOFTWARE = 1;
+
+    /**
+     * 默认（系统直通）模式：与启用开关合并到同一模式字段（btMode）。
+     * 选中时模块不改写系统音量逻辑（不改档位数、不重映射），等同未启用。
+     */
+    public static final int BT_MODE_DEFAULT = 2;
 
     /**
      * 映射曲线类型（Mode A/B 各自独立设置）：step→音量范围的中间分布。

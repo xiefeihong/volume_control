@@ -292,21 +292,28 @@ public final class Avrcp {
     }
 
     /**
-     * 默认（系统直通）映射表：模块不生效时每次音量键＝系统 +1 档，共 nativeSteps 次到满；
-     * 右列为该档位的音量百分比（{@code round(press*100/nativeSteps)}），与默认曲线图的线性直通一致
-     * （不经 {@link #curveToSystemIndex}，避免 minAbs=0 的自适应下限把首档抬到 ~13%）。
+     * 默认（系统直通）映射表：模块不生效时每次音量键＝系统 +1 档，共 nativeSteps 次到满（恒等，
+     * 不经 {@link #curveToSystemIndex}，避免 minAbs=0 的自适应下限把首档抬到 ~13%）。
+     *
+     * @param showPercent true → 右列为音量百分比 {@code round(press*100/nativeSteps)}（默认标签，
+     *                    与默认曲线图一致）；false → 右列为系统默认音量级数 {@code press}（启用关闭时）。
      */
-    public static String buildNativePassthroughTable(int nativeSteps, int perLine) {
+    public static String buildNativePassthroughTable(int nativeSteps, int perLine, boolean showPercent) {
         if (nativeSteps <= 0) {
             return "";
         }
         int pressWidth = Math.max(2, String.valueOf(nativeSteps).length());
-        String cellFmt = "%" + pressWidth + "d→%3d%%";
-        StringBuilder sb = new StringBuilder(
-                "按键次数 → 音量百分比（0~100%），共 " + nativeSteps + " 次：\n");
+        int valMax = showPercent ? 100 : nativeSteps;
+        int valWidth = Math.max(2, String.valueOf(valMax).length());
+        String cellFmt = "%" + pressWidth + "d→%" + valWidth + (showPercent ? "d%%" : "d");
+        StringBuilder sb = new StringBuilder("按键次数 → "
+                + (showPercent ? "音量百分比（0~100%）"
+                        : "系统默认音量级数（0~" + nativeSteps + "）")
+                + "，共 " + nativeSteps + " 次：\n");
         for (int press = 1; press <= nativeSteps; press++) {
-            int pct = (int) Math.round(press * 100.0 / nativeSteps);
-            sb.append(String.format(cellFmt, press, pct));
+            int out = showPercent
+                    ? (int) Math.round(press * 100.0 / nativeSteps) : press;
+            sb.append(String.format(cellFmt, press, out));
             if (press < nativeSteps) {
                 if (perLine > 0 && press % perLine == 0) {
                     sb.append('\n');

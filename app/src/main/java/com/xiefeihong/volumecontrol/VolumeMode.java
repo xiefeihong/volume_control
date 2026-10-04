@@ -32,6 +32,17 @@ public enum VolumeMode {
         @Override public boolean attenuatesInSystemServer() { return true; }
         @Override public boolean drivesAvrcp() { return false; }
         @Override public Range range(VolumeConfig cfg) { return cfg.wired; }
+    },
+
+    /**
+     * 默认（系统直通）模式：不重映射、不改档位数（与启用开关共用 btMode 字段，值=2）。
+     * 任何生效路径都先经 {@code config.remapActive()}（默认时为 false）放行系统默认行为，
+     * 故本枚举的 {@code range} 实际不会被 Hook 读取。
+     */
+    DEFAULT(Prefs.KEY_MIN_ABS_A, Prefs.KEY_MAX_ABS_A, Prefs.KEY_CURVE_TYPE_A) {
+        @Override public boolean attenuatesInSystemServer() { return false; }
+        @Override public boolean drivesAvrcp() { return false; }
+        @Override public Range range(VolumeConfig cfg) { return cfg.absolute; }
     };
 
     /** 是否在 system_server 通过改写系统音量档位做软件衰减（模式B/耳机模式）。 */
@@ -104,14 +115,26 @@ public enum VolumeMode {
         return config.btMode == Prefs.BT_MODE_SOFTWARE ? SOFTWARE : ABSOLUTE;
     }
 
-    /** 供 App：由蓝牙模式 id 得到枚举（不判断启用状态）。 */
+    /** 供 App：由蓝牙模式 id 得到枚举（不判断启用状态；值=2 返回 {@link #DEFAULT}）。 */
     public static VolumeMode ofBtMode(int btModeId) {
-        return btModeId == Prefs.BT_MODE_SOFTWARE ? SOFTWARE : ABSOLUTE;
+        if (btModeId == Prefs.BT_MODE_SOFTWARE) {
+            return SOFTWARE;
+        }
+        if (btModeId == Prefs.BT_MODE_DEFAULT) {
+            return DEFAULT;
+        }
+        return ABSOLUTE;
     }
 
     /** 供 App：枚举写回 btMode 的模式 id。 */
     public int modeId() {
-        return this == SOFTWARE ? Prefs.BT_MODE_SOFTWARE : Prefs.BT_MODE_ABSOLUTE;
+        if (this == SOFTWARE) {
+            return Prefs.BT_MODE_SOFTWARE;
+        }
+        if (this == DEFAULT) {
+            return Prefs.BT_MODE_DEFAULT;
+        }
+        return Prefs.BT_MODE_ABSOLUTE;
     }
 
     /**
