@@ -406,9 +406,10 @@ public class MainActivity extends AppCompatActivity {
             int previewSegs = Prefs.clampKeySteps(nativeSteps);
             binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
             binding.curveChart.configureNativeVolume(nativeSteps);
-            binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
+            binding.tvRangeMapping.setText(Avrcp.buildMappingTablePercent(
                     nativeSteps, true, 0, Prefs.AVRCP_MAX_VOLUME,
-                    Prefs.CURVE_LINEAR, nativeSteps, computeTableColumns(previewSegs, nativeSteps)));
+                    Prefs.CURVE_LINEAR, nativeSteps,
+                    computeTableColumns(previewSegs, 100, /*percent*/ true)));
             return;
         }
 
@@ -436,17 +437,19 @@ public class MainActivity extends AppCompatActivity {
                 mediaSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps);
         binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
                 mediaSteps, useSystemIndex, minAbs, maxAbs, curveType, keySteps,
-                computeTableColumns(segs, valueMax)));
+                computeTableColumns(segs, valueMax, /*percent*/ false)));
     }
 
     /** 依 TextView 实测宽度与等宽单元宽度，估算映射表每行可容纳的单元个数（<=0 表示交回自然换行）。 */
-    private int computeTableColumns(int segs, int valueMax) {
+    private int computeTableColumns(int segs, int valueMax, boolean percent) {
         if (segs <= 0) {
             return 0;
         }
         int pressWidth = Math.max(2, String.valueOf(segs).length());
         int valWidth = Math.max(2, String.valueOf(valueMax).length());
-        String cell = String.format("%" + pressWidth + "d→%" + valWidth + "d  ", segs, valueMax);
+        String cell = String.format(
+                "%" + pressWidth + "d→%" + valWidth + "d" + (percent ? "%%" : "") + "  ",
+                segs, valueMax);
         Paint paint = new Paint(binding.tvRangeMapping.getPaint());
         float cellPx = paint.measureText(cell);
         if (cellPx <= 0) {

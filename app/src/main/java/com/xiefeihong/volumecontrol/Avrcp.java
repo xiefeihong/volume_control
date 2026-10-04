@@ -288,7 +288,21 @@ public final class Avrcp {
         String column = useSystemIndex
                 ? "系统音量档位（0~" + maxSteps + "）" : "AVRCP 音量（0~127）";
         return renderMappingTable("按键次数 → " + column + "，共 " + segs + " 次：\n",
-                maxSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps, perLine);
+                maxSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps, perLine, false);
+    }
+
+    /**
+     * 默认（系统原生）标签专用映射表：右列显示音量百分比（0~100%），与默认曲线图纵轴一致。
+     * 百分比＝该次按键到达档位的输出值 ÷ 满量程（useSystemIndex 时满量程为 maxSteps，否则 127）。
+     */
+    public static String buildMappingTablePercent(int maxSteps, boolean useSystemIndex, int minAbs,
+            int maxAbs, int curveType, int keySteps, int perLine) {
+        if (maxSteps <= 0) {
+            return "";
+        }
+        int segs = Prefs.clampKeySteps(keySteps);
+        return renderMappingTable("按键次数 → 音量百分比（0~100%），共 " + segs + " 次：\n",
+                maxSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps, perLine, true);
     }
 
     /** 耳机模式（有线+外放）摘要：按按键序列判重 + 首次按键落点。 */
@@ -320,19 +334,23 @@ public final class Avrcp {
      * 可在空格处自然换行并保持各列对齐。useSystemIndex 时取系统档位（0~maxSteps），否则取 0~127。
      */
     private static String renderMappingTable(String title, int maxSteps, int minAbs, int maxAbs,
-            int curveType, boolean useSystemIndex, int keySteps, int perLine) {
+            int curveType, boolean useSystemIndex, int keySteps, int perLine, boolean percent) {
         StringBuilder sb = new StringBuilder(title);
         int segs = Prefs.clampKeySteps(keySteps);
         int valueMax = useSystemIndex ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
+        int displayMax = percent ? 100 : valueMax;
         int pressWidth = Math.max(2, String.valueOf(segs).length());
-        int valWidth = Math.max(2, String.valueOf(valueMax).length());
-        String cellFmt = "%" + pressWidth + "d→%" + valWidth + "d";
+        int valWidth = Math.max(2, String.valueOf(displayMax).length());
+        String cellFmt = percent
+                ? "%" + pressWidth + "d→%" + valWidth + "d%%"
+                : "%" + pressWidth + "d→%" + valWidth + "d";
         for (int press = 1; press <= segs; press++) {
             int level = Prefs.keyStepLevel(press, maxSteps, keySteps);
             int value = useSystemIndex
                     ? curveToSystemIndex(level, maxSteps, minAbs, maxAbs, curveType)
                     : curveToAbsoluteVolume(level, maxSteps, minAbs, maxAbs, curveType);
-            sb.append(String.format(cellFmt, press, value));
+            int out = percent ? (int) Math.round(value * 100.0 / valueMax) : value;
+            sb.append(String.format(cellFmt, press, out));
             if (press < segs) {
                 // perLine>0 时每满一行换行（等宽单元→列对齐）；perLine<=0 则交给 TextView 自然换行。
                 if (perLine > 0 && press % perLine == 0) {
