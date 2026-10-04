@@ -453,17 +453,18 @@ public class MainActivity extends AppCompatActivity {
         }
         // 映射表三模式共用同一构建器（模式B 与耳机模式走同一系统档位代码路径）。
         int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
-        binding.curveChart.configure(
-                mediaSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps);
-        // 启用模块关闭时模块不重映射 → 映射表右列改为系统默认音量级数（直通恒等，与生效行为一致）。
+        // 启用模块关闭时模块不重映射 → 曲线图与映射表都改为系统默认直通（两者始终相关、与生效行为一致）。
         if (!binding.switchEnable.isChecked()) {
             int nativeSteps = systemDefaultSteps();
+            binding.curveChart.configureNativeVolume(nativeSteps);
             binding.tvRangeMapping.setText(Avrcp.buildNativePassthroughTable(
                     nativeSteps,
                     computeTableColumns(nativeSteps, nativeSteps, /*percent*/ false),
                     /*showPercent*/ false));
             return;
         }
+        binding.curveChart.configure(
+                mediaSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps);
         binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
                 mediaSteps, useSystemIndex, minAbs, maxAbs, curveType, keySteps,
                 computeTableColumns(segs, valueMax, /*percent*/ false)));
