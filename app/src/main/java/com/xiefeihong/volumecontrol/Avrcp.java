@@ -300,7 +300,7 @@ public final class Avrcp {
         int dups = countDuplicateAtKeySteps(maxSteps, keySteps, minAbs, maxAbs, curveType, true);
         int lowest = curveToSystemIndex(1, maxSteps, minAbs, maxAbs, curveType);
         StringBuilder sb = new StringBuilder();
-        sb.append("耳机模式（有线/外放）· ").append(curveLabel(curveType)).append("曲线\n");
+        sb.append("耳机模式：有线/外放 · ").append(curveLabel(curveType)).append("曲线\n");
         sb.append("媒体 ").append(maxSteps).append(" 档 → 系统音量档位，范围 ")
                 .append(minAbs).append('~').append(maxAbs).append("（0~127）\n");
         if (dups == 0) {

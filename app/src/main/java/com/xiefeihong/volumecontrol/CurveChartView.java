@@ -194,7 +194,7 @@ public final class CurveChartView extends View {
         // 纵轴标签：音量百分比
         drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
         drawYText(canvas, "100%", top, left);
-        canvas.drawText("系统原生 · 音量随档位线性变化（不做映射/衰减）· ○=每档落点",
+        canvas.drawText("系统原生 · 音量随档位线性变化 · ○=每档落点",
                 left, top - 6f * density, labelPaint);
     }
 

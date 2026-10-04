@@ -93,7 +93,7 @@
     <string name="dlg_save_title">保存修改</string>
     <string name="dlg_save_none">没有需要保存的修改。</string>
     <string name="dlg_save_first">首次保存，将写入以下配置并使其生效：</string>
-    <string name="save_default_note">\n已选中「默认」：保存将关闭启用模块并恢复系统默认。</string>
+    <string name="save_default_note">\n已选中「默认」：保存仅关闭启用模块（其余设置保留），界面停留在默认标签。</string>
     <string name="change_enable">启用模块：%1$s → %2$s</string>
     <string name="change_media_steps">音量级数：%1$d → %2$d</string>
     <string name="change_key_steps">音量键步进：%1$d → %2$d</string>

@@ -33,7 +33,8 @@ import java.util.concurrent.Executors;
  * 编辑哪个范围」，共享同一组曲线/滑条/预览控件，按 {@link VolumeMode} 各自的键读写；
  * 各模式的值互不干扰。蓝牙生效模式（btMode）由「蓝牙A/蓝牙B」标签决定，切换仅暂存、不实时
  * 生效。所有变更只暂存到界面/Preferences，须点「保存修改」确认后才写入 Settings.Global，
- * 再按需重启蓝牙 / 系统框架使其生效；「默认」标签的保存会关闭启用模块并恢复系统默认。</p>
+ * 再按需重启蓝牙 / 系统框架使其生效（需重启含系统框架时只重启框架）；「默认」标签的保存仅关闭启用模块（其余保留），
+ * 「恢复系统默认」按钮则完整重置。</p>
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -527,13 +528,23 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 构造当前待保存配置：默认态=系统默认重置；否则取暂存 prefs（已与控件同步）。 */
+    /** 构造当前待保存配置：默认标签=仅关闭启用模块；否则取暂存 prefs（已与控件同步）。 */
     private VolumeConfig buildPendingConfig() {
         if (showingDefault) {
-            return buildDefaultConfig();
+            return buildCurrentConfigDisabled();
         }
         VolumeConfig c = VolumeConfig.fromRaw(currentConfigString());
         return c != null ? c : buildDefaultConfig();
+    }
+
+    /** 取当前暂存配置仅把启用模块置为关闭，其余（级数/步进/模式/各范围）保持不变。 */
+    private VolumeConfig buildCurrentConfigDisabled() {
+        VolumeConfig cur = VolumeConfig.fromRaw(currentConfigString());
+        if (cur == null) {
+            return buildDefaultConfig();
+        }
+        return new VolumeConfig(false, cur.mediaSteps, cur.keySteps, cur.btMode,
+                cur.absolute, cur.software, cur.wired);
     }
 
     /** 系统默认配置：模块关闭、媒体/键步进取原生级数、模式A、三种范围各自默认。 */
@@ -596,13 +607,25 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * 执行「保存修改」：与已生效配置比对后弹确认框列出改动，确认才写入 prefs 并推送系统；
-     * 若需重启蓝牙/系统框架，保存成功后再询问是否立即重启。
+     * 若需重启且包含系统框架，则只重启系统框架（蓝牙进程随框架重启）。
      *
-     * @param forceDefault 强制走「默认（系统重置）」逻辑（恢复系统默认按钮）；true 时忽略当前标签。
+     * @param forceDefault true=「恢复系统默认」完整重置；false=按当前标签保存（选中默认
+     *        标签时仅关闭启用模块并停留在默认标签，其余设置保留）。
      */
     private void runSave(boolean forceDefault) {
-        final boolean asDefault = forceDefault || showingDefault;
-        final VolumeConfig pending = asDefault ? buildDefaultConfig() : buildPendingConfig();
+        final boolean disableOnlyDefault = showingDefault && !forceDefault;
+        final VolumeConfig pending;
+        final boolean keepDefaultTab;
+        if (forceDefault) {
+            pending = buildDefaultConfig();          // 恢复系统默认：完整重置
+            keepDefaultTab = false;
+        } else if (disableOnlyDefault) {
+            pending = buildCurrentConfigDisabled();  // 默认标签保存：仅关闭启用模块
+            keepDefaultTab = true;
+        } else {
+            pending = buildPendingConfig();
+            keepDefaultTab = false;
+        }
         final VolumeConfig base = VolumeConfig.fromRaw(lastSavedRaw);
         if (base != null && base.toRaw().equals(pending.toRaw())) {
             Toast.makeText(this, R.string.dlg_save_none, Toast.LENGTH_SHORT).show();
@@ -619,6 +642,9 @@ public class MainActivity extends AppCompatActivity {
         final boolean needsSystem = enabledChanged
                 || base != null && pending.mediaSteps != base.mediaSteps;
         final boolean needsBt = enabledChanged || modeOrRangeChanged;
+        // 需重启的组件含系统框架时只重启系统框架（蓝牙进程随之重启），不再单独重启蓝牙。
+        final boolean restartSystem = needsSystem;
+        final boolean restartBt = !needsSystem && needsBt;
 
         StringBuilder sb = new StringBuilder();
         if (changes.isEmpty()) {
@@ -628,25 +654,35 @@ public class MainActivity extends AppCompatActivity {
                 sb.append("• ").append(line).append('\n');
             }
         }
-        if (asDefault) {
+        if (disableOnlyDefault) {
             sb.append(getString(R.string.save_default_note));
         }
         new AlertDialog.Builder(this)
                 .setTitle(R.string.dlg_save_title)
                 .setMessage(sb.toString())
                 .setPositiveButton(R.string.btn_save,
-                        (d, w) -> commitSave(pending, asDefault, needsBt, needsSystem))
+                        (d, w) -> commitSave(pending, keepDefaultTab, restartBt, restartSystem))
                 .setNegativeButton(R.string.dlg_cancel, null)
                 .show();
     }
 
-    /** 确认保存：把待写配置落到 prefs 并回读界面（默认态据此关闭启用开关），再推送系统。 */
-    private void commitSave(VolumeConfig pending, boolean asDefault,
-            boolean needsBt, boolean needsSystem) {
+    /** 确认保存：把待写配置落到 prefs 并同步界面（默认标签保存后停留该标签），再推送系统。 */
+    private void commitSave(VolumeConfig pending, boolean keepDefaultTab,
+            boolean restartBt, boolean restartSystem) {
         applyConfigToPrefs(pending);
-        loadConfigIntoUi();
-        updatePreview();
-        saveToSystem(() -> promptRestart(needsBt, needsSystem));
+        if (keepDefaultTab) {
+            // 仅关闭启用模块：关掉开关、界面停留在「默认」只读标签，其余控件值保持不变。
+            suppressListeners = true;
+            binding.switchEnable.setChecked(false);
+            suppressListeners = false;
+            lastSavedRaw = pending.toRaw();
+            updatePreview();
+            updateTvPending();
+        } else {
+            loadConfigIntoUi();   // 完整重置/常规保存：回读界面（退出默认标签）
+            updatePreview();
+        }
+        saveToSystem(() -> promptRestart(restartBt, restartSystem));
     }
 
     /** 把一个完整配置写入 prefs（供保存/默认重置后统一回读界面）。 */
