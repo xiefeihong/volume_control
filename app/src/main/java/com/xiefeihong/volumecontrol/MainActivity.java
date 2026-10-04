@@ -65,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean suppressListeners = false;
 
-    /** 当前标签对应编辑/查看的音量模式（ABSOLUTE / SOFTWARE / WIRED）。 */
+    /** 当前标签对应编辑/查看的音量模式（ABSOLUTE / SOFTWARE）。 */
     private VolumeMode editingMode = VolumeMode.ABSOLUTE;
 
     /**
@@ -190,10 +190,9 @@ public class MainActivity extends AppCompatActivity {
                 prefs.getInt(Prefs.KEY_KEY_STEPS, defaultKeySteps()));
         binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
 
-        // 模式并入 btMode：值=默认(2) 时打开即停留在只读「默认」标签；否则初始选中有线/生效蓝牙模式。
+        // 模式并入 btMode：值=默认(2) 时打开即停留在只读「默认」标签；否则初始选中生效模式 A/B。
         boolean defaultMode = btMode == Prefs.BT_MODE_DEFAULT;
-        editingMode = defaultMode ? VolumeMode.ABSOLUTE
-                : (isWiredOrSpeakerOutput() ? VolumeMode.WIRED : VolumeMode.ofBtMode(btMode));
+        editingMode = defaultMode ? VolumeMode.ABSOLUTE : VolumeMode.ofBtMode(btMode);
         loadRangeIntoUi();
         showingDefault = defaultMode;
         if (defaultMode) {
@@ -229,15 +228,13 @@ public class MainActivity extends AppCompatActivity {
             editingMode = target;
             return;
         }
-        // 蓝牙A/蓝牙B 芯片即「生效模式」；有线耳机芯片不改生效模式（但离开默认需回落为模式A）。
+        // 模式A/模式B 芯片即「生效模式」。
         showingDefault = false;
         binding.groupRangeEditors.setVisibility(View.VISIBLE);
         if (target == VolumeMode.ABSOLUTE) {
             btMode = Prefs.BT_MODE_ABSOLUTE;
         } else if (target == VolumeMode.SOFTWARE) {
             btMode = Prefs.BT_MODE_SOFTWARE;
-        } else if (target == VolumeMode.WIRED && btMode == Prefs.BT_MODE_DEFAULT) {
-            btMode = Prefs.BT_MODE_ABSOLUTE;
         }
         suppressListeners = true;
         editingMode = target;
@@ -271,9 +268,6 @@ public class MainActivity extends AppCompatActivity {
         if (id == R.id.chipModeB) {
             return VolumeMode.SOFTWARE;
         }
-        if (id == R.id.chipWired) {
-            return VolumeMode.WIRED;
-        }
         if (id == R.id.chipDefault) {
             return VolumeMode.DEFAULT;
         }
@@ -284,9 +278,6 @@ public class MainActivity extends AppCompatActivity {
     private int modeToChipId(VolumeMode mode) {
         if (mode == VolumeMode.SOFTWARE) {
             return R.id.chipModeB;
-        }
-        if (mode == VolumeMode.WIRED) {
-            return R.id.chipWired;
         }
         if (mode == VolumeMode.DEFAULT) {
             return R.id.chipDefault;
@@ -303,37 +294,6 @@ public class MainActivity extends AppCompatActivity {
             return Prefs.BT_MODE_DEFAULT;
         }
         return Prefs.BT_MODE_ABSOLUTE;
-    }
-
-    /**
-     * 打开 App 时是否默认显示「有线耳机」标签：当前输出为有线/USB 耳机或外放扬声器
-     * （即模块「耳机模式」所覆盖的非蓝牙输出）时返回 true；蓝牙音频输出在用则返回 false
-     * （回到当前生效的蓝牙模式标签）。type 取自 AudioDeviceInfo（字面值兼容低版本 API）。
-     */
-    private boolean isWiredOrSpeakerOutput() {
-        try {
-            AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-            if (audioManager == null) {
-                return false;
-            }
-            boolean wiredOrSpeaker = false;
-            for (AudioDeviceInfo device : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
-                int type = device.getType();
-                // 蓝牙音频输出优先：显示蓝牙模式标签
-                if (bluetoothTypeName(type) != null) {
-                    return false;
-                }
-                // 外放扬声器(2)/有线耳麦(3,4)/线路(5,6)/USB 耳机·设备·配件(22,11,10)
-                if (type == 2 || type == 3 || type == 4 || type == 5
-                        || type == 6 || type == 10 || type == 11 || type == 22) {
-                    wiredOrSpeaker = true;
-                }
-            }
-            return wiredOrSpeaker;
-        } catch (Throwable t) {
-            Log.i(LOG_TAG, "isWiredOrSpeakerOutput failed", t);
-            return false;
-        }
     }
 
     // ==================== 配置计算与预览 ====================
@@ -444,14 +404,9 @@ public class MainActivity extends AppCompatActivity {
         int curveType = currentCurveType();
         int segs = Prefs.clampKeySteps(keySteps);
         boolean useSystemIndex = editingMode.attenuatesInSystemServer();
-        if (editingMode == VolumeMode.WIRED) {
-            binding.tvSummary.setText(
-                    Avrcp.buildWiredPreview(mediaSteps, minAbs, maxAbs, curveType, keySteps));
-        } else {
-            binding.tvSummary.setText(Avrcp.buildPreview(
-                    mediaSteps, editingMode.modeId(), minAbs, maxAbs, curveType, keySteps));
-        }
-        // 映射表三模式共用同一构建器（模式B 与耳机模式走同一系统档位代码路径）。
+        binding.tvSummary.setText(Avrcp.buildPreview(
+                mediaSteps, editingMode.modeId(), minAbs, maxAbs, curveType, keySteps));
+        // 映射表两模式共用同一构建器（模式A 映射 AVRCP 0~127、模式B 映射系统档位）。
         int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
         // 启用模块关闭时模块不重映射 → 曲线图与映射表都改为系统默认直通（两者始终相关、与生效行为一致）。
         if (!binding.switchEnable.isChecked()) {
@@ -525,8 +480,7 @@ public class MainActivity extends AppCompatActivity {
         int btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
         return new VolumeConfig(enabled, mediaSteps, keySteps, btMode,
                 readRangeFromPrefs(VolumeMode.ABSOLUTE),
-                readRangeFromPrefs(VolumeMode.SOFTWARE),
-                readRangeFromPrefs(VolumeMode.WIRED)).toRaw();
+                readRangeFromPrefs(VolumeMode.SOFTWARE)).toRaw();
     }
 
     /** 从 prefs 读取某模式的最小/最大/曲线三元组。 */
@@ -574,7 +528,7 @@ public class MainActivity extends AppCompatActivity {
         Range def = new Range(Prefs.ABS_VOLUME_MIN_DEFAULT,
                 Prefs.ABS_VOLUME_MAX_DEFAULT, Prefs.CURVE_TYPE_DEFAULT);
         return new VolumeConfig(false, systemDefaultSteps(), defaultKeySteps(),
-                Prefs.BT_MODE_ABSOLUTE, def, def, def);
+                Prefs.BT_MODE_ABSOLUTE, def, def);
     }
 
     /**
@@ -643,8 +597,7 @@ public class MainActivity extends AppCompatActivity {
         // 选中「默认」保存：模式并入 btMode=默认，并关闭启用开关；其余设置原样保留。
         final VolumeConfig pending = keepDefaultTab
                 ? new VolumeConfig(false, rawPending.mediaSteps, rawPending.keySteps,
-                        Prefs.BT_MODE_DEFAULT, rawPending.absolute, rawPending.software,
-                        rawPending.wired)
+                        Prefs.BT_MODE_DEFAULT, rawPending.absolute, rawPending.software)
                 : rawPending;
         final VolumeConfig base = VolumeConfig.fromRaw(lastSavedRaw);
         if (base != null && base.toRaw().equals(pending.toRaw())) {
@@ -655,8 +608,7 @@ public class MainActivity extends AppCompatActivity {
         final boolean modeOrRangeChanged = base == null
                 || pending.btMode != base.btMode
                 || !pending.absolute.equals(base.absolute)
-                || !pending.software.equals(base.software)
-                || !pending.wired.equals(base.wired);
+                || !pending.software.equals(base.software);
         // 真正影响 Hook 的是 remapActive()（启用 且 非默认直通）；启用/默认切换都可能使其翻转。
         final boolean activeToggled = base == null || pending.remapActive() != base.remapActive();
         final boolean needsSystem = activeToggled
@@ -718,9 +670,6 @@ public class MainActivity extends AppCompatActivity {
                 .putInt(VolumeMode.SOFTWARE.minKey, c.software.min)
                 .putInt(VolumeMode.SOFTWARE.maxKey, c.software.max)
                 .putInt(VolumeMode.SOFTWARE.curveKey, c.software.curve)
-                .putInt(VolumeMode.WIRED.minKey, c.wired.min)
-                .putInt(VolumeMode.WIRED.maxKey, c.wired.max)
-                .putInt(VolumeMode.WIRED.curveKey, c.wired.curve)
                 .commit();
     }
 
@@ -742,11 +691,10 @@ public class MainActivity extends AppCompatActivity {
         }
         if (base.btMode != pending.btMode) {
             out.add(getString(R.string.change_bt_mode,
-                    modeLabel(base.btMode), modeLabel(pending.btMode)));
+                    modeLabelShort(base.btMode), modeLabelShort(pending.btMode)));
         }
         addRangeChange(out, getString(R.string.mode_name_absolute), base.absolute, pending.absolute);
         addRangeChange(out, getString(R.string.mode_name_software), base.software, pending.software);
-        addRangeChange(out, getString(R.string.mode_name_wired), base.wired, pending.wired);
         return out;
     }
 
@@ -773,6 +721,17 @@ public class MainActivity extends AppCompatActivity {
             return getString(R.string.mode_name_default);
         }
         return getString(R.string.mode_name_absolute);
+    }
+
+    /** 对话框用的简名：A→「绝对音量」、B→「相对音量」、默认→「默认直通」。 */
+    private String modeLabelShort(int mode) {
+        if (mode == Prefs.BT_MODE_SOFTWARE) {
+            return getString(R.string.mode_short_software);
+        }
+        if (mode == Prefs.BT_MODE_DEFAULT) {
+            return getString(R.string.mode_name_default);
+        }
+        return getString(R.string.mode_short_absolute);
     }
 
     /** 保存成功后，如需要则询问是否立即重启对应组件。 */
@@ -875,9 +834,6 @@ public class MainActivity extends AppCompatActivity {
                             .putInt(Prefs.KEY_MIN_ABS_B, globalConfig.software.min)
                             .putInt(Prefs.KEY_MAX_ABS_B, globalConfig.software.max)
                             .putInt(Prefs.KEY_CURVE_TYPE_B, globalConfig.software.curve)
-                            .putInt(Prefs.KEY_MIN_ABS_W, globalConfig.wired.min)
-                            .putInt(Prefs.KEY_MAX_ABS_W, globalConfig.wired.max)
-                            .putInt(Prefs.KEY_CURVE_TYPE_W, globalConfig.wired.curve)
                             .commit();
                     adopted = true;
                 }

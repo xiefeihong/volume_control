@@ -326,28 +326,6 @@ public final class Avrcp {
         return sb.toString();
     }
 
-    /** 耳机模式（有线+外放）摘要：按按键序列判重 + 首次按键落点。 */
-    public static String buildWiredPreview(int maxSteps, int minAbs, int maxAbs,
-            int curveType, int keySteps) {
-        if (maxSteps <= 0) {
-            return "";
-        }
-        int dups = countDuplicateAtKeySteps(maxSteps, keySteps, minAbs, maxAbs, curveType, true);
-        int lowest = curveToSystemIndex(1, maxSteps, minAbs, maxAbs, curveType);
-        StringBuilder sb = new StringBuilder();
-        sb.append("耳机模式：有线/外放 · ").append(curveLabel(curveType)).append("曲线\n");
-        sb.append("媒体 ").append(maxSteps).append(" 档 → 系统音量档位，范围 ")
-                .append(minAbs).append('~').append(maxAbs).append("（0~127）\n");
-        if (dups == 0) {
-            sb.append("✓ 各次按键的系统音量档位互不相同\n");
-        } else {
-            sb.append("⚠ 有 ").append(dups)
-                    .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
-        }
-        sb.append("第 1 档 → 系统音量 ").append(lowest).append('/').append(maxSteps);
-        return sb.toString();
-    }
-
     /**
      * 按所选曲线渲染「按键次数 → 输出值」行：左列 = 第几次按键（1~clampKeySteps(keySteps)），
      * 右列 = 该次到达档位 {@code keyStepLevel(i, ...)}（吸附到 round(i*maxSteps/keySteps)）的输出值。

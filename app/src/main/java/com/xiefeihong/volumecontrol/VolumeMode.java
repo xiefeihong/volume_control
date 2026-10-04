@@ -1,12 +1,12 @@
 package com.xiefeihong.volumecontrol;
 
 /**
- * 三种音量模式的统一抽象（「枚举即策略」），App 与 Xposed Hook 共用。
+ * 音量模式的统一抽象（「枚举即策略」），App 与 Xposed Hook 共用。
  *
- * <p>每个枚举常量封装：该模式在 {@link VolumeConfig} 中对应的 {@link Range}、
- * SharedPreferences 键、映射空间（AVRCP 绝对音量 vs system_server 软件衰减）、以及适用的
- * 输出设备。配置读取统一为 {@code mode.range(cfg)}（如 {@code .min}/{@code .max}/{@code .curve}），
- * 不再使用魔法下标。</p>
+ * <p>模式 A/B 对所有输出（蓝牙/有线/外放）生效。每个枚举常量封装：该模式在
+ * {@link VolumeConfig} 中对应的 {@link Range}、SharedPreferences 键、映射空间
+ * （AVRCP 绝对音量 vs system_server 软件衰减）。配置读取统一为 {@code mode.range(cfg)}
+ * （如 {@code .min}/{@code .max}/{@code .curve}），不再使用魔法下标。</p>
  *
  * <p>重要：本类与 {@link Prefs}/{@link Avrcp}/{@link VolumeConfig} 一样同时被 App 进程与
  * Hook 端（system_server / 蓝牙进程）使用，禁止引用任何 Xposed API 类。</p>
@@ -20,18 +20,11 @@ public enum VolumeMode {
         @Override public Range range(VolumeConfig cfg) { return cfg.absolute; }
     },
 
-    /** 模式B：停用绝对音量，由手机端在 system_server 软件衰减音频（仅蓝牙）。 */
+    /** 模式B：停用绝对音量，由手机端在 system_server 软件衰减音频。 */
     SOFTWARE(Prefs.KEY_MIN_ABS_B, Prefs.KEY_MAX_ABS_B, Prefs.KEY_CURVE_TYPE_B) {
         @Override public boolean attenuatesInSystemServer() { return true; }
         @Override public boolean drivesAvrcp() { return false; }
         @Override public Range range(VolumeConfig cfg) { return cfg.software; }
-    },
-
-    /** 耳机模式：有线耳机 + 外放扬声器，在 system_server 软件衰减（与蓝牙模式无关）。 */
-    WIRED(Prefs.KEY_MIN_ABS_W, Prefs.KEY_MAX_ABS_W, Prefs.KEY_CURVE_TYPE_W) {
-        @Override public boolean attenuatesInSystemServer() { return true; }
-        @Override public boolean drivesAvrcp() { return false; }
-        @Override public Range range(VolumeConfig cfg) { return cfg.wired; }
     },
 
     /**
@@ -45,7 +38,7 @@ public enum VolumeMode {
         @Override public Range range(VolumeConfig cfg) { return cfg.absolute; }
     };
 
-    /** 是否在 system_server 通过改写系统音量档位做软件衰减（模式B/耳机模式）。 */
+    /** 是否天然在 system_server 通过改写系统音量档位做软件衰减（模式B）。 */
     public abstract boolean attenuatesInSystemServer();
 
     /** 是否在蓝牙进程做 AVRCP 绝对音量映射（模式A）。 */
@@ -88,7 +81,7 @@ public enum VolumeMode {
     }
 
     /**
-     * 是否为可识别的有线耳机/外放扬声器 device-out（耳机模式白名单）。
+     * 是否为可识别的有线耳机/外放扬声器 device-out。
      *
      * <p>覆盖：受话器 0x1、内置扬声器 0x2、有线耳麦 0x4、有线耳机 0x8、
      * 模拟/数字底座 0x800/0x1000、USB 附件/设备 0x2000/0x4000、线路输出 0x20000。
@@ -138,22 +131,25 @@ public enum VolumeMode {
     }
 
     /**
-     * system_server 应执行软件衰减的模式（SOFTWARE / WIRED），否则返回 null。
-     * 蓝牙 + 模式A（AVRCP 由蓝牙进程处理）或未识别设备一律 null → 调用方放行。
+     * system_server 应执行档位衰减的模式，否则返回 null（调用方放行）。
+     * 有线/外放：A/B 均按各自范围衰减（返回当前生效模式）；蓝牙：仅模式B 衰减，
+     * 模式A 由蓝牙进程走 AVRCP（此处返回 null）；未识别设备一律 null。
      */
     public static VolumeMode forSystemServer(VolumeConfig config, int device) {
         if (config == null || !config.remapActive()) {
             return null;
         }
-        VolumeMode m;
-        if (isWiredOrSpeakerOutput(device)) {
-            m = WIRED;
-        } else if (isBluetoothOutput(device)) {
-            m = btModeOf(config);
-        } else {
-            return null; // 未识别设备保守放行，避免误伤
+        VolumeMode active = btModeOf(config);
+        if (active == null) {
+            return null;
         }
-        return (m != null && m.attenuatesInSystemServer()) ? m : null;
+        if (isWiredOrSpeakerOutput(device)) {
+            return active;                     // A/B 都在 system_server 用自身范围衰减
+        }
+        if (isBluetoothOutput(device)) {
+            return active.attenuatesInSystemServer() ? active : null;
+        }
+        return null;                           // 未识别设备保守放行，避免误伤
     }
 
     /** 蓝牙进程应执行 AVRCP 映射的模式（ABSOLUTE），否则返回 null。 */

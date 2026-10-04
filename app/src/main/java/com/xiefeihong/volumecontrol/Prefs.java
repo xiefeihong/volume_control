@@ -40,11 +40,6 @@ public final class Prefs {
     public static final String KEY_MIN_ABS_B = "min_abs_volume_b";
     public static final String KEY_MAX_ABS_B = "max_abs_volume_b";
 
-    /** 耳机模式（有线+外放）音量范围 SharedPreferences 键。 */
-    public static final String KEY_MIN_ABS_W = "min_abs_volume_w";
-    public static final String KEY_MAX_ABS_W = "max_abs_volume_w";
-    /** 耳机模式映射曲线类型 SharedPreferences 键。 */
-    public static final String KEY_CURVE_TYPE_W = "curve_type_w";
 
     /**
      * 蓝牙音量控制模式 A：保持绝对音量（默认）。
