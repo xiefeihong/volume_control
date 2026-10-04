@@ -190,13 +190,20 @@ public class MainActivity extends AppCompatActivity {
                 prefs.getInt(Prefs.KEY_KEY_STEPS, defaultKeySteps()));
         binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
 
-        // 初始选中芯片：当前为有线/USB/外放输出则选中「有线耳机」，否则选中当前生效的蓝牙模式（蓝牙A/蓝牙B）。
+        // 上次若保存为「默认」模式，打开即停留在只读「默认」标签（需求：记住默认选择）；
+        // 否则初始选中：当前为有线/USB/外放输出选「有线耳机」，否则选当前生效的蓝牙模式。
+        boolean defaultMode = prefs.getBoolean(Prefs.KEY_DEFAULT_MODE, false);
         editingMode = isWiredOrSpeakerOutput()
                 ? VolumeMode.WIRED : VolumeMode.ofBtMode(btMode);
-        binding.chipGroupRange.check(modeToChipId(editingMode));
-        showingDefault = false;
-        binding.groupRangeEditors.setVisibility(View.VISIBLE);
         loadRangeIntoUi();
+        showingDefault = defaultMode;
+        if (defaultMode) {
+            binding.chipGroupRange.check(R.id.chipDefault);
+            binding.groupRangeEditors.setVisibility(View.GONE);
+        } else {
+            binding.chipGroupRange.check(modeToChipId(editingMode));
+            binding.groupRangeEditors.setVisibility(View.VISIBLE);
+        }
         suppressListeners = false;
         lastSavedRaw = currentConfigString();
         updateTvPending();
@@ -252,6 +259,7 @@ public class MainActivity extends AppCompatActivity {
         }
         showingDefault = true;
         binding.groupRangeEditors.setVisibility(View.GONE);
+        persistToPrefs(false);   // 记录「默认」选择（工作副本），供未保存提示与下次打开记忆
         updatePreview();
         updateTvPending();
     }
@@ -472,6 +480,7 @@ public class MainActivity extends AppCompatActivity {
                 .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
                 .putInt(Prefs.KEY_KEY_STEPS, currentKeySteps())
                 .putInt(Prefs.KEY_BT_MODE, currentBtMode())
+                .putBoolean(Prefs.KEY_DEFAULT_MODE, showingDefault)
                 .putInt(editingMode.minKey, currentMinAbs())
                 .putInt(editingMode.maxKey, currentMaxAbs())
                 .putInt(editingMode.curveKey, currentCurveType());
@@ -490,10 +499,11 @@ public class MainActivity extends AppCompatActivity {
         int keySteps = Prefs.clampKeySteps(
                 prefs.getInt(Prefs.KEY_KEY_STEPS, defaultKeySteps()));
         int btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
+        boolean defaultMode = prefs.getBoolean(Prefs.KEY_DEFAULT_MODE, false);
         return new VolumeConfig(enabled, mediaSteps, keySteps, btMode,
                 readRangeFromPrefs(VolumeMode.ABSOLUTE),
                 readRangeFromPrefs(VolumeMode.SOFTWARE),
-                readRangeFromPrefs(VolumeMode.WIRED)).toRaw();
+                readRangeFromPrefs(VolumeMode.WIRED), defaultMode).toRaw();
     }
 
     /** 从 prefs 读取某模式的最小/最大/曲线三元组。 */
@@ -528,23 +538,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 构造当前待保存配置：默认标签=仅关闭启用模块；否则取暂存 prefs（已与控件同步）。 */
+    /**
+     * 构造当前待保存配置：直接取暂存 prefs（已与控件同步，含「默认」标签写回的
+     * {@code defaultMode}）。选中「默认」时不再改启用开关，仅由 {@code defaultMode=true} 生效直通。
+     */
     private VolumeConfig buildPendingConfig() {
-        if (showingDefault) {
-            return buildCurrentConfigDisabled();
-        }
         VolumeConfig c = VolumeConfig.fromRaw(currentConfigString());
         return c != null ? c : buildDefaultConfig();
-    }
-
-    /** 取当前暂存配置仅把启用模块置为关闭，其余（级数/步进/模式/各范围）保持不变。 */
-    private VolumeConfig buildCurrentConfigDisabled() {
-        VolumeConfig cur = VolumeConfig.fromRaw(currentConfigString());
-        if (cur == null) {
-            return buildDefaultConfig();
-        }
-        return new VolumeConfig(false, cur.mediaSteps, cur.keySteps, cur.btMode,
-                cur.absolute, cur.software, cur.wired);
     }
 
     /** 系统默认配置：模块关闭、媒体/键步进取原生级数、模式A、三种范围各自默认。 */
@@ -552,7 +552,7 @@ public class MainActivity extends AppCompatActivity {
         Range def = new Range(Prefs.ABS_VOLUME_MIN_DEFAULT,
                 Prefs.ABS_VOLUME_MAX_DEFAULT, Prefs.CURVE_TYPE_DEFAULT);
         return new VolumeConfig(false, systemDefaultSteps(), defaultKeySteps(),
-                Prefs.BT_MODE_ABSOLUTE, def, def, def);
+                Prefs.BT_MODE_ABSOLUTE, def, def, def, false);
     }
 
     /**
@@ -566,6 +566,8 @@ public class MainActivity extends AppCompatActivity {
         final String configString = currentConfigString();
         final boolean softwareMode = currentBtMode() == Prefs.BT_MODE_SOFTWARE;
         final boolean enabled = binding.switchEnable.isChecked();
+        // 生效开关：启用且非默认直通；默认模式下即使开关开着，也不改写 boot 属性/AVRCP 抑制。
+        final boolean active = enabled && !showingDefault;
         final int mediaSteps = currentMediaSteps();
         try {
             executor.execute(() -> {
@@ -573,9 +575,10 @@ public class MainActivity extends AppCompatActivity {
                 // 配置镜像备份：Hook 端可在 Settings.Global 读取失败时直读该文件（独立通道兑底）
                 Shell.writeGlobalMirror(configString);
                 // post-fs-data 开机脚本：开机最早阶段直接设置档位属性（不依赖任何 Hook 的终极保险）
-                Shell.writeBootScript(enabled, mediaSteps);
+                Shell.writeBootScript(active, mediaSteps);
                 // 补充写入系统键：部分 ROM 的蓝牙栈会读取该开发者选项键，Hook 未生效时作为兑底
-                Shell.putGlobalConfig(Shell.SETTING_AV_DISABLE, softwareMode ? "1" : "0");
+                Shell.putGlobalConfig(Shell.SETTING_AV_DISABLE,
+                        (active && softwareMode) ? "1" : "0");
                 boolean verified = false;
                 if (putResult.isSuccess()) {
                     String readBack = Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output;
@@ -609,23 +612,12 @@ public class MainActivity extends AppCompatActivity {
      * 执行「保存修改」：与已生效配置比对后弹确认框列出改动，确认才写入 prefs 并推送系统；
      * 若需重启且包含系统框架，则只重启系统框架（蓝牙进程随框架重启）。
      *
-     * @param forceDefault true=「恢复系统默认」完整重置；false=按当前标签保存（选中默认
-     *        标签时仅关闭启用模块并停留在默认标签，其余设置保留）。
+     * @param forceDefault true=「恢复系统默认」完整重置；false=按当前标签保存（选中「默认」
+     *        时仅置 defaultMode=true，不改启用开关、保留其余设置，并停留在默认标签）。
      */
     private void runSave(boolean forceDefault) {
-        final boolean disableOnlyDefault = showingDefault && !forceDefault;
-        final VolumeConfig pending;
-        final boolean keepDefaultTab;
-        if (forceDefault) {
-            pending = buildDefaultConfig();          // 恢复系统默认：完整重置
-            keepDefaultTab = false;
-        } else if (disableOnlyDefault) {
-            pending = buildCurrentConfigDisabled();  // 默认标签保存：仅关闭启用模块
-            keepDefaultTab = true;
-        } else {
-            pending = buildPendingConfig();
-            keepDefaultTab = false;
-        }
+        final boolean keepDefaultTab = showingDefault && !forceDefault;
+        final VolumeConfig pending = forceDefault ? buildDefaultConfig() : buildPendingConfig();
         final VolumeConfig base = VolumeConfig.fromRaw(lastSavedRaw);
         if (base != null && base.toRaw().equals(pending.toRaw())) {
             Toast.makeText(this, R.string.dlg_save_none, Toast.LENGTH_SHORT).show();
@@ -637,11 +629,11 @@ public class MainActivity extends AppCompatActivity {
                 || !pending.absolute.equals(base.absolute)
                 || !pending.software.equals(base.software)
                 || !pending.wired.equals(base.wired);
-        // 启用开关变化会同时影响蓝牙 Hook 与系统档位，两侧都需重启。
-        final boolean enabledChanged = base == null || pending.enabled != base.enabled;
-        final boolean needsSystem = enabledChanged
-                || base != null && pending.mediaSteps != base.mediaSteps;
-        final boolean needsBt = enabledChanged || modeOrRangeChanged;
+        // 真正影响 Hook 的是 remapActive()（启用 且 非默认直通）；启用/默认切换都可能使其翻转。
+        final boolean activeToggled = base == null || pending.remapActive() != base.remapActive();
+        final boolean needsSystem = activeToggled
+                || (base != null && pending.mediaSteps != base.mediaSteps);
+        final boolean needsBt = activeToggled || modeOrRangeChanged;
         // 需重启的组件含系统框架时只重启系统框架（蓝牙进程随之重启），不再单独重启蓝牙。
         final boolean restartSystem = needsSystem;
         final boolean restartBt = !needsSystem && needsBt;
@@ -654,7 +646,7 @@ public class MainActivity extends AppCompatActivity {
                 sb.append("• ").append(line).append('\n');
             }
         }
-        if (disableOnlyDefault) {
+        if (keepDefaultTab) {
             sb.append(getString(R.string.save_default_note));
         }
         new AlertDialog.Builder(this)
@@ -671,10 +663,7 @@ public class MainActivity extends AppCompatActivity {
             boolean restartBt, boolean restartSystem) {
         applyConfigToPrefs(pending);
         if (keepDefaultTab) {
-            // 仅关闭启用模块：关掉开关、界面停留在「默认」只读标签，其余控件值保持不变。
-            suppressListeners = true;
-            binding.switchEnable.setChecked(false);
-            suppressListeners = false;
+            // 选中「默认」保存：不动启用开关、不改其余设置，仅记录默认模式并停留在默认标签。
             lastSavedRaw = pending.toRaw();
             updatePreview();
             updateTvPending();
@@ -692,6 +681,7 @@ public class MainActivity extends AppCompatActivity {
                 .putInt(Prefs.KEY_MEDIA_STEPS, c.mediaSteps)
                 .putInt(Prefs.KEY_KEY_STEPS, c.keySteps)
                 .putInt(Prefs.KEY_BT_MODE, c.btMode)
+                .putBoolean(Prefs.KEY_DEFAULT_MODE, c.defaultMode)
                 .putInt(VolumeMode.ABSOLUTE.minKey, c.absolute.min)
                 .putInt(VolumeMode.ABSOLUTE.maxKey, c.absolute.max)
                 .putInt(VolumeMode.ABSOLUTE.curveKey, c.absolute.curve)
@@ -713,6 +703,10 @@ public class MainActivity extends AppCompatActivity {
         if (base.enabled != pending.enabled) {
             out.add(getString(R.string.change_enable,
                     enabledLabel(base.enabled), enabledLabel(pending.enabled)));
+        }
+        if (base.defaultMode != pending.defaultMode) {
+            out.add(getString(R.string.change_default_mode,
+                    defaultModeLabel(base.defaultMode), defaultModeLabel(pending.defaultMode)));
         }
         if (base.mediaSteps != pending.mediaSteps) {
             out.add(getString(R.string.change_media_steps, base.mediaSteps, pending.mediaSteps));
@@ -743,6 +737,11 @@ public class MainActivity extends AppCompatActivity {
 
     private String enabledLabel(boolean enabled) {
         return getString(enabled ? R.string.enable_on : R.string.enable_off);
+    }
+
+    private String defaultModeLabel(boolean defaultMode) {
+        return getString(defaultMode
+                ? R.string.mode_name_default : R.string.mode_name_custom);
     }
 
     private String modeLabel(int mode) {

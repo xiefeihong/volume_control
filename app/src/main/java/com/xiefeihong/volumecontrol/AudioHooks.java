@@ -236,7 +236,7 @@ final class AudioHooks {
     private static int refreshMediaStepsOverride() {
         VolumeConfig config = XposedKit.readConfig(XposedKit.systemServerContext(null));
         int steps = -1;
-        if (config != null && config.enabled) {
+        if (config != null && config.remapActive()) {
             steps = config.mediaSteps;
         }
         sMediaStepsOverride = steps;
@@ -307,7 +307,7 @@ final class AudioHooks {
             XposedKit.log("no config found, keep system defaults");
             return;
         }
-        if (!config.enabled) {
+        if (!config.remapActive()) {
             sMediaStepsOverride = -1;
             XposedKit.log("disabled, keep system defaults");
             return;
@@ -344,7 +344,7 @@ final class AudioHooks {
             XposedKit.log(tag + ": no config, keep system defaults");
             return -1;
         }
-        if (!config.enabled) {
+        if (!config.remapActive()) {
             sMediaStepsOverride = -1;
             XposedKit.log(tag + ": disabled, keep system defaults");
             return -1;
@@ -834,7 +834,7 @@ final class AudioHooks {
                 // 孤立变更 → 读配置判断是否需要吸附到网格。
                 VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(chain.getThisObject()));
-                if (config == null || !config.enabled) {
+                if (config == null || !config.remapActive()) {
                     return chain.proceed();
                 }
                 // levels 必须取【实时物理上限】(getStreamMaxVolume)，与 AdjustStreamVolumeHooker 同源；
@@ -966,7 +966,7 @@ final class AudioHooks {
                 Object audioService = sAudioService != null ? sAudioService : chain.getThisObject();
                 VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(audioService));
-                if (config == null || !config.enabled) {
+                if (config == null || !config.remapActive()) {
                     return chain.proceed();
                 }
                 int keySteps = Prefs.clampKeySteps(config.keySteps);
@@ -1093,7 +1093,7 @@ final class AudioHooks {
                 }
                 VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(audioService));
-                if (config == null || !config.enabled) {
+                if (config == null || !config.remapActive()) {
                     return chain.proceed();
                 }
                 // 诊断：媒体档位落到「非按键网格」且近期无按键接管 → 音量键可能走了

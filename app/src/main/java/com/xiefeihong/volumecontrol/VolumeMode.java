@@ -96,9 +96,9 @@ public enum VolumeMode {
 
     // ==================== 解析入口 ====================
 
-    /** 蓝牙侧用户所选模式（btMode）；配置为 null 或未启用返回 null。 */
+    /** 蓝牙侧用户所选模式（btMode）；配置为 null / 未启用 / 默认直通时返回 null。 */
     public static VolumeMode btModeOf(VolumeConfig config) {
-        if (config == null || !config.enabled) {
+        if (config == null || !config.remapActive()) {
             return null;
         }
         return config.btMode == Prefs.BT_MODE_SOFTWARE ? SOFTWARE : ABSOLUTE;
@@ -119,7 +119,7 @@ public enum VolumeMode {
      * 蓝牙 + 模式A（AVRCP 由蓝牙进程处理）或未识别设备一律 null → 调用方放行。
      */
     public static VolumeMode forSystemServer(VolumeConfig config, int device) {
-        if (config == null || !config.enabled) {
+        if (config == null || !config.remapActive()) {
             return null;
         }
         VolumeMode m;
