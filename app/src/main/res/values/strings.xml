@@ -91,6 +91,8 @@
     <string name="dlg_save_title">保存修改</string>
     <string name="dlg_save_none">没有需要保存的修改。</string>
     <string name="dlg_save_first">首次保存，将写入以下配置并使其生效：</string>
+    <string name="save_need_system_default">当前「启用模块」已关闭且处于模式A/B，但未获取到系统默认音量档位，无法可靠调整档位。请点「改为默认」切换到默认模式，或先在关闭状态下点「刷新检测」获取系统默认档位后再保存。</string>
+    <string name="save_switch_default">改为默认</string>
     <string name="save_default_note">\n已选中「默认」：保存后模块走系统默认音量并关闭「启用模块」开关（不改媒体档位数、不重映射），其余设置保留。</string>
     <string name="change_enable">启用模块：%1$s → %2$s</string>
     <string name="mode_name_default">默认直通</string>

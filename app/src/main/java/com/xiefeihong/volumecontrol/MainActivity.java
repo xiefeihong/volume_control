@@ -592,6 +592,13 @@ public class MainActivity extends AppCompatActivity {
      *        并入 btMode=默认，并按需求同时关闭「启用模块」开关、保留其余设置，停留在默认标签）。
      */
     private void runSave(boolean forceDefault) {
+        // 关闭态 + 模式A/B：未获取到系统默认档位时无法可靠调整音量档位，
+        // 不进入常规保存，而是提示将模式改为「默认」（开启模块后不拦截）。
+        if (!forceDefault && !binding.switchEnable.isChecked() && !showingDefault
+                && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)) {
+            promptSwitchToDefault();
+            return;
+        }
         final boolean keepDefaultTab = showingDefault && !forceDefault;
         final VolumeConfig rawPending = forceDefault ? buildDefaultConfig() : buildPendingConfig();
         // 选中「默认」保存：模式并入 btMode=默认，并关闭启用开关；其余设置原样保留。
@@ -634,6 +641,17 @@ public class MainActivity extends AppCompatActivity {
                 .setMessage(sb.toString())
                 .setPositiveButton(R.string.btn_save_confirm,
                         (d, w) -> commitSave(pending, keepDefaultTab, restartBt, restartSystem))
+                .setNegativeButton(R.string.dlg_cancel, null)
+                .show();
+    }
+
+    /** 关闭态保存被拦截时：提示未获取系统默认档位，并可一键切换到「默认」标签。 */
+    private void promptSwitchToDefault() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.dlg_save_title)
+                .setMessage(R.string.save_need_system_default)
+                .setPositiveButton(R.string.save_switch_default,
+                        (d, w) -> binding.chipDefault.setChecked(true))
                 .setNegativeButton(R.string.dlg_cancel, null)
                 .show();
     }
