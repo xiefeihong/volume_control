@@ -33,7 +33,7 @@ import java.util.concurrent.Executors;
  * 编辑哪个范围」，共享同一组曲线/滑条/预览控件，按 {@link VolumeMode} 各自的键读写；
  * 各模式的值互不干扰。蓝牙生效模式（btMode）由「蓝牙A/蓝牙B」标签决定，切换仅暂存、不实时
  * 生效。所有变更只暂存到界面/Preferences，须点「保存修改」确认后才写入 Settings.Global，
- * 再按需重启蓝牙 / 系统框架使其生效（需重启含系统框架时只重启框架）；「默认」标签的保存仅关闭启用模块（其余保留），
+ * 再按需重启蓝牙 / 系统框架使其生效（需重启含系统框架时只重启框架）；「默认」标签的保存仅关闭启用档位修改开关（其余保留），
  * 「恢复系统默认」按钮则完整重置。</p>
  */
 public class MainActivity extends AppCompatActivity {
@@ -193,7 +193,7 @@ public class MainActivity extends AppCompatActivity {
         int keyToShow = enabled ? keySteps : defaultKeySteps();
         binding.seekMediaSteps.setProgress(mediaToShow - Prefs.MEDIA_STEPS_MIN);
         binding.seekKeySteps.setProgress(keyToShow - Prefs.KEY_STEP_MIN);
-        applyRangeEditable(enabled);
+        applyStepsEditable(enabled);
 
         // 模式并入 btMode：值=默认(2) 时打开即停留在只读「默认」标签；否则初始选中生效模式 A/B。
         boolean defaultMode = btMode == Prefs.BT_MODE_DEFAULT;
@@ -213,8 +213,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 启用开关切换：关闭时把档位/音量键步进/音量范围/曲线全部停用，并把档位/步进滑条
-     * 停到系统默认，使界面反映系统真实状态（开启后从 prefs 恢复配置值并可编辑）。
+     * 启用开关切换：关闭时把档位/音量键步进两个滑条锁到系统默认并禁用（音量范围编辑区仍可
+     * 用），开启后从 prefs 恢复已存的档位/步进配置值并重新启用（不丢配置）。
      */
     private void onEnableToggled(boolean enabled) {
         suppressListeners = true;
@@ -227,17 +227,14 @@ public class MainActivity extends AppCompatActivity {
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
         binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
         suppressListeners = false;
-        applyRangeEditable(enabled);
+        applyStepsEditable(enabled);
         onConfigChanged();
     }
 
-    /** 关闭态统一停用档位/步进/音量范围/曲线控件（界面只反映系统真实状态，不可编辑）。 */
-    private void applyRangeEditable(boolean enabled) {
+    /** 关闭态仅锁定档位/音量键步进滑条到系统默认；音量范围(最小/最大/曲线)保持可编辑。 */
+    private void applyStepsEditable(boolean enabled) {
         binding.seekMediaSteps.setEnabled(enabled);
         binding.seekKeySteps.setEnabled(enabled);
-        binding.seekMinAbs.setEnabled(enabled);
-        binding.seekMaxAbs.setEnabled(enabled);
-        binding.radioCurveType.setEnabled(enabled);
     }
 
     /**
@@ -434,22 +431,8 @@ public class MainActivity extends AppCompatActivity {
                 Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
         binding.tvRangeHint.setText(getString(R.string.range_hint));
 
-        // 关闭态：模块不生效，界面反映系统真实状态——曲线图与映射表按系统默认档位
-        // 原生直通展示（与「默认」标签一致）；各滑条/曲线已停用，档位/步进显示系统默认。
-        if (!binding.switchEnable.isChecked()) {
-            int nativeSteps = systemDefaultSteps();
-            int nativeKey = defaultKeySteps();
-            binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, nativeSteps));
-            binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
-                    nativeKey, Prefs.keyDelta(nativeSteps, nativeKey)));
-            binding.tvSummary.setText(getString(R.string.disabled_preview_info, nativeSteps));
-            binding.curveChart.configureNativeVolume(nativeSteps);
-            binding.tvRangeMapping.setText(Avrcp.buildNativePassthroughTable(
-                    nativeSteps, computeTableColumns(nativeSteps, 100, /*percent*/ true),
-                    /*showPercent*/ true));
-            return;
-        }
-
+        // 关闭「启用档位修改」时，档位/音量键步进滑条被锁到系统默认，故下面按 mediaSteps/keySteps
+        //（此时即系统默认档位数）+ 当前 A/B 的最小/最大/曲线渲染预览；音量范围编辑区仍保持可用。
         int curveType = currentCurveType();
         int segs = Prefs.clampKeySteps(keySteps);
         boolean useSystemIndex = editingMode.attenuatesInSystemServer();
@@ -457,7 +440,7 @@ public class MainActivity extends AppCompatActivity {
                 mediaSteps, editingMode.modeId(), minAbs, maxAbs, curveType, keySteps));
         // 映射表两模式共用同一构建器（模式A 映射 AVRCP 0~127、模式B 映射系统档位）。
         int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
-        // 开启态：模式A/B 的曲线图与映射表按各自配置渲染预览（关闭态已在上面走系统直通）。
+        // 曲线图/映射表按当前配置渲染（关闭态档位/步进已锁系统默认，故即「默认档位数 + A/B 范围」预览）。
         binding.curveChart.configure(
                 mediaSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps);
         binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
@@ -632,7 +615,7 @@ public class MainActivity extends AppCompatActivity {
      * 若需重启且包含系统框架，则只重启系统框架（蓝牙进程随框架重启）。
      *
      * @param forceDefault true=「恢复系统默认」完整重置；false=按当前标签保存（选中「默认」时
-     *        并入 btMode=默认，并按需求同时关闭「启用模块」开关、保留其余设置，停留在默认标签）。
+     *        并入 btMode=默认，并按需求同时关闭「启用档位修改」开关、保留其余设置，停留在默认标签）。
      */
     private void runSave(boolean forceDefault) {
         // 关闭态 + 模式A/B：未获取到系统默认档位时无法可靠调整音量档位，
@@ -704,7 +687,7 @@ public class MainActivity extends AppCompatActivity {
             boolean restartBt, boolean restartSystem) {
         applyConfigToPrefs(pending);
         if (keepDefaultTab) {
-            // 选中「默认」保存：关闭启用模块开关（需求3）、其余设置保留，界面停留在默认标签。
+            // 选中「默认」保存：关闭启用档位修改开关（需求3）、其余设置保留，界面停留在默认标签。
             suppressListeners = true;
             binding.switchEnable.setChecked(false);
             suppressListeners = false;
