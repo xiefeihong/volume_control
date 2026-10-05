@@ -632,7 +632,7 @@ public class MainActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.dlg_save_title)
                 .setMessage(sb.toString())
-                .setPositiveButton(R.string.btn_save,
+                .setPositiveButton(R.string.btn_save_confirm,
                         (d, w) -> commitSave(pending, keepDefaultTab, restartBt, restartSystem))
                 .setNegativeButton(R.string.dlg_cancel, null)
                 .show();

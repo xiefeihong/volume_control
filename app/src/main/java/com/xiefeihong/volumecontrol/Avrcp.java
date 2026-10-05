@@ -207,9 +207,10 @@ public final class Avrcp {
         int maxPercent = (int) Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("模式B：停用绝对音量（最大音量 ").append(maxAbs).append("）\n");
-        sb.append("✓ 档位经").append(curveLabel(curveType))
-                .append("曲线映射为 AVRCP，再换算回系统音量\n");
+        sb.append("模式B：停用绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
+        sb.append("档位映射为 AVRCP，再换算回系统音量，范围 ")
+                .append(lowest).append('~').append(maxAbs).append("\n");
+
         int dups = countDuplicateAtKeySteps(maxSteps, keySteps, minAbs, maxAbs, curveType, true);
         if (dups == 0) {
             sb.append("✓ 各次按键的系统音量档位互不相同\n");
@@ -217,16 +218,16 @@ public final class Avrcp {
             sb.append("⚠ 有 ").append(dups)
                     .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
         }
+        sb.append("第 1 档 → 音量 ").append(lowest).append("/127\n");
         if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
             sb.append("最大音量：").append(maxAbs).append("（约 ").append(maxPercent)
                     .append("%，滑块上限）\n");
-            sb.append("第 1 档 → 音量 ").append(lowest).append("/127\n");
         } else {
             sb.append("最大音量 127：不限制，滑块可达 100%\n");
         }
         sb.append("· 耳机音量请用耳机自身的音量键调整\n");
         sb.append("· 耳机端音量同步显示会失效（正常现象）\n");
-        sb.append("提示：调整后点「重启蓝牙」即可生效（设置会自动保存）。");
+        sb.append("提示：调整后点「保存修改」重启蓝牙即可生效。");
         return sb.toString();
     }
 
@@ -253,18 +254,18 @@ public final class Avrcp {
                     .append(" 次相邻按键落到相同 AVRCP 值（可增大按键段数使每次跳更小）\n");
         }
         sb.append("第 1 档 → AVRCP ").append(lowest)
-                .append("（约 ").append(lowestPercent).append("%）");
+                .append("（约 ").append(lowestPercent).append("%）\n");
         if (lowest <= 5) {
-            sb.append("  ⚠ 低于部分耳机可闻下限，低音量可能无声\n");
+            sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
         } else {
-            sb.append("  ✓ 已高于常见可闻下限\n");
+            sb.append("✓ 已高于常见可闻下限\n");
         }
         if (maxSteps >= 2) {
-            sb.append("低音量区间距：第 1→2 档相差 ").append(spacing);
+            sb.append("低音量区间距：第 1→2 档相差 ").append(spacing).append("\n");
             if (spacing < 8) {
-                sb.append("  ⚠ 偏小，耳机粒度粗时可能听感相同，建议减少档位数或改用模式B\n");
+                sb.append("⚠ 偏小，耳机粒度粗时可能听感相同，建议减少档位数或改用模式B\n");
             } else {
-                sb.append("  ✓ 低音量区不易重复\n");
+                sb.append("✓ 低音量区不易重复\n");
             }
         }
         sb.append("最高档（第 ").append(maxSteps).append(" 档）→ AVRCP ")

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">音量阶数</string>
-    <string name="app_subtitle">音量级数 10~127 · 按键段数 10~29 · 两种音量模式覆盖蓝牙/有线/外放</string>
-    <string name="xposed_description">自定义媒体音量级数（10~127）与音量键步进（10~29），并提供两种音量控制模式。</string>
+    <string name="app_subtitle">档位 10~127 · 按键段数 10~29 · 两种音量模式覆盖蓝牙/有线/外放</string>
+    <string name="xposed_description">自定义媒体音量档位（10~127）与音量键步进（10~29），并提供两种音量控制模式。</string>
 
     <string name="sec_status">运行状态</string>
-    <string name="sec_media">媒体音量级数</string>
+    <string name="sec_media">媒体音量档位</string>
     <string name="sec_bt">音量控制模式</string>
     <string name="sec_bt_range">音量范围</string>
     <string name="tab_mode_a">绝对音量</string>
@@ -16,17 +16,17 @@
 
     <string name="status_detecting">检测中…</string>
     <string name="btn_refresh">刷新检测</string>
-    <string name="btn_apply_restart">重启系统框架（音量级数修改后）</string>
+    <string name="btn_apply_restart">重启系统框架（档位修改后）</string>
     <string name="btn_reset">恢复系统默认（关闭模块）</string>
 
     <string name="label_enable">启用模块</string>
-    <string name="label_media_steps_default">音量级数（范围 10~127）</string>
-    <string name="label_media_steps_sys_default">音量级数：默认</string>
-    <string name="label_media_steps_fmt">音量级数：%1$d 级（范围 10~127）</string>
-    <string name="media_hint">可设置 10~127 级（默认为系统原生级数）。级数越多，音量条越细、可分辨级越多（实测 127 几乎每级可辨）。修改暂存于界面，需点「保存修改」后写入并按提示重启生效。</string>
+    <string name="label_media_steps_default">档位（范围 10~127）</string>
+    <string name="label_media_steps_sys_default">档位：默认</string>
+    <string name="label_media_steps_fmt">档位：%1$d 档（范围 10~127）</string>
+    <string name="media_hint">可设置 10~127 档（默认为系统原生档位）。档位越多，音量条越细、可分辨的档位越多。修改暂存于界面，需点「保存修改」后写入并按提示重启生效。</string>
     <string name="label_key_steps_default">音量键步进（按键段数 10~29）</string>
-    <string name="label_key_steps_fmt">音量键步进：%1$d 段（每次约跳 %2$d 级）</string>
-    <string name="key_steps_hint">每按一次音量键约跳「音量级数 ÷ 段数」个级。段数越大跳得越细；屏幕滑条不受此限，可逐级精调。未启用或恢复默认时，步进段数默认等于手机默认音量级数。</string>
+    <string name="label_key_steps_fmt">音量键步进：%1$d 段（每次约跳 %2$d 档）</string>
+    <string name="key_steps_hint">每按一次音量键约跳「档位 ÷ 段数」个档。段数越大跳得越细；屏幕滑条不受此限，可逐档精调。未启用或恢复默认时，步进段数默认等于手机默认档位。</string>
 
     <string name="mode_absolute">模式A：保持绝对音量（默认）</string>
     <string name="mode_software">模式B：停用绝对音量（手机端衰减）</string>
@@ -44,13 +44,13 @@
 
     <string name="status_root_ok">Root：可用（su 已授权）</string>
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>
-    <string name="status_lsposed_ok">LSPosed：已安装（请启用本模块）</string>
+    <string name="status_lsposed_ok">LSPosed：已安装</string>
     <string name="status_lsposed_fail">LSPosed：未检测到，模块将无法加载</string>
     <string name="status_module_on">模块配置：已生效</string>
     <string name="status_module_pending">模块配置：未生效，需重启系统框架</string>
     <string name="status_module_off">模块配置：未启用（系统默认）</string>
     <string name="status_module_off_pending">模块配置：已关闭，需重启系统框架恢复</string>
-    <string name="status_volume_line">音量级数：当前 %1$d · 默认 %2$d · 音量键步进 %3$d</string>
+    <string name="status_volume_line">档位：当前 %1$d · 默认 %2$d · 音量键步进 %3$d</string>
     <string name="status_bt_none">蓝牙音频设备：未连接（连接耳机后可回来看映射预览）</string>
     <string name="status_bt_fmt">蓝牙音频设备：%1$s</string>
     <string name="status_config_fmt">系统配置键：%1$s</string>
@@ -61,15 +61,15 @@
     <string name="mode_short_absolute">绝对音量</string>
     <string name="mode_short_software">相对音量</string>
 
-    <string name="pending_yes_fmt">检测到设置尚未生效（当前 %1$d 级 ≠ 目标 %2$d 级），点击下方「重启系统框架」使其生效。</string>
-    <string name="pending_no">当前系统级数与设置一致。音量级数修改后点「重启系统框架」生效。</string>
+    <string name="pending_yes_fmt">检测到设置尚未生效（当前 %1$d 档 ≠ 目标 %2$d 档），点击下方「重启系统框架」使其生效。</string>
+    <string name="pending_no">当前系统档位与设置一致。档位修改后点「重启系统框架」生效。</string>
 
     <string name="dlg_ok">继续</string>
     <string name="dlg_cancel">取消</string>
     <string name="dlg_restart_title">重启系统框架</string>
-    <string name="dlg_restart_msg">将软重启系统框架，使音量级数生效。</string>
+    <string name="dlg_restart_msg">将重启系统框架 (类似重启)，使档位生效。</string>
     <string name="dlg_reset_title">恢复系统默认</string>
-    <string name="dlg_reset_msg">将关闭模块并恢复系统默认（档位数 %1$d、模式与默认范围）。音量级数需重启系统框架恢复。继续？</string>
+    <string name="dlg_reset_msg">将关闭模块并恢复系统默认（默认档位 %1$d、模式与默认范围）。档位修改需重启系统框架恢复。继续？</string>
     <string name="dlg_restart_bt_title">重启蓝牙</string>
     <string name="dlg_restart_bt_msg">将关闭并重新打开蓝牙（设置已自动保存）：\n\n• 蓝牙耳机/设备会断开，请重新连接\n• 耗时约数秒，不需要重启系统框架</string>
 
@@ -86,24 +86,25 @@
 
     <!-- 保存修改（显式生效门控） -->
     <string name="btn_save">保存修改 (修改参数后)</string>
+    <string name="btn_save_confirm">保存</string>
     <string name="pending_unsaved">● 有未保存的修改，点击「保存修改」后生效。</string>
     <string name="dlg_save_title">保存修改</string>
     <string name="dlg_save_none">没有需要保存的修改。</string>
     <string name="dlg_save_first">首次保存，将写入以下配置并使其生效：</string>
-    <string name="save_default_note">\n已选中「默认」：保存后模块走系统默认音量并关闭「启用模块」开关（不改媒体档位数、不重映射），其余设置保留，下次打开仍停留在本标签。</string>
+    <string name="save_default_note">\n已选中「默认」：保存后模块走系统默认音量并关闭「启用模块」开关（不改媒体档位数、不重映射），其余设置保留。</string>
     <string name="change_enable">启用模块：%1$s → %2$s</string>
     <string name="mode_name_default">默认直通</string>
-    <string name="change_media_steps">音量级数：%1$d → %2$d</string>
+    <string name="change_media_steps">档位：%1$d → %2$d</string>
     <string name="change_key_steps">音量键步进：%1$d → %2$d</string>
     <string name="change_bt_mode">模式：%1$s → %2$s</string>
-    <string name="change_range">%1$s范围：%2$s → %3$s</string>
+    <string name="change_range">%1$s：%2$s → %3$s</string>
     <string name="enable_on">开启</string>
     <string name="enable_off">关闭</string>
     <string name="restart_bt">蓝牙</string>
     <string name="restart_system">系统框架</string>
     <string name="restart_both">蓝牙与系统框架</string>
     <string name="dlg_save_done_title">保存成功</string>
-    <string name="dlg_restart_now_msg">改动已保存。以下更改需重启%1$s才能生效，是否立即重启？</string>
+    <string name="dlg_restart_now_msg">改动已保存。需重启%1$s才能生效，是否立即重启？</string>
     <string name="dlg_restart_now">立即重启</string>
     <string name="dlg_restart_later">稍后手动</string>
     <string name="toast_save_done">已保存，无需重启即可生效。</string>
@@ -119,11 +120,11 @@
     <string name="toast_logs_cleared">日志文件已清理</string>
 
     <string name="guide_text" formatted="false">1. 在 LSPosed 中启用本模块，然后重启系统框架（本页按钮即可）。\n
-2. 媒体音量级数：可设置 10~127 级（HyperOS 原生默认 15），级数即音量条的可分辨精度，只影响媒体流（音乐/视频）；修改级数后点「重启系统框架」，期间黑屏属正常现象。音量键步进（10~29 段）控制每按一次音量键跳过的级数（约＝级数÷段数），只影响按键、不影响屏幕拖动。\n
+2. 媒体音量档位：可设置 10~127 档（HyperOS 原生默认 15），档位即音量条的可分辨精度，只影响媒体流（音乐/视频）；修改档位后点「重启系统框架」，期间黑屏属正常现象。音量键步进（10~29 段）控制每按一次音量键跳过的档位数（约＝档位÷段数），只影响按键、不影响屏幕拖动。\n
 3. 模式A（绝对音量，默认）：蓝牙保持绝对音量映射（档位经曲线映射为 AVRCP 0~127），有线/外放则按 A 范围做系统档位衰减；第 1 档=最小音量、最高档=最大音量。\n
 4. 模式B（相对音量，低音量问题首选）：停用绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量。\n
 5. 模式A/B 均对蓝牙、有线耳机、外放全部生效，各自独立保存范围/曲线（最小/最大/曲线）；默认标签则不映射，沿用 ROM 原生曲线。\n
-6. 生效方式：修改自动保存。切换模式或调整音量范围后需点「重启蓝牙」生效；仅音量级数修改后需点「重启系统框架」（音量键步进即时生效）。\n
+6. 生效方式：点「保存修改」保存参数，按提示确认重启。切换模式或调整音量范围后需点「重启蓝牙」生效；仅档位修改后需点「重启系统框架」（音量键步进即时生效）。\n
 7. 恢复默认：点「恢复系统默认」并重启生效；或在 LSPosed 中停用模块后重启手机。\n
 8. 排查：状态区查看「系统配置键」与媒体档位是否生效；点「查看模块日志」查看模块自写日志。</string>
 </resources>

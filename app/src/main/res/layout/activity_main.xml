@@ -345,14 +345,6 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:max="127" />
-
-                    <TextView
-                        android:id="@+id/tvRangeHint"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:alpha="0.7"
-                        android:text="@string/range_hint"
-                        android:textSize="12sp" />
                     </LinearLayout>
 
                     <!-- 预览组：曲线图 + 映射表，普通标签与「默认」标签均常显 -->
@@ -361,6 +353,15 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvRangeHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:alpha="0.7"
+                        android:text="@string/range_hint"
+                        android:textSize="12sp" />
 
                     <com.xiefeihong.volumecontrol.CurveChartView
                         android:id="@+id/curveChart"
