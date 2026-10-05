@@ -108,7 +108,7 @@ public class MainActivity extends AppCompatActivity {
     // ==================== 初始化 ====================
 
     private void setupListeners() {
-        binding.switchEnable.setOnCheckedChangeListener((buttonView, isChecked) -> onConfigChanged());
+        binding.switchEnable.setOnCheckedChangeListener((buttonView, isChecked) -> onEnableToggled(isChecked));
 
         SeekBar.OnSeekBarChangeListener listener = new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -185,10 +185,15 @@ public class MainActivity extends AppCompatActivity {
         btMode = normalizeBtMode(prefs.getInt(Prefs.KEY_BT_MODE, Prefs.BT_MODE_ABSOLUTE));
 
         binding.switchEnable.setChecked(enabled);
-        binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
+        // 关闭态：档位/音量键步进滑条停到系统默认并禁用（反映系统真实状态）；
+        // 配置值保留在 prefs，重新开启后恢复。
+        int mediaToShow = enabled ? mediaSteps : systemDefaultSteps();
         int keySteps = Prefs.clampKeySteps(
                 prefs.getInt(Prefs.KEY_KEY_STEPS, defaultKeySteps()));
-        binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
+        int keyToShow = enabled ? keySteps : defaultKeySteps();
+        binding.seekMediaSteps.setProgress(mediaToShow - Prefs.MEDIA_STEPS_MIN);
+        binding.seekKeySteps.setProgress(keyToShow - Prefs.KEY_STEP_MIN);
+        applyRangeEditable(enabled);
 
         // 模式并入 btMode：值=默认(2) 时打开即停留在只读「默认」标签；否则初始选中生效模式 A/B。
         boolean defaultMode = btMode == Prefs.BT_MODE_DEFAULT;
@@ -205,6 +210,34 @@ public class MainActivity extends AppCompatActivity {
         suppressListeners = false;
         lastSavedRaw = currentConfigString();
         updateTvPending();
+    }
+
+    /**
+     * 启用开关切换：关闭时把档位/音量键步进/音量范围/曲线全部停用，并把档位/步进滑条
+     * 停到系统默认，使界面反映系统真实状态（开启后从 prefs 恢复配置值并可编辑）。
+     */
+    private void onEnableToggled(boolean enabled) {
+        suppressListeners = true;
+        int mediaSteps = enabled
+                ? Prefs.clampMediaSteps(prefs.getInt(Prefs.KEY_MEDIA_STEPS, systemDefaultSteps()))
+                : systemDefaultSteps();
+        int keySteps = enabled
+                ? Prefs.clampKeySteps(prefs.getInt(Prefs.KEY_KEY_STEPS, defaultKeySteps()))
+                : defaultKeySteps();
+        binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
+        binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
+        suppressListeners = false;
+        applyRangeEditable(enabled);
+        onConfigChanged();
+    }
+
+    /** 关闭态统一停用档位/步进/音量范围/曲线控件（界面只反映系统真实状态，不可编辑）。 */
+    private void applyRangeEditable(boolean enabled) {
+        binding.seekMediaSteps.setEnabled(enabled);
+        binding.seekKeySteps.setEnabled(enabled);
+        binding.seekMinAbs.setEnabled(enabled);
+        binding.seekMaxAbs.setEnabled(enabled);
+        binding.radioCurveType.setEnabled(enabled);
     }
 
     /**
@@ -401,6 +434,22 @@ public class MainActivity extends AppCompatActivity {
                 Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
         binding.tvRangeHint.setText(getString(R.string.range_hint));
 
+        // 关闭态：模块不生效，界面反映系统真实状态——曲线图与映射表按系统默认档位
+        // 原生直通展示（与「默认」标签一致）；各滑条/曲线已停用，档位/步进显示系统默认。
+        if (!binding.switchEnable.isChecked()) {
+            int nativeSteps = systemDefaultSteps();
+            int nativeKey = defaultKeySteps();
+            binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, nativeSteps));
+            binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
+                    nativeKey, Prefs.keyDelta(nativeSteps, nativeKey)));
+            binding.tvSummary.setText(getString(R.string.disabled_preview_info, nativeSteps));
+            binding.curveChart.configureNativeVolume(nativeSteps);
+            binding.tvRangeMapping.setText(Avrcp.buildNativePassthroughTable(
+                    nativeSteps, computeTableColumns(nativeSteps, 100, /*percent*/ true),
+                    /*showPercent*/ true));
+            return;
+        }
+
         int curveType = currentCurveType();
         int segs = Prefs.clampKeySteps(keySteps);
         boolean useSystemIndex = editingMode.attenuatesInSystemServer();
@@ -408,8 +457,7 @@ public class MainActivity extends AppCompatActivity {
                 mediaSteps, editingMode.modeId(), minAbs, maxAbs, curveType, keySteps));
         // 映射表两模式共用同一构建器（模式A 映射 AVRCP 0~127、模式B 映射系统档位）。
         int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
-        // 模式A/B 的曲线图与映射表始终按各自配置渲染预览（与「启用模块」开关无关，
-        // 便于在关闭态下先调好 A/B 再开启生效）。仅「默认」标签走系统直通展示。
+        // 开启态：模式A/B 的曲线图与映射表按各自配置渲染预览（关闭态已在上面走系统直通）。
         binding.curveChart.configure(
                 mediaSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps);
         binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
@@ -449,12 +497,15 @@ public class MainActivity extends AppCompatActivity {
     private void persistToPrefs(boolean synchronous) {
         SharedPreferences.Editor editor = prefs.edit()
                 .putBoolean(Prefs.KEY_ENABLED, binding.switchEnable.isChecked())
-                .putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
-                .putInt(Prefs.KEY_KEY_STEPS, currentKeySteps())
                 .putInt(Prefs.KEY_BT_MODE, currentBtMode())
                 .putInt(editingMode.minKey, currentMinAbs())
                 .putInt(editingMode.maxKey, currentMaxAbs())
                 .putInt(editingMode.curveKey, currentCurveType());
+        // 仅开启时写档位/音量键步进（关闭态滑条显示系统默认，不覆盖已存配置）。
+        if (binding.switchEnable.isChecked()) {
+            editor.putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
+                    .putInt(Prefs.KEY_KEY_STEPS, currentKeySteps());
+        }
         if (synchronous) {
             editor.commit();
         } else {

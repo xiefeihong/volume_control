@@ -41,6 +41,7 @@
     <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
     <string name="default_range_info" formatted="false">默认：沿用 ROM 原生音量曲线，不做自定义映射或衰减；选中「默认」并保存后，模块走系统默认（不改媒体档位数、不重映射，并关闭「启用模块」开关），下次打开仍停留在本标签。当前手机默认媒体档位数：%1$d 级；下方曲线图横轴为系统档位、纵轴为音量，以线性直通展示 ROM 原生效果；下方映射表右列为对应音量百分比。</string>
+    <string name="disabled_preview_info" formatted="false">启用模块已关闭：以下按系统当前真实状态显示（系统默认档位 %1$d 档、ROM 原生直通），音量键步进与曲线图/映射表均为系统默认效果。开启「启用模块」后即可编辑并预览模式A/B。</string>
 
     <string name="status_root_ok">Root：可用（su 已授权）</string>
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>
