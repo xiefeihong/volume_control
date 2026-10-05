@@ -408,16 +408,8 @@ public class MainActivity extends AppCompatActivity {
                 mediaSteps, editingMode.modeId(), minAbs, maxAbs, curveType, keySteps));
         // 映射表两模式共用同一构建器（模式A 映射 AVRCP 0~127、模式B 映射系统档位）。
         int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
-        // 启用模块关闭时模块不重映射 → 曲线图与映射表都改为系统默认直通（两者始终相关、与生效行为一致）。
-        if (!binding.switchEnable.isChecked()) {
-            int nativeSteps = systemDefaultSteps();
-            binding.curveChart.configureNativeVolume(nativeSteps);
-            binding.tvRangeMapping.setText(Avrcp.buildNativePassthroughTable(
-                    nativeSteps,
-                    computeTableColumns(nativeSteps, nativeSteps, /*percent*/ false),
-                    /*showPercent*/ false));
-            return;
-        }
+        // 模式A/B 的曲线图与映射表始终按各自配置渲染预览（与「启用模块」开关无关，
+        // 便于在关闭态下先调好 A/B 再开启生效）。仅「默认」标签走系统直通展示。
         binding.curveChart.configure(
                 mediaSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps);
         binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
