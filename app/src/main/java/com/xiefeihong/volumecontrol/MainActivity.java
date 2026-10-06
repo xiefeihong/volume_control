@@ -315,10 +315,10 @@ public class MainActivity extends AppCompatActivity {
      * 调用方负责在 {@code suppressListeners == true} 下调用，避免触发写回。
      */
     private void loadRangeIntoUi() {
-        int min = Prefs.clampAbs(prefs.getInt(editingMode.minKey, Prefs.ABS_VOLUME_MIN_DEFAULT));
         int max = Prefs.clampAbs(prefs.getInt(editingMode.maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT));
+        int min = Prefs.clampAbs(prefs.getInt(editingMode.minKey, defaultMinAbs()));
         int curve = Prefs.clampCurve(
-                prefs.getInt(editingMode.curveKey, Prefs.CURVE_TYPE_DEFAULT));
+                prefs.getInt(editingMode.curveKey, defaultCurveType(editingMode)));
         binding.seekMinAbs.setProgress(min);
         binding.seekMaxAbs.setProgress(max);
         binding.radioCurveType.check(curveRadioId(curve));
@@ -441,9 +441,27 @@ public class MainActivity extends AppCompatActivity {
         return Math.max(binding.seekMinAbs.getProgress(), binding.seekMaxAbs.getProgress());
     }
 
-    /** 系统原生媒体档位数（首次捕获值）；未捕获时回退 MEDIA_STEPS_DEFAULT。 */
+    /**
+     * 系统原生媒体档位数。来源优先级：已捕获的系统服务实测值 &gt; ROM 引擎表 XML
+     * ({@code <indexMax>}) &gt; 内置默认 {@link Prefs#MEDIA_STEPS_DEFAULT}。
+     */
     private int systemDefaultStepsRaw() {
-        return prefs.getInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, Prefs.MEDIA_STEPS_DEFAULT);
+        if (prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)) {
+            return prefs.getInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, Prefs.MEDIA_STEPS_DEFAULT);
+        }
+        int xml = NativeVolumeCurve.nativeMusicIndexMax();
+        return xml > 0 ? xml : Prefs.MEDIA_STEPS_DEFAULT;
+    }
+
+    /** 「默认档位数」取值来源的展示文案（与 {@link #systemDefaultStepsRaw()} 判定链一致）。 */
+    private int defaultStepsSourceLabel() {
+        if (prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)) {
+            return R.string.src_steps_service;
+        }
+        if (NativeVolumeCurve.nativeMusicIndexMax() > 0) {
+            return R.string.src_steps_xml;
+        }
+        return R.string.src_steps_builtin;
     }
 
     /** 用作滑块默认/恢复目标的值（限制在合法区间）。 */
@@ -457,6 +475,17 @@ public class MainActivity extends AppCompatActivity {
      */
     private int defaultKeySteps() {
         return Prefs.clampKeySteps(systemDefaultSteps());
+    }
+
+    /** 模式默认曲线：A（绝对音量）用对数增强拉开低档间距；B（软件衰减）用线性区间。 */
+    private int defaultCurveType(VolumeMode mode) {
+        return mode == VolumeMode.SOFTWARE ? Prefs.CURVE_LINEAR : Prefs.CURVE_TYPE_DEFAULT;
+    }
+
+    /** 模式默认最小音量＝AVRCP 满量程 × 可闻下限比例（{@link Avrcp#MIN_VOLUME_FLOOR_RATIO}）。 */
+    private int defaultMinAbs() {
+        return Prefs.clampAbs((int) Math.round(
+                Prefs.AVRCP_MAX_VOLUME * Avrcp.MIN_VOLUME_FLOOR_RATIO));
     }
 
     private void setMediaSteps(int steps) {
@@ -649,9 +678,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** 从 prefs 读取某模式的最小/最大/曲线三元组。 */
     private Range readRangeFromPrefs(VolumeMode mode) {
-        int min = Prefs.clampAbs(prefs.getInt(mode.minKey, Prefs.ABS_VOLUME_MIN_DEFAULT));
         int max = Prefs.clampAbs(prefs.getInt(mode.maxKey, Prefs.ABS_VOLUME_MAX_DEFAULT));
-        int curve = Prefs.clampCurve(prefs.getInt(mode.curveKey, Prefs.CURVE_TYPE_DEFAULT));
+        int min = Prefs.clampAbs(prefs.getInt(mode.minKey, defaultMinAbs()));
+        int curve = Prefs.clampCurve(prefs.getInt(mode.curveKey, defaultCurveType(mode)));
         return new Range(min, max, curve);
     }
 
@@ -687,12 +716,15 @@ public class MainActivity extends AppCompatActivity {
         return c != null ? c : buildDefaultConfig();
     }
 
-    /** 系统默认配置：模块关闭、媒体/键步进取原生级数、模式A、三种范围各自默认。 */
+    /** 系统默认配置：模块关闭、媒体/键步进取原生级数、模式A、A/B 范围各自默认。 */
     private VolumeConfig buildDefaultConfig() {
-        Range def = new Range(Prefs.ABS_VOLUME_MIN_DEFAULT,
-                Prefs.ABS_VOLUME_MAX_DEFAULT, Prefs.CURVE_TYPE_DEFAULT);
-        return new VolumeConfig(false, systemDefaultSteps(), defaultKeySteps(),
-                Prefs.BT_MODE_ABSOLUTE, def, def);
+        int steps = systemDefaultSteps();
+        Range defA = new Range(defaultMinAbs(),
+                Prefs.ABS_VOLUME_MAX_DEFAULT, defaultCurveType(VolumeMode.ABSOLUTE));
+        Range defB = new Range(defaultMinAbs(),
+                Prefs.ABS_VOLUME_MAX_DEFAULT, defaultCurveType(VolumeMode.SOFTWARE));
+        return new VolumeConfig(false, steps, defaultKeySteps(),
+                Prefs.BT_MODE_ABSOLUTE, defA, defB);
     }
 
     /**
@@ -1047,7 +1079,8 @@ public class MainActivity extends AppCompatActivity {
         int targetMedia = enabled ? currentMediaSteps() : actualMedia;
 
         binding.tvStatusVolume.setText(getString(R.string.status_volume_line,
-                actualMedia, systemDefaultStepsRaw(), currentKeySteps()));
+                actualMedia, systemDefaultStepsRaw(), currentKeySteps(),
+                getString(defaultStepsSourceLabel())));
 
         if (enabled) {
             if (actualMedia == targetMedia) {

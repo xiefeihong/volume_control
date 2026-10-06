@@ -111,6 +111,13 @@ public final class NativeVolumeCurve {
     // device.ordinal() → 解析出的点表（null＝该设备未取到，回退 AOSP）
     private static int[][][] parsed = null;
     private static Source[] parsedSource = null;
+    // 引擎表 music 组的 <indexMax>（ROM 声明的媒体原生档位数）；0＝未解析到。
+    private static int musicIndexMax = 0;
+
+    /** 引擎表 music 组声明的媒体档位数（{@code <indexMax>}）；未加载/未解析到返回 0。 */
+    public static int nativeMusicIndexMax() {
+        return loaded ? musicIndexMax : 0;
+    }
 
     /**
      * 读文件、解析（含 root 调用）。只在后台线程调用一次；解析失败静默回退 AOSP。
@@ -279,6 +286,13 @@ public final class NativeVolumeCurve {
             String block = g.group(1);
             Matcher nm = Pattern.compile("<name>\\s*([^<]+?)\\s*</name>").matcher(block);
             if (!nm.find() || !"music".equals(nm.group(1).trim())) continue;
+            Matcher im = Pattern.compile("<indexMax>\\s*(\\d+)\\s*</indexMax>").matcher(block);
+            if (im.find()) {
+                try {
+                    musicIndexMax = Integer.parseInt(im.group(1));
+                } catch (NumberFormatException ignored) {
+                }
+            }
             extractVolumes(block, refMap, out);
             return;
         }

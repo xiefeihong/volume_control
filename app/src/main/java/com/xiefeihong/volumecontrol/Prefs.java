@@ -85,7 +85,7 @@ public final class Prefs {
     public static final int MEDIA_STEPS_MIN = 10;
     public static final int MEDIA_STEPS_MAX = 127;
     /** 兜底默认媒体档位数（仅在无法探测系统原生档位时使用）。 */
-    public static final int MEDIA_STEPS_DEFAULT = 20;
+    public static final int MEDIA_STEPS_DEFAULT = 15;
 
     /**
      * 音量键步进（跨完整音量条需要的按键段数）的可选范围（10~29，默认 15）。

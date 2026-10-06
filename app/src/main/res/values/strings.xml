@@ -15,17 +15,21 @@
     <string name="tab_wired">有线耳机</string>
     <string name="tab_bt">蓝牙</string>
     
-        <!-- 默认曲线纵轴口径与数据来源标注 -->
-        <string name="src_engine">引擎表·本机专属</string>
-        <string name="src_policy">策略表</string>
-        <string name="src_aosp">AOSP 参考</string>
-        <string name="mode_db">dB 线性</string>
-        <string name="mode_amp">振幅线性</string>
-        <string name="mode_percept">感知响度</string>
-        <string-array name="native_mode_options">
-            <item>纵轴：感知响度</item>
-            <item>纵轴：dB 线性</item>
-        </string-array>
+    <!-- 默认曲线纵轴口径与数据来源标注 -->
+    <string name="src_engine">引擎表·本机专属</string>
+    <string name="src_policy">策略表</string>
+    <string name="src_aosp">AOSP 参考</string>
+    <string name="src_steps_service">服务</string>
+    <string name="src_steps_xml">引擎表</string>
+    <string name="src_steps_builtin">默认</string>
+    <string name="mode_db">dB 线性</string>
+    <string name="mode_amp">振幅线性</string>
+    <string name="mode_percept">感知响度</string>
+    <string-array name="native_mode_options">
+        <item>纵轴：感知响度</item>
+        <item>纵轴：dB 线性</item>
+    </string-array>
+
     <string name="sec_actions">操作</string>
     <string name="sec_guide">使用说明</string>
 
@@ -65,7 +69,7 @@
     <string name="status_module_pending">模块配置：未生效，需重启系统框架</string>
     <string name="status_module_off">模块配置：未启用（系统默认）</string>
     <string name="status_module_off_pending">模块配置：已关闭，需重启系统框架恢复</string>
-    <string name="status_volume_line">档位：当前 %1$d · 默认 %2$d · 音量键步进 %3$d</string>
+    <string name="status_volume_line">档位：当前 %1$d · 默认 %2$d（%4$s）· 音量键步进 %3$d</string>
     <string name="status_bt_none">蓝牙音频设备：未连接（连接耳机后可回来看映射预览）</string>
     <string name="status_bt_fmt">蓝牙音频设备：%1$s</string>
     <string name="status_config_fmt">系统配置键：%1$s</string>

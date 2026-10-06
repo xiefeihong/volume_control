@@ -26,7 +26,7 @@ public final class Avrcp {
      * 最小音量下限比例：当用户将「最小音量」设为 0 时，第 1 档自动取 {@code maxAbs} 的此比例
      * 作为可闻下限（自适应耳机量程），而非退化为接近无声的 1。可据实机听感微调此常量。
      */
-    public static final double MIN_VOLUME_FLOOR_RATIO = 0.1;
+    public static final double MIN_VOLUME_FLOOR_RATIO = 0.06;
 
     private Avrcp() {
     }
