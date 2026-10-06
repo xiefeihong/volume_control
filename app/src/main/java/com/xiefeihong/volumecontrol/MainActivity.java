@@ -498,9 +498,13 @@ public class MainActivity extends AppCompatActivity {
             binding.curveChart.configureNativeCurve(nativeSteps, curve.gainPercent,
                     getString(deviceTabLabel(device)) + " · " + getString(sourceLabel(curve.source))
                             + " · 纵轴" + getString(modeLabel(curve.mode)));
+            // 纵轴 dB 线性时，映射表右列同步显示每档硬件 dB 值；否则显示归一化百分比。
+            boolean showDb = selectedNativeMode == NativeVolumeCurve.Mode.DB_LINEAR;
+            int columns = showDb
+                    ? computeTableColumns(nativeSteps, 999999, /*percent*/ false)   // dB 单元更宽
+                    : computeTableColumns(nativeSteps, 100, /*percent*/ true);
             binding.tvRangeMapping.setText(Avrcp.buildNativeCurveTable(
-                    nativeSteps, curve.gainPercent,
-                    computeTableColumns(nativeSteps, 100, /*percent*/ true)));
+                    nativeSteps, curve.gainPercent, curve.gainDb, showDb, columns));
             return;
         }
 

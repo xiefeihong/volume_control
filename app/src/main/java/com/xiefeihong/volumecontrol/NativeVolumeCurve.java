@@ -74,15 +74,18 @@ public final class NativeVolumeCurve {
         public final Mode mode;
         /** 长度 maxSteps+1，gainPercent[i]＝第 i 档的归一化增益 0~100。 */
         public final float[] gainPercent;
+        /** 长度 maxSteps+1，gainDb[i]＝第 i 档的硬件增益 dB（millibel/100，负值）。 */
+        public final float[] gainDb;
         public final int maxSteps;
 
         Curve(Device device, boolean fromRom, Source source, Mode mode,
-                float[] gainPercent, int maxSteps) {
+                float[] gainPercent, float[] gainDb, int maxSteps) {
             this.device = device;
             this.fromRom = fromRom;
             this.source = source;
             this.mode = mode;
             this.gainPercent = gainPercent;
+            this.gainDb = gainDb;
             this.maxSteps = maxSteps;
         }
     }
@@ -162,13 +165,15 @@ public final class NativeVolumeCurve {
         float floor = floorDb(device, points);   // 最负 dB（底 → 0%）
         float ceil = ceilDb(device, points);     // 最接近 0 的 dB（顶 → 100%）
         float[] gain = new float[maxSteps + 1];
+        float[] gainDb = new float[maxSteps + 1];
         for (int i = 0; i <= maxSteps; i++) {
             float percent = percentAcross(i, maxSteps);
             float db = interpolateDb(points, percent);
+            gainDb[i] = db / 100f;                 // millibel → dB
             gain[i] = transform(db, floor, ceil, mode);
         }
         Source src = sourceOf(device);
-        return new Curve(device, src != Source.AOSP, src, mode, gain, maxSteps);
+        return new Curve(device, src != Source.AOSP, src, mode, gain, gainDb, maxSteps);
     }
 
     // --- 归一化 / 采样 ---

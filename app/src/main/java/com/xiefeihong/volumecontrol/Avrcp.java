@@ -293,22 +293,43 @@ public final class Avrcp {
     }
 
     /**
-     * 默认（系统原生）曲线映射表：每行「第 i 档 → 相对增益%」，右列取自真实默认增益曲线
-     * {@code gainPct}（{@link NativeVolumeCurve} 按 ROM 配置或 AOSP 回退归一化，非恒等线性）。
+     * 默认（系统原生）曲线映射表。右列口径随 {@code showDb} 切换：
+     * <ul>
+     *   <li>{@code showDb=true}（纵轴 dB 线性）：显示每档硬件增益 dB 值（{@code gainDb}，负值、一位小数）；</li>
+     *   <li>{@code showDb=false}（感知响度等）：显示归一化相对增益 0~100%（{@code gainPct}）。</li>
+     * </ul>
      *
      * @param nativeSteps 系统默认档位数（横轴 1~nativeSteps）
-     * @param gainPct     长度 nativeSteps+1 的归一化增益数组（0~100），gainPct[i]＝第 i 档
+     * @param gainPct     长度 nativeSteps+1 的归一化增益（0~100）
+     * @param gainDb      长度 nativeSteps+1 的硬件增益 dB（可为 null）
+     * @param showDb      true＝右列取 dB；false＝右列取百分比
      * @param perLine     每行条目数（&lt;=0 交回自然换行）
      */
-    public static String buildNativeCurveTable(int nativeSteps, float[] gainPct, int perLine) {
+    public static String buildNativeCurveTable(int nativeSteps, float[] gainPct, float[] gainDb,
+            boolean showDb, int perLine) {
         if (nativeSteps <= 0 || gainPct == null || gainPct.length < nativeSteps + 1) {
             return "";
         }
         int idxWidth = Math.max(2, String.valueOf(nativeSteps).length());
+        StringBuilder sb = new StringBuilder();
+        if (showDb) {
+            // dB 为负、一位小数（如 -100.0 宽 6）；Locale.US 保证小数点为 '.'。
+            String cellFmt = "%" + idxWidth + "d→%6.1f  ";
+            sb.append("档位 → 增益（dB，硬件阶梯），共 ").append(nativeSteps).append(" 档：\n");
+            for (int i = 1; i <= nativeSteps; i++) {
+                float db = (gainDb != null && i < gainDb.length) ? gainDb[i] : 0f;
+                sb.append(String.format(java.util.Locale.US, cellFmt, i, db));
+                if (i < nativeSteps && perLine > 0 && i % perLine == 0) {
+                    sb.append('\n');
+                }
+            }
+            sb.append('\n');
+            return sb.toString();
+        }
         int valWidth = 3;   // 百分比 0~100
         String cellFmt = "%" + idxWidth + "d→%" + valWidth + "d%%  ";
-        StringBuilder sb = new StringBuilder("档位 → 相对增益（按dB归一 0~100%），共 "
-                + nativeSteps + " 档：\n");
+        sb.append("档位 → 相对增益（按dB归一 0~100%），共 ")
+                .append(nativeSteps).append(" 档：\n");
         for (int i = 1; i <= nativeSteps; i++) {
             int out = Math.round(Math.max(0f, Math.min(100f, gainPct[i])));
             sb.append(String.format(cellFmt, i, out));
