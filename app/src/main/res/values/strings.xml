@@ -23,9 +23,8 @@
         <string name="mode_amp">振幅线性</string>
         <string name="mode_percept">感知响度</string>
         <string-array name="native_mode_options">
-            <item>纵轴：A · dB 线性</item>
-            <item>纵轴：B · 振幅线性</item>
-            <item>纵轴：C · 感知响度</item>
+            <item>纵轴：感知响度</item>
+            <item>纵轴：dB 线性</item>
         </string-array>
     <string name="sec_actions">操作</string>
     <string name="sec_guide">使用说明</string>

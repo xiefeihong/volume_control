@@ -80,8 +80,13 @@ public class MainActivity extends AppCompatActivity {
     /** 「默认」标签下当前选中的原生曲线设备（对应 {@link NativeVolumeCurve.Device} 序数）。 */
     private int selectedNativeDevice = 0;
 
-    /** 「默认」曲线纵轴换算口径（dB线性/振幅/感知），Spinner 预览切换。 */
-    private NativeVolumeCurve.Mode selectedNativeMode = NativeVolumeCurve.Mode.DB_LINEAR;
+    /** 「默认」曲线纵轴换算口径（感知响度 / dB 线性），Spinner 预览切换；默认感知响度。 */
+    private NativeVolumeCurve.Mode selectedNativeMode = NativeVolumeCurve.Mode.PERCEPTUAL;
+
+    /** Spinner 选项位置 → 口径（与 native_mode_options 数组同序：感知响度、dB 线性）。 */
+    private static final NativeVolumeCurve.Mode[] NATIVE_MODES = {
+            NativeVolumeCurve.Mode.PERCEPTUAL, NativeVolumeCurve.Mode.DB_LINEAR,
+    };
 
     /** 蓝牙生效模式（ABSOLUTE/SOFTWARE）：由「蓝牙A/蓝牙B」标签决定，有线标签不改；持久化保存。 */
     private int btMode = Prefs.BT_MODE_ABSOLUTE;
@@ -204,11 +209,11 @@ public class MainActivity extends AppCompatActivity {
                 R.array.native_mode_options, android.R.layout.simple_spinner_item);
         modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         binding.spinnerNativeMode.setAdapter(modeAdapter);
-        binding.spinnerNativeMode.setSelection(selectedNativeMode.ordinal());
+        binding.spinnerNativeMode.setSelection(modeSpinnerIndex(selectedNativeMode));
         binding.spinnerNativeMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                selectedNativeMode = NativeVolumeCurve.Mode.values()[position];
+                selectedNativeMode = NATIVE_MODES[position];
                 if (showingDefault) {
                     updatePreview();
                 }
@@ -280,6 +285,7 @@ public class MainActivity extends AppCompatActivity {
      * 用），开启后从 prefs 恢复已存的档位/步进配置值并重新启用（不丢配置）。
      */
     private void onEnableToggled(boolean enabled) {
+        final boolean outerSuppressed = suppressListeners;
         suppressListeners = true;
         int mediaSteps = enabled
                 ? Prefs.clampMediaSteps(prefs.getInt(Prefs.KEY_MEDIA_STEPS, systemDefaultSteps()))
@@ -289,9 +295,13 @@ public class MainActivity extends AppCompatActivity {
                 : defaultKeySteps();
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
         binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
-        suppressListeners = false;
         applyStepsEditable(enabled);
-        onConfigChanged();
+        suppressListeners = outerSuppressed;
+        // 仅用户真实点击开关时才落盘/刷新。loadConfigIntoUi 里程序化 setChecked 也会触发本方法，
+        // 但此刻范围滑条尚未载入（仍为初始 0）、editingMode 还是默认 A，若落盘会把模式A 清零。
+        if (!outerSuppressed) {
+            onConfigChanged();
+        }
     }
 
     /** 关闭态仅锁定档位/音量键步进滑条到系统默认；音量范围(最小/最大/曲线)保持可编辑。 */
@@ -581,6 +591,16 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /** 口径在 Spinner 选项数组中的位置（未命中回 0）。 */
+    private int modeSpinnerIndex(NativeVolumeCurve.Mode mode) {
+        for (int i = 0; i < NATIVE_MODES.length; i++) {
+            if (NATIVE_MODES[i] == mode) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
     // ==================== 持久化与写入系统 ====================
 
     /**
@@ -590,10 +610,14 @@ public class MainActivity extends AppCompatActivity {
     private void persistToPrefs(boolean synchronous) {
         SharedPreferences.Editor editor = prefs.edit()
                 .putBoolean(Prefs.KEY_ENABLED, binding.switchEnable.isChecked())
-                .putInt(Prefs.KEY_BT_MODE, currentBtMode())
-                .putInt(editingMode.minKey, currentMinAbs())
-                .putInt(editingMode.maxKey, currentMaxAbs())
-                .putInt(editingMode.curveKey, currentCurveType());
+                .putInt(Prefs.KEY_BT_MODE, currentBtMode());
+        // 「默认」标签只读：共享滑条此时不代表任何模式的真实配置（editingMode 被占位为 A、
+        // 编辑区已隐藏、滑条可能停在 0），绝不能回写，否则会把模式A 的 min/max/curve 清零。
+        if (!showingDefault) {
+            editor.putInt(editingMode.minKey, currentMinAbs())
+                    .putInt(editingMode.maxKey, currentMaxAbs())
+                    .putInt(editingMode.curveKey, currentCurveType());
+        }
         // 仅开启时写档位/音量键步进（关闭态滑条显示系统默认，不覆盖已存配置）。
         if (binding.switchEnable.isChecked()) {
             editor.putInt(Prefs.KEY_MEDIA_STEPS, currentMediaSteps())
