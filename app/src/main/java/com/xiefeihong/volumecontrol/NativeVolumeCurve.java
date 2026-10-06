@@ -11,10 +11,16 @@ import java.util.regex.Pattern;
  * 「默认（系统原生）」音量曲线。
  *
  * <p>Android 13+/AIDL Audio HAL 下，framework 层（{@code dumpsys audio} / AudioService）
- * 不再持有逐档 index→dB 曲线，增益映射下沉到厂商 audio policy。这里通过 root 读取
- * {@code /vendor/etc/audio_policy_volumes.xml}（媒体流按 deviceCategory 引用某曲线名）与
- * {@code /vendor/etc/default_volume_tables.xml}（被引用的实际「档位百分比 → 增益毫贝」点表），
- * 还原媒体流在各输出设备类别下的真实默认曲线；读不到时回退到硬编码的 AOSP 参考曲线。</p>
+ * 不再持有逐档 index→dB 曲线，增益映射下沉到厂商 audio policy。这里通过 root 读取三处配置，
+ * 按「更专属优先」还原媒体流在各输出设备类别下的真实默认曲线：</p>
+ * <ol>
+ *   <li>主源 {@code /vendor/etc/audio_policy_engine_stream_volumes.xml}——旧式音量引擎表，
+ *       按 {@code <volumeGroup><name>music</name>} 给出各 {@code deviceCategory}（含厂商专属的
+ *       {@code DEVICE_CATEGORY_A2DP}）显式 dB 点表，最贴近本机调音；</li>
+ *   <li>次源 {@code /vendor/etc/audio_policy_volumes.xml}——新式 audio policy（媒体流多走
+ *       {@code ref=} 引用），配合 {@code /vendor/etc/default_volume_tables.xml} 解析被引用点表；</li>
+ *   <li>回退：硬编码 AOSP 参考曲线（读不到任何 ROM 文件时）。</li>
+ * </ol>
  *
  * <p>点表 x＝跨档位区间的百分比（0~100），y＝增益（millibel，dB×100，满量程 0）。
  * 归一化到 0~100% 作展示：以本曲线最负增益为底、0 dB 为顶线性归一（近似硬件增益阶梯，
@@ -25,220 +31,259 @@ public final class NativeVolumeCurve {
     private NativeVolumeCurve() {
     }
 
-    /** 输出设备类别（对应 audio_policy_volumes.xml 的 deviceCategory）。 */
+    /** 输出设备类别：分别给出主源(引擎表)/次源(策略表)的 deviceCategory token。 */
     public enum Device {
-        SPEAKER("DEVICE_CATEGORY_SPEAKER", "DEFAULT_DEVICE_CATEGORY_SPEAKER_VOLUME_CURVE"),
-        WIRED("DEVICE_CATEGORY_HEADSET", "DEFAULT_MEDIA_VOLUME_CURVE"),
-        BT("DEVICE_CATEGORY_EXT_MEDIA", "DEFAULT_MEDIA_VOLUME_CURVE");
+        SPEAKER("DEVICE_CATEGORY_SPEAKER", "DEVICE_CATEGORY_SPEAKER",
+                "DEFAULT_DEVICE_CATEGORY_SPEAKER_VOLUME_CURVE"),
+        WIRED("DEVICE_CATEGORY_HEADSET", "DEVICE_CATEGORY_HEADSET",
+                "DEFAULT_MEDIA_VOLUME_CURVE"),
+        // 蓝牙：引擎表有专属 A2DP；新策略表只有 EXT_MEDIA
+        BT("DEVICE_CATEGORY_A2DP", "DEVICE_CATEGORY_EXT_MEDIA",
+                "DEFAULT_MEDIA_VOLUME_CURVE");
 
-        final String categoryToken;
+        final String engineToken;
+        final String policyToken;
         final String aospRefName;
 
-        Device(String categoryToken, String aospRefName) {
-            this.categoryToken = categoryToken;
+        Device(String engineToken, String policyToken, String aospRefName) {
+            this.engineToken = engineToken;
+            this.policyToken = policyToken;
             this.aospRefName = aospRefName;
         }
     }
 
+    /** 曲线来源。 */
+    public enum Source { ENGINE, POLICY, AOSP }
+
     /** 某设备在给定档位数下的归一化增益曲线。 */
     public static final class Curve {
         public final Device device;
-        /** true＝解析自本机 ROM 配置；false＝AOSP 参考回退。 */
+        /** true＝解析自本机 ROM 配置（引擎/策略表）；false＝AOSP 参考回退。 */
         public final boolean fromRom;
+        public final Source source;
         /** 长度 maxSteps+1，gainPercent[i]＝第 i 档的归一化增益 0~100。 */
         public final float[] gainPercent;
         public final int maxSteps;
 
-        Curve(Device device, boolean fromRom, float[] gainPercent, int maxSteps) {
+        Curve(Device device, boolean fromRom, Source source, float[] gainPercent, int maxSteps) {
             this.device = device;
             this.fromRom = fromRom;
+            this.source = source;
             this.gainPercent = gainPercent;
             this.maxSteps = maxSteps;
         }
     }
 
-    /** AOSP 参考点表（读不到 ROM 文件时回退），来自本机 dump 的标准 AOSP 媒体曲线。 */
+    /** AOSP 参考点表（三源全失败时回退），来自本机 dump 的标准 AOSP 媒体曲线。 */
     private static final int[][][] AOSP_POINTS = {
-            // SPEAKER：DEFAULT_DEVICE_CATEGORY_SPEAKER_VOLUME_CURVE
+            // SPEAKER
             {{0, -9600}, {1, -5800}, {20, -4000}, {60, -1700}, {100, 0}},
-            // WIRED：DEFAULT_MEDIA_VOLUME_CURVE
+            // WIRED（DEFAULT_MEDIA_VOLUME_CURVE）
             {{1, -5800}, {20, -4000}, {60, -1700}, {100, 0}},
-            // BT：DEFAULT_MEDIA_VOLUME_CURVE
+            // BT（EXT_MEDIA → DEFAULT_MEDIA_VOLUME_CURVE）
             {{1, -5800}, {20, -4000}, {60, -1700}, {100, 0}},
     };
 
-    /** 解析到的各设备点表（[deviceOrdinal][k][2]）；null 元素表示该设备需回退。 */
-    private static volatile int[][][] parsedPoints;
-    private static volatile boolean loaded = false;
+    private static final String FILE_ENGINE =
+            "/vendor/etc/audio_policy_engine_stream_volumes.xml";
+    private static final String FILE_POLICY =
+            "/vendor/etc/audio_policy_volumes.xml";
+    private static final String FILE_TABLES =
+            "/vendor/etc/default_volume_tables.xml";
 
-    private static final Pattern REFERENCE_PATTERN = Pattern.compile(
-            "<reference\\b[^>]*name=\"([^\"]+)\"[^>]*>(.*?)</reference>", Pattern.DOTALL);
-    private static final Pattern MUSIC_VOLUME_PATTERN = Pattern.compile(
-            "<volume\\b[^>]*stream=\"AUDIO_STREAM_MUSIC\"[^>]*deviceCategory=\"([^\"]*)\"[^>]*>",
-            Pattern.DOTALL);
-    private static final Pattern POINT_PATTERN = Pattern.compile(
-            "<point>\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*</point>");
+    private static volatile boolean loaded = false;
+    // device.ordinal() → 解析出的点表（null＝该设备未取到，回退 AOSP）
+    private static int[][][] parsed = null;
+    private static Source[] parsedSource = null;
 
     /**
-     * 后台线程调用：读 ROM 配置并解析媒体流各设备类别的点表。任何异常都静默回退到
-     * {@link #AOSP_POINTS}；解析结果进程内缓存一次。
+     * 读文件、解析（含 root 调用）。只在后台线程调用一次；解析失败静默回退 AOSP。
      */
     public static synchronized void load() {
-        if (loaded) {
-            return;
-        }
-        int[][][] points = new int[Device.values().length][][];
-        try {
-            String tables = readXml("/vendor/etc/default_volume_tables.xml");
-            String volumes = readXml("/vendor/etc/audio_policy_volumes.xml");
-            Map<String, int[][]> refs = parseReferences(tables);
-            Map<String, int[][]> musicByCategory = parseMusicVolumes(volumes, refs);
-            for (Device d : Device.values()) {
-                int[][] p = musicByCategory.get(d.categoryToken);
-                if (p != null && p.length >= 2) {
-                    points[d.ordinal()] = p;
-                }
+        if (loaded) return;
+
+        Map<String, int[][]> refMap = new HashMap<>();     // reference name → points（default_volume_tables）
+        Map<String, int[][]> engineMusic = new HashMap<>(); // 引擎表 music 组 deviceCategory → points
+        Map<String, int[][]> policyMusic = new HashMap<>();  // 策略表 MUSIC profile deviceCategory → points
+
+        String tables = read(FILE_TABLES);
+        if (tables != null) parseReferences(tables, refMap);
+
+        String engine = read(FILE_ENGINE);
+        if (engine != null) parseEngineMusic(engine, refMap, engineMusic);
+
+        String policy = read(FILE_POLICY);
+        if (policy != null) parseMusicVolumes(policy, refMap, policyMusic);
+
+        int n = Device.values().length;
+        int[][][] points = new int[n][][];
+        Source[] sources = new Source[n];
+        for (Device d : Device.values()) {
+            int[][] p = engineMusic.get(d.engineToken);
+            if (p != null) {
+                points[d.ordinal()] = p;
+                sources[d.ordinal()] = Source.ENGINE;
+                continue;
             }
-        } catch (Throwable ignored) {
-            // 读取/解析失败：points 保持 null，curveFor 走 AOSP 回退
+            p = policyMusic.get(d.policyToken);
+            if (p != null) {
+                points[d.ordinal()] = p;
+                sources[d.ordinal()] = Source.POLICY;
+            } else {
+                sources[d.ordinal()] = Source.AOSP;
+            }
         }
-        parsedPoints = points;
+        parsed = points;
+        parsedSource = sources;
         loaded = true;
     }
 
-    /** 主线程：取某设备在 {@code maxSteps} 档下的归一化增益曲线（0 档恒为 0%）。 */
-    public static Curve curveFor(Device device, int maxSteps) {
-        int steps = Math.max(1, maxSteps);
-        int[][] parsed = parsedPoints == null ? null : parsedPoints[device.ordinal()];
-        boolean fromRom = parsed != null && parsed.length >= 2;
-        int[][] points = fromRom ? parsed : AOSP_POINTS[device.ordinal()];
-        int floorM = points[0][1];
-        for (int[] pt : points) {
-            floorM = Math.min(floorM, pt[1]);
+    /** 归一化增益曲线（0~100），按档位数 {@code steps} 输出。 */
+    public static Curve curveFor(Device device, int steps) {
+        int maxSteps = Math.max(1, steps);
+        int[][] points = resolvePoints(device);
+        float[] gain = new float[maxSteps + 1];
+        for (int i = 0; i <= maxSteps; i++) {
+            float percent = percentAcross(i, maxSteps);
+            gain[i] = normalize(device, points, percent);
         }
-        float[] gain = new float[steps + 1];
-        for (int i = 0; i <= steps; i++) {
-            double percentAcross = i * 100.0 / steps;
-            int milliBel = interpolate(points, percentAcross);
-            double norm = floorM >= 0 ? 1.0 : (milliBel - (double) floorM) / (0.0 - floorM);
-            gain[i] = (float) (clamp01(norm) * 100.0);
-        }
-        return new Curve(device, fromRom, gain, steps);
+        Source src = sourceOf(device);
+        return new Curve(device, src != Source.AOSP, src, gain, maxSteps);
     }
 
-    private static String readXml(String path) {
-        ShellResult r = Shell.su("cat " + path + " 2>/dev/null");
-        return r != null && r.isSuccess() ? r.output : null;
+    // --- 归一化 / 采样 ---
+
+    /** 索引 → 跨区间百分比（index=0→0，index=maxSteps→100）。 */
+    private static float percentAcross(int index, int maxSteps) {
+        return 100f * index / maxSteps;
     }
 
-    /** default_volume_tables.xml：reference 名 → 点表。 */
-    private static Map<String, int[][]> parseReferences(String xml) {
-        Map<String, int[][]> map = new HashMap<>();
-        if (xml == null) {
-            return map;
+    private static float normalize(Device device, int[][] points, float percent) {
+        float db = interpolateDb(points, percent);
+        float floor = floorDb(device, points);
+        if (floor >= 0f) return 100f;          // 全 0 dB 平台：视为满量程
+        float pct = (db - floor) / (0f - floor) * 100f;
+        return clamp(pct, 0f, 100f);
+    }
+
+    /** 本曲线最负 dB（含同设备 AOSP 回退底，确保跨来源坐标一致）。 */
+    private static float floorDb(Device device, int[][] points) {
+        float floor = 0f;
+        for (int[] pt : points) floor = Math.min(floor, pt[1]);
+        for (int[] pt : AOSP_POINTS[device.ordinal()]) floor = Math.min(floor, pt[1]);
+        return floor;
+    }
+
+    /** 索引 0 恒为底（floor），其余按点表 dB 插值后归一，保证单调递增的相对增益。 */
+    private static float interpolateDb(int[][] points, float percent) {
+        if (points.length == 0) return -9600f;
+        if (percent <= points[0][0]) return points[0][1];
+        for (int i = 1; i < points.length; i++) {
+            if (percent <= points[i][0]) {
+                float p0 = points[i - 1][0], d0 = points[i - 1][1];
+                float p1 = points[i][0], d1 = points[i][1];
+                if (p1 == p0) return d1;
+                float t = (percent - p0) / (p1 - p0);
+                return d0 + (d1 - d0) * t;
+            }
         }
-        Matcher m = REFERENCE_PATTERN.matcher(xml);
+        return points[points.length - 1][1];
+    }
+
+    private static int[][] resolvePoints(Device device) {
+        if (loaded && parsed != null && parsed[device.ordinal()] != null) {
+            return parsed[device.ordinal()];
+        }
+        return AOSP_POINTS[device.ordinal()];
+    }
+
+    private static Source sourceOf(Device device) {
+        if (loaded && parsedSource != null) return parsedSource[device.ordinal()];
+        return Source.AOSP;
+    }
+
+    // --- 文件读取 / XML 解析 ---
+
+    private static String read(String path) {
+        try {
+            ShellResult r = Shell.su("cat " + path);
+            if (r != null && r.isSuccess()) return r.output;
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** 解析 default_volume_tables.xml 里的 {@code <reference name>} 点表。 */
+    private static void parseReferences(String xml, Map<String, int[][]> out) {
+        Matcher m = Pattern.compile(
+                "<reference[^>]*name=\"([^\"]+)\"[^>]*>(.*?)</reference>",
+                Pattern.DOTALL).matcher(xml);
         while (m.find()) {
-            String name = m.group(1);
-            String body = m.group(2);
-            String ref = extractAttr(body, "ref");
-            if (ref != null && map.containsKey(ref)) {
-                map.put(name, map.get(ref));
-                continue;
-            }
-            int[][] pts = parsePoints(body);
-            if (pts.length >= 2) {
-                map.put(name, pts);
-            }
+            out.put(m.group(1), parsePoints(m.group(2)));
         }
-        return map;
     }
 
-    /** audio_policy_volumes.xml：deviceCategory → 媒体点表（内联点或跟随 ref 引用）。 */
-    private static Map<String, int[][]> parseMusicVolumes(String xml, Map<String, int[][]> refs) {
-        Map<String, int[][]> map = new HashMap<>();
-        if (xml == null) {
-            return map;
-        }
-        Matcher m = MUSIC_VOLUME_PATTERN.matcher(xml);
-        while (m.find()) {
-            String category = m.group(1);
-            boolean selfClosing = m.group(0).endsWith("/>");
-            int start = m.end();
-            if (selfClosing) {
-                // 自闭合标签：整段信息在开标签内（多为 ref="NAME"）
-                String tag = m.group(0);
-                putResolved(map, category, tag, null, refs);
-            } else {
-                int end = xml.indexOf("</volume>", start);
-                if (end < 0) {
-                    continue;
-                }
-                String tag = xml.substring(m.start(), start);
-                String body = xml.substring(start, end);
-                putResolved(map, category, tag, body, refs);
-            }
-        }
-        return map;
-    }
-
-    private static void putResolved(Map<String, int[][]> map, String category,
-            String openTag, String body, Map<String, int[][]> refs) {
-        if (category == null || category.isEmpty() || map.containsKey(category)) {
+    /** 引擎表：定位 {@code <volumeGroup><name>music</name>}，抽取其各 deviceCategory 点表。 */
+    private static void parseEngineMusic(String xml, Map<String, int[][]> refMap,
+            Map<String, int[][]> out) {
+        Matcher g = Pattern.compile("<volumeGroup>(.*?)</volumeGroup>",
+                Pattern.DOTALL).matcher(xml);
+        while (g.find()) {
+            String block = g.group(1);
+            Matcher nm = Pattern.compile("<name>\\s*([^<]+?)\\s*</name>").matcher(block);
+            if (!nm.find() || !"music".equals(nm.group(1).trim())) continue;
+            extractVolumes(block, refMap, out);
             return;
         }
-        if (body != null) {
-            int[][] inline = parsePoints(body);
-            if (inline.length >= 2) {
-                map.put(category, inline);
-                return;
+    }
+
+    /** 策略表：定位 {@code <profile ... group="MUSIC" ...>}，抽取各 deviceCategory 点表。 */
+    private static void parseMusicVolumes(String xml, Map<String, int[][]> refMap,
+            Map<String, int[][]> out) {
+        Matcher p = Pattern.compile(
+                "<profile[^>]*group=\"MUSIC\"[^>]*>(.*?)</profile>",
+                Pattern.DOTALL).matcher(xml);
+        while (p.find()) {
+            extractVolumes(p.group(1), refMap, out);
+        }
+    }
+
+    /** 从一段 XML 抽取所有 {@code <volume deviceCategory>} 点表（自闭合则跟随 ref）。 */
+    private static void extractVolumes(String section, Map<String, int[][]> refMap,
+            Map<String, int[][]> out) {
+        Matcher m = Pattern.compile(
+                "<volume\\s+deviceCategory=\"([^\"]+)\"([^>]*?)(/>|>(.*?)</volume>)",
+                Pattern.DOTALL).matcher(section);
+        while (m.find()) {
+            String cat = m.group(1);
+            String attrs = m.group(2) + m.group(3);
+            String body = m.group(4);
+            Matcher rm = Pattern.compile("ref=\"([^\"]+)\"").matcher(attrs);
+            if (rm.find()) {
+                int[][] ref = refMap.get(rm.group(1));
+                if (ref != null && ref.length > 0) out.put(cat, ref);
+            } else if (body != null) {
+                int[][] pts = parsePoints(body);
+                if (pts.length > 0) out.put(cat, pts);
             }
         }
-        String ref = extractAttr(openTag, "ref");
-        if (ref != null && refs.containsKey(ref)) {
-            map.put(category, refs.get(ref));
-        }
     }
 
-    private static int[][] parsePoints(String s) {
-        List<int[]> list = new ArrayList<>();
-        if (s != null) {
-            Matcher pm = POINT_PATTERN.matcher(s);
-            while (pm.find()) {
-                list.add(new int[] {Integer.parseInt(pm.group(1)), Integer.parseInt(pm.group(2))});
+    /** 从含若干 {@code <point>百分比,毫贝</point>} 的片段解析为 int[行][2]（按 x 升序）。 */
+    private static int[][] parsePoints(String xml) {
+        List<int[]> pts = new ArrayList<>();
+        Matcher m = Pattern.compile("<point>\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*</point>").matcher(xml);
+        while (m.find()) {
+            try {
+                pts.add(new int[]{Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2))});
+            } catch (NumberFormatException ignored) {
             }
         }
-        list.sort((a, b) -> Integer.compare(a[0], b[0]));
-        return list.toArray(new int[0][]);
+        pts.sort((a, b) -> Integer.compare(a[0], b[0]));
+        return pts.toArray(new int[0][]);
     }
 
-    /** 从标签片段中提取 {@code name="VALUE"} 属性值。 */
-    private static String extractAttr(String tag, String attr) {
-        Matcher am = Pattern.compile(attr + "=\"([^\"]+)\"").matcher(tag);
-        return am.find() ? am.group(1) : null;
-    }
-
-    /** 在按百分比升序的点表间对 {@code percentAcross} 线性插值出毫贝增益。 */
-    private static int interpolate(int[][] points, double percentAcross) {
-        if (percentAcross <= points[0][0]) {
-            return points[0][1];
-        }
-        int[] last = points[points.length - 1];
-        if (percentAcross >= last[0]) {
-            return last[1];
-        }
-        for (int i = 1; i < points.length; i++) {
-            int[] p0 = points[i - 1];
-            int[] p1 = points[i];
-            if (percentAcross <= p1[0]) {
-                double t = (percentAcross - p0[0]) / (double) (p1[0] - p0[0]);
-                return (int) Math.round(p0[1] + t * (p1[1] - p0[1]));
-            }
-        }
-        return last[1];
-    }
-
-    private static double clamp01(double v) {
-        return v < 0 ? 0 : Math.min(1, v);
+    private static float clamp(float v, float lo, float hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
     }
 }
