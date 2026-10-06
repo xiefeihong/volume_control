@@ -363,6 +363,15 @@
                         android:text="@string/range_hint"
                         android:textSize="12sp" />
 
+                    <com.google.android.material.tabs.TabLayout
+                        android:id="@+id/tabNativeDevice"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:visibility="gone"
+                        app:tabMode="fixed"
+                        app:tabGravity="fill" />
+
                     <com.xiefeihong.volumecontrol.CurveChartView
                         android:id="@+id/curveChart"
                         android:layout_width="match_parent"

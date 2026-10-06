@@ -19,6 +19,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.chip.ChipGroup;
+import com.google.android.material.tabs.TabLayout;
 import com.xiefeihong.volumecontrol.databinding.ActivityMainBinding;
 
 import java.util.ArrayList;
@@ -74,6 +75,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private boolean showingDefault = false;
 
+    /** 「默认」标签下当前选中的原生曲线设备（对应 {@link NativeVolumeCurve.Device} 序数）。 */
+    private int selectedNativeDevice = 0;
+
     /** 蓝牙生效模式（ABSOLUTE/SOFTWARE）：由「蓝牙A/蓝牙B」标签决定，有线标签不改；持久化保存。 */
     private int btMode = Prefs.BT_MODE_ABSOLUTE;
 
@@ -89,6 +93,15 @@ public class MainActivity extends AppCompatActivity {
         updatePreview();
         // 首次布局前 getWidth()==0，排版完成后按实测宽度重算一次每行个数。
         binding.getRoot().post(this::updatePreview);
+        // 后台读取 ROM audio policy 媒体曲线（root），完成后可让默认标签以真实曲线重绘。
+        executor.execute(() -> {
+            NativeVolumeCurve.load();
+            mainHandler.post(() -> {
+                if (showingDefault) {
+                    updatePreview();
+                }
+            });
+        });
         // 状态刷新交给 onResume（onCreate 后紧随一次，避免重复执行）
     }
 
@@ -153,6 +166,31 @@ public class MainActivity extends AppCompatActivity {
                 showDefaultTab();
             } else {
                 switchEditingTab(chipIdToMode(checkedId));
+            }
+        });
+
+        // 「默认」标签原生曲线设备切换：外放/有线/蓝牙（仅默认标签可见并驱动重绘）。
+        binding.tabNativeDevice.addTab(
+                binding.tabNativeDevice.newTab().setText(getString(R.string.tab_speaker)));
+        binding.tabNativeDevice.addTab(
+                binding.tabNativeDevice.newTab().setText(getString(R.string.tab_wired)));
+        binding.tabNativeDevice.addTab(
+                binding.tabNativeDevice.newTab().setText(getString(R.string.tab_bt)));
+        binding.tabNativeDevice.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                selectedNativeDevice = tab.getPosition();
+                if (showingDefault) {
+                    updatePreview();
+                }
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {
+            }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
             }
         });
 
@@ -405,21 +443,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updatePreview() {
+        binding.tabNativeDevice.setVisibility(showingDefault ? View.VISIBLE : View.GONE);
         int mediaSteps = currentMediaSteps();
         binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
         int keySteps = currentKeySteps();
         binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
                 keySteps, Prefs.keyDelta(mediaSteps, keySteps)));
 
-        // 「默认」只读标签：不重算自定义范围/曲线（编辑控件已隐藏）。曲线图以「横轴＝系统档位、
-        // 纵轴＝音量百分比」展示 ROM 原生直通；映射表为直通恒等（第 i 次→round(i*100/nativeSteps)%）。
+        // 「默认」只读标签：不重算自定义范围/曲线（编辑控件已隐藏）。曲线图与映射表按当前设备
+        // 选中的真实默认增益曲线（ROM 配置或 AOSP 回退）绘制；横轴系统档位、纵轴按 dB 归一的相对增益。
         if (showingDefault) {
             int nativeSteps = systemDefaultSteps();
+            NativeVolumeCurve.Device device =
+                    NativeVolumeCurve.Device.values()[selectedNativeDevice];
+            NativeVolumeCurve.Curve curve = NativeVolumeCurve.curveFor(device, nativeSteps);
             binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
-            binding.curveChart.configureNativeVolume(nativeSteps);
-            binding.tvRangeMapping.setText(Avrcp.buildNativePassthroughTable(
-                    nativeSteps, computeTableColumns(nativeSteps, 100, /*percent*/ true),
-                    /*showPercent*/ true));
+            binding.curveChart.configureNativeCurve(nativeSteps, curve.gainPercent, curve.fromRom,
+                    getString(deviceTabLabel(device)));
+            binding.tvRangeMapping.setText(Avrcp.buildNativeCurveTable(
+                    nativeSteps, curve.gainPercent,
+                    computeTableColumns(nativeSteps, 100, /*percent*/ true)));
             return;
         }
 
@@ -469,6 +512,19 @@ public class MainActivity extends AppCompatActivity {
             avail = (int) (getResources().getDisplayMetrics().widthPixels - 72 * density);
         }
         return Math.max(1, (int) Math.floor(avail / cellPx));
+    }
+
+    /** 「默认」标签设备 Tab 的显示文案资源 id。 */
+    private int deviceTabLabel(NativeVolumeCurve.Device device) {
+        switch (device) {
+            case WIRED:
+                return R.string.tab_wired;
+            case BT:
+                return R.string.tab_bt;
+            case SPEAKER:
+            default:
+                return R.string.tab_speaker;
+        }
     }
 
     // ==================== 持久化与写入系统 ====================

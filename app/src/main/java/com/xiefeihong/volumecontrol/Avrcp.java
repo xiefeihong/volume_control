@@ -293,34 +293,27 @@ public final class Avrcp {
     }
 
     /**
-     * 默认（系统直通）映射表：模块不生效时每次音量键＝系统 +1 档，共 nativeSteps 次到满（恒等，
-     * 不经 {@link #curveToSystemIndex}，避免 minAbs=0 的自适应下限把首档抬到 ~13%）。
+     * 默认（系统原生）曲线映射表：每行「第 i 档 → 相对增益%」，右列取自真实默认增益曲线
+     * {@code gainPct}（{@link NativeVolumeCurve} 按 ROM 配置或 AOSP 回退归一化，非恒等线性）。
      *
-     * @param showPercent true → 右列为音量百分比 {@code round(press*100/nativeSteps)}（默认标签，
-     *                    与默认曲线图一致）；false → 右列为系统默认音量级数 {@code press}（启用关闭时）。
+     * @param nativeSteps 系统默认档位数（横轴 1~nativeSteps）
+     * @param gainPct     长度 nativeSteps+1 的归一化增益数组（0~100），gainPct[i]＝第 i 档
+     * @param perLine     每行条目数（&lt;=0 交回自然换行）
      */
-    public static String buildNativePassthroughTable(int nativeSteps, int perLine, boolean showPercent) {
-        if (nativeSteps <= 0) {
+    public static String buildNativeCurveTable(int nativeSteps, float[] gainPct, int perLine) {
+        if (nativeSteps <= 0 || gainPct == null || gainPct.length < nativeSteps + 1) {
             return "";
         }
-        int pressWidth = Math.max(2, String.valueOf(nativeSteps).length());
-        int valMax = showPercent ? 100 : nativeSteps;
-        int valWidth = Math.max(2, String.valueOf(valMax).length());
-        String cellFmt = "%" + pressWidth + "d→%" + valWidth + (showPercent ? "d%%" : "d");
-        StringBuilder sb = new StringBuilder("按键次数 → "
-                + (showPercent ? "音量百分比（0~100%）"
-                        : "系统默认音量级数（0~" + nativeSteps + "）")
-                + "，共 " + nativeSteps + " 次：\n");
-        for (int press = 1; press <= nativeSteps; press++) {
-            int out = showPercent
-                    ? (int) Math.round(press * 100.0 / nativeSteps) : press;
-            sb.append(String.format(cellFmt, press, out));
-            if (press < nativeSteps) {
-                if (perLine > 0 && press % perLine == 0) {
-                    sb.append('\n');
-                } else {
-                    sb.append("  ");
-                }
+        int idxWidth = Math.max(2, String.valueOf(nativeSteps).length());
+        int valWidth = 3;   // 百分比 0~100
+        String cellFmt = "%" + idxWidth + "d→%" + valWidth + "d%%  ";
+        StringBuilder sb = new StringBuilder("档位 → 相对增益（按dB归一 0~100%），共 "
+                + nativeSteps + " 档：\n");
+        for (int i = 1; i <= nativeSteps; i++) {
+            int out = Math.round(Math.max(0f, Math.min(100f, gainPct[i])));
+            sb.append(String.format(cellFmt, i, out));
+            if (i < nativeSteps && perLine > 0 && i % perLine == 0) {
+                sb.append('\n');
             }
         }
         sb.append('\n');

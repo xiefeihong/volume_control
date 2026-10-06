@@ -36,8 +36,12 @@ public final class CurveChartView extends View {
     private int curveType = Prefs.CURVE_LOG;
     private boolean useSystemIndex;
     private int keySteps = Prefs.KEY_STEP_DEFAULT;
-    /** 「默认/系统原生」模式：true 时横轴＝音量(0~100%)、纵轴＝系统档位，线性直通渲染。 */
-    private boolean nativeVolumeMode;
+    /** 「默认/系统原生」模式：true 时横轴＝系统档位(0~maxSteps)、纵轴＝增益(0~100%)，按真实曲线渲染。 */
+    private boolean nativeCurveMode;
+    /** 归一化增益数组 gainPercent[i]＝第 i 档的 0~100%（来自 {@link NativeVolumeCurve}）。 */
+    private float[] nativeGainPct;
+    private boolean nativeFromRom;
+    private String nativeDeviceLabel = "";
 
     public CurveChartView(Context context) {
         this(context, null);
@@ -75,7 +79,7 @@ public final class CurveChartView extends View {
     /** 设置映射参数并刷新。 */
     public void configure(int maxSteps, int minAbs, int maxAbs, int curveType,
             boolean useSystemIndex, int keySteps) {
-        this.nativeVolumeMode = false;
+        this.nativeCurveMode = false;
         this.maxSteps = Math.max(1, maxSteps);
         this.minAbs = minAbs;
         this.maxAbs = maxAbs;
@@ -86,12 +90,15 @@ public final class CurveChartView extends View {
     }
 
     /**
-     * 「默认（系统原生）」专用：横轴＝音量(0~100%)、纵轴＝系统音量档位(0~nativeSteps)，
-     * 因不做任何重映射故按线性直通绘制（音量→档位对角直线）。与普通映射模式互斥。
+     * 「默认（系统原生）」专用：横轴＝系统音量档位(0~maxSteps)、纵轴＝增益(0~100%)，
+     * 按 {@code gainPct} 绘制真实默认曲线（ROM 配置或 AOSP 回退）。与普通映射模式互斥。
      */
-    public void configureNativeVolume(int nativeSteps) {
-        this.maxSteps = Math.max(1, nativeSteps);
-        this.nativeVolumeMode = true;
+    public void configureNativeCurve(int maxSteps, float[] gainPct, boolean fromRom, String deviceLabel) {
+        this.nativeCurveMode = true;
+        this.maxSteps = Math.max(1, maxSteps);
+        this.nativeGainPct = gainPct;
+        this.nativeFromRom = fromRom;
+        this.nativeDeviceLabel = deviceLabel == null ? "" : deviceLabel;
         invalidate();
     }
 
@@ -109,7 +116,7 @@ public final class CurveChartView extends View {
         if (right <= left || bottom <= top) {
             return;
         }
-        if (nativeVolumeMode) {
+        if (nativeCurveMode) {
             drawNative(canvas, left, right, top, bottom);
             return;
         }
@@ -163,39 +170,64 @@ public final class CurveChartView extends View {
     }
 
     /**
-     * 「默认（系统原生）」渲染：横轴＝系统音量档位(0~maxSteps)，纵轴＝音量(0~100%)。
-     * 模块不生效时音量随档位线性变化，故画为对角直线，圆点为每个系统档位落点。
+     * 「默认（系统原生）」渲染：横轴＝系统音量档位(0~maxSteps)，纵轴＝增益(0~100%)。
+     * 按 {@link #nativeGainPct} 逐档连成真实默认曲线（ROM 配置或 AOSP 回退）。
      */
     private void drawNative(Canvas canvas, float left, float right, float top, float bottom) {
-        int xMax = Math.max(1, maxSteps);   // 横轴＝系统档位 0~xMax；纵轴＝音量 0~100%
+        int xMax = Math.max(1, maxSteps);   // 横轴＝系统档位 0~xMax；纵轴＝增益 0~100%
         // 纵向网格：0 / 半 / 满 档位
         for (int p = 0; p <= 2; p++) {
             float gx = left + (right - left) * p / 2f;
             canvas.drawLine(gx, top, gx, bottom, gridPaint);
         }
-        // 横向网格：0% / 50% / 100% 音量
+        // 横向网格：0% / 50% / 100% 增益
         for (int p = 0; p <= 2; p++) {
             float gy = bottom - (bottom - top) * (p / 2f);
             canvas.drawLine(left, gy, right, gy, gridPaint);
         }
         canvas.drawRect(left, top, right, bottom, axisPaint);
-        // 系统原生＝音量随档位线性变化：对角直线
-        canvas.drawLine(left, bottom, right, top, curvePaint);
-        // 落点圆点：每个系统档位
+        // 曲线：逐档位按归一化增益连线（0 档＝0%，满档＝0dB→100%）
+        float prevX = mapX(0, left, right);
+        float prevY = mapPct(gainAt(0), top, bottom);
+        for (int level = 1; level <= xMax; level++) {
+            float x = mapX(level, left, right);
+            float y = mapPct(gainAt(level), top, bottom);
+            canvas.drawLine(prevX, prevY, x, y, curvePaint);
+            prevX = x;
+            prevY = y;
+        }
+        // 落点圆点：档位较多（>40）时省略，避免拥挤
         float r = 3f * density;
-        for (int level = 0; level <= xMax; level++) {
-            float frac = level / (float) xMax;
-            canvas.drawCircle(left + (right - left) * frac, bottom - (bottom - top) * frac,
-                    r, dotPaint);
+        if (xMax <= 40) {
+            for (int level = 0; level <= xMax; level++) {
+                canvas.drawCircle(mapX(level, left, right), mapPct(gainAt(level), top, bottom),
+                        r, dotPaint);
+            }
         }
         // 横轴标签：系统档位 0 ~ xMax
         drawLabel(canvas, "0", left, bottom + 3f * density, false);
         drawLabel(canvas, String.valueOf(xMax), right, bottom + 3f * density, true);
-        // 纵轴标签：音量百分比
+        // 纵轴标签：增益百分比
         drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
         drawYText(canvas, "100%", top, left);
-        canvas.drawText("系统原生 · 音量随档位线性变化 · ○=每档落点",
+        String source = nativeFromRom ? "ROM 配置曲线" : "AOSP 参考曲线";
+        canvas.drawText("系统原生 · " + nativeDeviceLabel + " · " + source + " · 增益按dB归一",
                 left, top - 6f * density, labelPaint);
+    }
+
+    /** 取第 {@code level} 档的归一化增益百分比（越界钳到数组末端）。 */
+    private float gainAt(int level) {
+        if (nativeGainPct == null || nativeGainPct.length == 0) {
+            return 0f;
+        }
+        int i = Math.min(level, nativeGainPct.length - 1);
+        return nativeGainPct[Math.max(0, i)];
+    }
+
+    /** 把增益百分比(0~100)映射到画布纵坐标。 */
+    private static float mapPct(float percent, float top, float bottom) {
+        float v = Math.max(0f, Math.min(100f, percent));
+        return bottom - (bottom - top) * (v / 100f);
     }
 
     /** 在 y 轴左侧绘制右对齐、垂直居中于 centerY 的字符串标签。 */
