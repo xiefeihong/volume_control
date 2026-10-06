@@ -45,19 +45,19 @@ public final class Prefs {
      * 蓝牙音量控制模式 A：保持绝对音量（默认）。
      * 手机档位经低音量增强曲线映射为 0~127 的绝对音量发送给耳机。
      */
-    public static final int BT_MODE_ABSOLUTE = 0;
+    public static final int BT_MODE_ABSOLUTE = 1;
 
     /**
      * 蓝牙音量控制模式 B：停用绝对音量。
      * Hook 蓝牙栈使系统以手机端软件衰减控制音量，耳机固定于自身硬件音量。
      */
-    public static final int BT_MODE_SOFTWARE = 1;
+    public static final int BT_MODE_SOFTWARE = 2;
 
     /**
      * 默认（系统直通）模式：与启用开关合并到同一模式字段（btMode）。
      * 选中时模块不改写系统音量逻辑（不改档位数、不重映射），等同未启用。
      */
-    public static final int BT_MODE_DEFAULT = 2;
+    public static final int BT_MODE_DEFAULT = 0;
 
     /**
      * 映射曲线类型（Mode A/B 各自独立设置）：step→音量范围的中间分布。

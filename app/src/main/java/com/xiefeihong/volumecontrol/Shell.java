@@ -125,7 +125,7 @@ public final class Shell {
                 "ENA=$(cut -d\\; -f1 \"$CFG\" 2>/dev/null)",
                 "MODE=$(cut -d\\; -f4 \"$CFG\" 2>/dev/null)",
                 "STEPS=$(cut -d\\; -f2 \"$CFG\" 2>/dev/null)",
-                "if [ \"$ENA\" = \"1\" ] && [ \"$MODE\" != \"2\" ] && [ \"$STEPS\" -ge 16 ] && [ \"$STEPS\" -le 29 ] 2>/dev/null; then",
+                "if [ \"$ENA\" = \"1\" ] && [ \"$MODE\" != \"0\" ] && [ \"$STEPS\" -ge 16 ] && [ \"$STEPS\" -le 29 ] 2>/dev/null; then",
                 "  resetprop " + PROP_MEDIA_VOL_STEPS + " \"$STEPS\" 2>/dev/null"
                         + " || magisk resetprop " + PROP_MEDIA_VOL_STEPS + " \"$STEPS\" 2>/dev/null",
                 "else",

@@ -28,7 +28,7 @@ public enum VolumeMode {
     },
 
     /**
-     * 默认（系统直通）模式：不重映射、不改档位数（与启用开关共用 btMode 字段，值=2）。
+     * 默认（系统直通）模式：不重映射、不改档位数（与启用开关共用 btMode 字段，值=0）。
      * 任何生效路径都先经 {@code config.remapActive()}（默认时为 false）放行系统默认行为，
      * 故本枚举的 {@code range} 实际不会被 Hook 读取。
      */
@@ -108,7 +108,7 @@ public enum VolumeMode {
         return config.btMode == Prefs.BT_MODE_SOFTWARE ? SOFTWARE : ABSOLUTE;
     }
 
-    /** 供 App：由蓝牙模式 id 得到枚举（不判断启用状态；值=2 返回 {@link #DEFAULT}）。 */
+    /** 供 App：由蓝牙模式 id 得到枚举（不判断启用状态；值=0 返回 {@link #DEFAULT}）。 */
     public static VolumeMode ofBtMode(int btModeId) {
         if (btModeId == Prefs.BT_MODE_SOFTWARE) {
             return SOFTWARE;

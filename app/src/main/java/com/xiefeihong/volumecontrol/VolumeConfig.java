@@ -24,8 +24,8 @@ public final class VolumeConfig {
     /** 音量键步进（跨完整音量条需要的按键段数，已限制在 10~29）。 */
     public final int keySteps;
     /**
-     * 生效模式 id：{@link Prefs#BT_MODE_ABSOLUTE}(0) / {@link Prefs#BT_MODE_SOFTWARE}(1)
-     * / {@link Prefs#BT_MODE_DEFAULT}(2·系统直通)。模式与启用开关共同决定 {@link #remapActive()}，
+     * 生效模式 id：{@link Prefs#BT_MODE_DEFAULT}(0·系统直通) / {@link Prefs#BT_MODE_ABSOLUTE}(1)
+     * / {@link Prefs#BT_MODE_SOFTWARE}(2)。模式与启用开关共同决定 {@link #remapActive()}，
      * 且对所有输出（蓝牙/有线/外放）生效。</p>
      */
     public final int btMode;

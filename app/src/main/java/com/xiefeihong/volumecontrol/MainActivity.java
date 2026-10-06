@@ -195,7 +195,7 @@ public class MainActivity extends AppCompatActivity {
         binding.seekKeySteps.setProgress(keyToShow - Prefs.KEY_STEP_MIN);
         applyStepsEditable(enabled);
 
-        // 模式并入 btMode：值=默认(2) 时打开即停留在只读「默认」标签；否则初始选中生效模式 A/B。
+        // 模式并入 btMode：值=默认(0) 时打开即停留在只读「默认」标签；否则初始选中生效模式 A/B。
         boolean defaultMode = btMode == Prefs.BT_MODE_DEFAULT;
         editingMode = defaultMode ? VolumeMode.ABSOLUTE : VolumeMode.ofBtMode(btMode);
         loadRangeIntoUi();
@@ -286,7 +286,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         showingDefault = true;
-        btMode = Prefs.BT_MODE_DEFAULT;   // 默认模式并入 btMode 字段（值=2）
+        btMode = Prefs.BT_MODE_DEFAULT;   // 默认模式并入 btMode 字段（值=0）
         binding.groupRangeEditors.setVisibility(View.GONE);
         persistToPrefs(false);   // 记录「默认」选择（工作副本），供未保存提示与下次打开记忆
         updatePreview();
@@ -668,27 +668,19 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.dlg_save_title)
                 .setMessage(sb.toString())
                 .setPositiveButton(R.string.btn_save_confirm,
-                        (d, w) -> commitSave(pending, keepDefaultTab, restartBt, restartSystem))
+                        (d, w) -> commitSave(pending, restartBt, restartSystem))
                 .setNegativeButton(R.string.dlg_cancel, null)
                 .show();
     }
 
-    /** 确认保存：把待写配置落到 prefs 并同步界面（默认标签保存后停留该标签），再推送系统。 */
-    private void commitSave(VolumeConfig pending, boolean keepDefaultTab,
-            boolean restartBt, boolean restartSystem) {
+    /** 确认保存：把待写配置落到 prefs、统一回读界面（含停留在「默认」标签的情况），再推送系统。 */
+    private void commitSave(VolumeConfig pending, boolean restartBt, boolean restartSystem) {
         applyConfigToPrefs(pending);
-        if (keepDefaultTab) {
-            // 选中「默认」保存：关闭启用档位修改开关（需求3）、其余设置保留，界面停留在默认标签。
-            suppressListeners = true;
-            binding.switchEnable.setChecked(false);
-            suppressListeners = false;
-            lastSavedRaw = pending.toRaw();
-            updatePreview();
-            updateTvPending();
-        } else {
-            loadConfigIntoUi();   // 完整重置/常规保存：回读界面（退出默认标签）
-            updatePreview();
-        }
+        // 统一按已落库的 pending 回读界面：关闭态被强制切默认时，loadConfigIntoUi 依据
+        // btMode=默认正确停在「默认」标签、锁定档位/步进滑条并同步 btMode 字段，使界面模式
+        // 与已保存配置一致（修复此前“保存后模式未切换、saveToSystem 又把 KEY_BT_MODE 回写成 A/B”）。
+        loadConfigIntoUi();
+        updatePreview();
         saveToSystem(() -> promptRestart(restartBt, restartSystem));
     }
 
