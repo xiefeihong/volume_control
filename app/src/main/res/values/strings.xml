@@ -43,7 +43,7 @@
     <string name="curve_hint" formatted="false">选择档位到音量范围的映射分布；三者第 1 档=最小音量、最高档=最大音量。模式A 与模式B 的曲线各自独立保存。</string>
     <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
-    <string name="default_range_info" formatted="false">默认：沿用 ROM 原生音量曲线，不做自定义映射或衰减；选中「默认」并保存后，模块走系统默认（不改媒体档位数、不重映射，并关闭「启用档位修改」开关），下次打开仍停留在本标签。当前手机默认媒体档位数：%1$d 级；下方曲线图横轴为系统档位、纵轴为按 dB 归一的相对增益（0~100%），按 ROM audio policy 配置绘制、读不到时回退 AOSP 参考曲线，可切上方标签对比外放/有线/蓝牙；下方映射表为「第 i 档→相对增益%」。</string>
+    <string name="default_range_info" formatted="false">默认：沿用 ROM 原生音量曲线，不做自定义映射或衰减；选中「默认」并保存后，模块走系统默认（不改媒体档位数、不重映射，并关闭「启用档位修改」开关），下次打开仍停留在本标签。当前手机默认媒体档位数：%1$d 级；下方曲线图横轴为系统档位、纵轴为按 dB 归一的相对增益（0~100%%），按 ROM audio policy 配置绘制、读不到时回退 AOSP 参考曲线，可切上方标签对比外放/有线/蓝牙；下方映射表为「第 i 档→相对增益%%」。</string>
 
     <string name="status_root_ok">Root：可用（su 已授权）</string>
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>
