@@ -14,6 +14,19 @@
     <string name="tab_speaker">外放</string>
     <string name="tab_wired">有线耳机</string>
     <string name="tab_bt">蓝牙</string>
+    
+        <!-- 默认曲线纵轴口径与数据来源标注 -->
+        <string name="src_engine">引擎表·本机专属</string>
+        <string name="src_policy">策略表</string>
+        <string name="src_aosp">AOSP 参考</string>
+        <string name="mode_db">dB 线性</string>
+        <string name="mode_amp">振幅线性</string>
+        <string name="mode_percept">感知响度</string>
+        <string-array name="native_mode_options">
+            <item>纵轴：A · dB 线性</item>
+            <item>纵轴：B · 振幅线性</item>
+            <item>纵轴：C · 感知响度</item>
+        </string-array>
     <string name="sec_actions">操作</string>
     <string name="sec_guide">使用说明</string>
 

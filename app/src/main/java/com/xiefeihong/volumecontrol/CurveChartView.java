@@ -40,8 +40,8 @@ public final class CurveChartView extends View {
     private boolean nativeCurveMode;
     /** 归一化增益数组 gainPercent[i]＝第 i 档的 0~100%（来自 {@link NativeVolumeCurve}）。 */
     private float[] nativeGainPct;
-    private boolean nativeFromRom;
-    private String nativeDeviceLabel = "";
+    /** 图注：「系统原生 · 设备 · 来源(引擎/策略/AOSP) · 纵轴口径」。 */
+    private String nativeCaption = "";
 
     public CurveChartView(Context context) {
         this(context, null);
@@ -93,12 +93,11 @@ public final class CurveChartView extends View {
      * 「默认（系统原生）」专用：横轴＝系统音量档位(0~maxSteps)、纵轴＝增益(0~100%)，
      * 按 {@code gainPct} 绘制真实默认曲线（ROM 配置或 AOSP 回退）。与普通映射模式互斥。
      */
-    public void configureNativeCurve(int maxSteps, float[] gainPct, boolean fromRom, String deviceLabel) {
+    public void configureNativeCurve(int maxSteps, float[] gainPct, String caption) {
         this.nativeCurveMode = true;
         this.maxSteps = Math.max(1, maxSteps);
         this.nativeGainPct = gainPct;
-        this.nativeFromRom = fromRom;
-        this.nativeDeviceLabel = deviceLabel == null ? "" : deviceLabel;
+        this.nativeCaption = caption == null ? "" : caption;
         invalidate();
     }
 
@@ -210,8 +209,7 @@ public final class CurveChartView extends View {
         // 纵轴标签：增益百分比
         drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
         drawYText(canvas, "100%", top, left);
-        String source = nativeFromRom ? "ROM 配置曲线" : "AOSP 参考曲线";
-        canvas.drawText("系统原生 · " + nativeDeviceLabel + " · " + source + " · 增益按dB归一",
+        canvas.drawText("系统原生 · " + nativeCaption,
                 left, top - 6f * density, labelPaint);
     }
 

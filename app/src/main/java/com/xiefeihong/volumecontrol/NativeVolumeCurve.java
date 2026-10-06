@@ -55,20 +55,33 @@ public final class NativeVolumeCurve {
     /** 曲线来源。 */
     public enum Source { ENGINE, POLICY, AOSP }
 
+    /**
+     * 纵轴换算口径（同一 dB 阶梯，三种映射，决定曲线弯法）：
+     * <ul>
+     *   <li>{@link #DB_LINEAR}：dB 在 [floor,ceil] 线性 → 忠实硬件增益阶梯；</li>
+     *   <li>{@link #AMPLITUDE}：振幅比 {@code 10^(dB/20)} 归一 → 反映信号幅度；</li>
+     *   <li>{@link #PERCEPTUAL}：振幅^0.6（Stevens 幂律，近似等响）归一 → 贴近主观响度。</li>
+     * </ul>
+     */
+    public enum Mode { DB_LINEAR, AMPLITUDE, PERCEPTUAL }
+
     /** 某设备在给定档位数下的归一化增益曲线。 */
     public static final class Curve {
         public final Device device;
         /** true＝解析自本机 ROM 配置（引擎/策略表）；false＝AOSP 参考回退。 */
         public final boolean fromRom;
         public final Source source;
+        public final Mode mode;
         /** 长度 maxSteps+1，gainPercent[i]＝第 i 档的归一化增益 0~100。 */
         public final float[] gainPercent;
         public final int maxSteps;
 
-        Curve(Device device, boolean fromRom, Source source, float[] gainPercent, int maxSteps) {
+        Curve(Device device, boolean fromRom, Source source, Mode mode,
+                float[] gainPercent, int maxSteps) {
             this.device = device;
             this.fromRom = fromRom;
             this.source = source;
+            this.mode = mode;
             this.gainPercent = gainPercent;
             this.maxSteps = maxSteps;
         }
@@ -140,15 +153,22 @@ public final class NativeVolumeCurve {
 
     /** 归一化增益曲线（0~100），按档位数 {@code steps} 输出。 */
     public static Curve curveFor(Device device, int steps) {
+        return curveFor(device, steps, Mode.DB_LINEAR);
+    }
+
+    public static Curve curveFor(Device device, int steps, Mode mode) {
         int maxSteps = Math.max(1, steps);
         int[][] points = resolvePoints(device);
+        float floor = floorDb(device, points);   // 最负 dB（底 → 0%）
+        float ceil = ceilDb(device, points);     // 最接近 0 的 dB（顶 → 100%）
         float[] gain = new float[maxSteps + 1];
         for (int i = 0; i <= maxSteps; i++) {
             float percent = percentAcross(i, maxSteps);
-            gain[i] = normalize(device, points, percent);
+            float db = interpolateDb(points, percent);
+            gain[i] = transform(db, floor, ceil, mode);
         }
         Source src = sourceOf(device);
-        return new Curve(device, src != Source.AOSP, src, gain, maxSteps);
+        return new Curve(device, src != Source.AOSP, src, mode, gain, maxSteps);
     }
 
     // --- 归一化 / 采样 ---
@@ -158,20 +178,42 @@ public final class NativeVolumeCurve {
         return 100f * index / maxSteps;
     }
 
-    private static float normalize(Device device, int[][] points, float percent) {
-        float db = interpolateDb(points, percent);
-        float floor = floorDb(device, points);
-        if (floor >= 0f) return 100f;          // 全 0 dB 平台：视为满量程
-        float pct = (db - floor) / (0f - floor) * 100f;
-        return clamp(pct, 0f, 100f);
+    /** 按所选口径把 dB（毫贝）映射到 0~100%，端点分别锚定 floor/ceil（保证 0%~100%）。 */
+    private static float transform(float dbMB, float floorMB, float ceilMB, Mode mode) {
+        if (ceilMB <= floorMB) return 100f;
+        switch (mode) {
+            case AMPLITUDE: {
+                double a = amp(dbMB), af = amp(floorMB), ac = amp(ceilMB);
+                return clamp((float) ((a - af) / (ac - af) * 100.0), 0f, 100f);
+            }
+            case PERCEPTUAL: {
+                double p = Math.pow(amp(dbMB), 0.6), pf = Math.pow(amp(floorMB), 0.6),
+                        pc = Math.pow(amp(ceilMB), 0.6);
+                return clamp((float) ((p - pf) / (pc - pf) * 100.0), 0f, 100f);
+            }
+            case DB_LINEAR:
+            default:
+                return clamp((dbMB - floorMB) / (ceilMB - floorMB) * 100f, 0f, 100f);
+        }
     }
 
-    /** 本曲线最负 dB（含同设备 AOSP 回退底，确保跨来源坐标一致）。 */
+    /** dB（毫贝）→ 振幅比：{@code 10^(dB/20)}，dB＝millibel/100，故指数＝millibel/2000。 */
+    private static double amp(double dbMillibel) {
+        return Math.pow(10, dbMillibel / 2000.0);
+    }
+
+    /** 本曲线点表的最负 dB（底）。 */
     private static float floorDb(Device device, int[][] points) {
-        float floor = 0f;
+        float floor = points.length > 0 ? points[0][1] : -9600f;
         for (int[] pt : points) floor = Math.min(floor, pt[1]);
-        for (int[] pt : AOSP_POINTS[device.ordinal()]) floor = Math.min(floor, pt[1]);
         return floor;
+    }
+
+    /** 本曲线点表的最接近 0 的 dB（顶）。 */
+    private static float ceilDb(Device device, int[][] points) {
+        float ceil = points.length > 0 ? points[0][1] : 0f;
+        for (int[] pt : points) ceil = Math.max(ceil, pt[1]);
+        return ceil;
     }
 
     /** 索引 0 恒为底（floor），其余按点表 dB 插值后归一，保证单调递增的相对增益。 */

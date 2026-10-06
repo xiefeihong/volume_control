@@ -12,6 +12,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.View;
+import android.widget.ArrayAdapter;
+import android.widget.AdapterView;
 import android.widget.SeekBar;
 import android.widget.Toast;
 
@@ -77,6 +79,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** 「默认」标签下当前选中的原生曲线设备（对应 {@link NativeVolumeCurve.Device} 序数）。 */
     private int selectedNativeDevice = 0;
+
+    /** 「默认」曲线纵轴换算口径（dB线性/振幅/感知），Spinner 预览切换。 */
+    private NativeVolumeCurve.Mode selectedNativeMode = NativeVolumeCurve.Mode.DB_LINEAR;
 
     /** 蓝牙生效模式（ABSOLUTE/SOFTWARE）：由「蓝牙A/蓝牙B」标签决定，有线标签不改；持久化保存。 */
     private int btMode = Prefs.BT_MODE_ABSOLUTE;
@@ -191,6 +196,26 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onTabReselected(TabLayout.Tab tab) {
+            }
+        });
+
+        // 「默认」标签纵轴口径切换：A dB线性 / B 振幅线性 / C 感知响度（预览对比，仅默认标签可见）。
+        ArrayAdapter<CharSequence> modeAdapter = ArrayAdapter.createFromResource(this,
+                R.array.native_mode_options, android.R.layout.simple_spinner_item);
+        modeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        binding.spinnerNativeMode.setAdapter(modeAdapter);
+        binding.spinnerNativeMode.setSelection(selectedNativeMode.ordinal());
+        binding.spinnerNativeMode.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                selectedNativeMode = NativeVolumeCurve.Mode.values()[position];
+                if (showingDefault) {
+                    updatePreview();
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
             }
         });
 
@@ -444,6 +469,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void updatePreview() {
         binding.tabNativeDevice.setVisibility(showingDefault ? View.VISIBLE : View.GONE);
+        binding.spinnerNativeMode.setVisibility(showingDefault ? View.VISIBLE : View.GONE);
         int mediaSteps = currentMediaSteps();
         binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
         int keySteps = currentKeySteps();
@@ -456,10 +482,12 @@ public class MainActivity extends AppCompatActivity {
             int nativeSteps = systemDefaultSteps();
             NativeVolumeCurve.Device device =
                     NativeVolumeCurve.Device.values()[selectedNativeDevice];
-            NativeVolumeCurve.Curve curve = NativeVolumeCurve.curveFor(device, nativeSteps);
+            NativeVolumeCurve.Curve curve =
+                    NativeVolumeCurve.curveFor(device, nativeSteps, selectedNativeMode);
             binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
-            binding.curveChart.configureNativeCurve(nativeSteps, curve.gainPercent, curve.fromRom,
-                    getString(deviceTabLabel(device)));
+            binding.curveChart.configureNativeCurve(nativeSteps, curve.gainPercent,
+                    getString(deviceTabLabel(device)) + " · " + getString(sourceLabel(curve.source))
+                            + " · 纵轴" + getString(modeLabel(curve.mode)));
             binding.tvRangeMapping.setText(Avrcp.buildNativeCurveTable(
                     nativeSteps, curve.gainPercent,
                     computeTableColumns(nativeSteps, 100, /*percent*/ true)));
@@ -524,6 +552,32 @@ public class MainActivity extends AppCompatActivity {
             case SPEAKER:
             default:
                 return R.string.tab_speaker;
+        }
+    }
+
+    /** 曲线数据来源（引擎表/策略表/AOSP）的显示文案资源 id。 */
+    private int sourceLabel(NativeVolumeCurve.Source source) {
+        switch (source) {
+            case ENGINE:
+                return R.string.src_engine;
+            case POLICY:
+                return R.string.src_policy;
+            case AOSP:
+            default:
+                return R.string.src_aosp;
+        }
+    }
+
+    /** 纵轴换算口径（dB线性/振幅/感知）的显示文案资源 id。 */
+    private int modeLabel(NativeVolumeCurve.Mode mode) {
+        switch (mode) {
+            case AMPLITUDE:
+                return R.string.mode_amp;
+            case PERCEPTUAL:
+                return R.string.mode_percept;
+            case DB_LINEAR:
+            default:
+                return R.string.mode_db;
         }
     }
 
