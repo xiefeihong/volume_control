@@ -81,3 +81,5 @@ lint/tmp/
 .qoder
 
 VolumeControl-v*
+# 发布签名口令（切勿入库）
+keystore.properties

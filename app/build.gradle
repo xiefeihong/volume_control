@@ -2,6 +2,14 @@ plugins {
     id 'com.android.application'
 }
 
+// 发布签名：从项目根 keystore.properties 读取（该文件已 gitignore、含口令、不入库）。
+// 文件不存在时跳过签名配置，assembleRelease 退化为产出未签名包，避免他机/CI 构建失败。
+def keystorePropsFile = rootProject.file("keystore.properties")
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 android {
     namespace 'com.xiefeihong.volumecontrol'
     compileSdk 35
@@ -24,9 +32,23 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            release {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            if (keystorePropsFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
