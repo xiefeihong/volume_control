@@ -183,6 +183,54 @@ public final class NativeVolumeCurve {
         return new Curve(device, src != Source.AOSP, src, mode, gain, gainDb, maxSteps);
     }
 
+    /**
+     * 「默认」XML 锚点曲线：直接以 XML 点表的档位百分比（0~100）为横轴，供「横轴=百分比」预览。
+     */
+    public static final class Anchors {
+        /** XML 点表的档位百分比（0~100），映射表左列即取此值。 */
+        public final int[] percent;
+        /** 各锚点的归一化增益 0~100（按所选 {@link Mode}）。 */
+        public final float[] gainPercentAtAnchor;
+        /** 各锚点的硬件增益 dB（millibel/100）。 */
+        public final float[] gainDbAtAnchor;
+        /** 长度 101：整数百分比 0~100 处的归一化增益（画平滑曲线用）。 */
+        public final float[] gainByPercent;
+        public final Source source;
+        public final Mode mode;
+
+        Anchors(int[] percent, float[] gainPercentAtAnchor, float[] gainDbAtAnchor,
+                float[] gainByPercent, Source source, Mode mode) {
+            this.percent = percent;
+            this.gainPercentAtAnchor = gainPercentAtAnchor;
+            this.gainDbAtAnchor = gainDbAtAnchor;
+            this.gainByPercent = gainByPercent;
+            this.source = source;
+            this.mode = mode;
+        }
+    }
+
+    /** 取某设备 XML 点表的档位百分比锚点曲线（横轴=百分比）。 */
+    public static Anchors anchorsFor(Device device, Mode mode) {
+        int[][] points = resolvePoints(device);
+        float floor = floorDb(device, points);
+        float ceil = ceilDb(device, points);
+        int n = points.length;
+        int[] pct = new int[n];
+        float[] gain = new float[n];
+        float[] gdb = new float[n];
+        for (int i = 0; i < n; i++) {
+            pct[i] = points[i][0];
+            float db = points[i][1];
+            gdb[i] = db / 100f;
+            gain[i] = transform(db, floor, ceil, mode);
+        }
+        float[] byPct = new float[101];
+        for (int p = 0; p <= 100; p++) {
+            byPct[p] = transform(interpolateDb(points, p), floor, ceil, mode);
+        }
+        return new Anchors(pct, gain, gdb, byPct, sourceOf(device), mode);
+    }
+
     // --- 归一化 / 采样 ---
 
     /** 索引 → 跨区间百分比（index=0→0，index=maxSteps→100）。 */

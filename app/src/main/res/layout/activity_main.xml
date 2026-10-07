@@ -88,14 +88,6 @@
                     android:textSize="13sp" />
 
                 <TextView
-                    android:id="@+id/tvStatusConfig"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/status_detecting"
-                    android:textSize="13sp" />
-
-                <TextView
                     android:id="@+id/tvStatusAv"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -234,7 +226,7 @@
                     app:tabMode="fixed"
                     app:tabGravity="fill" />
 
-                <!-- 顶部单选芯片：模式A/模式B 同时决定「生效模式」（均对蓝牙/有线/外放生效） -->
+                <!-- 顶部单选芯片：绝对音量/相对音量/默认，决定当前设备的生效模式 -->
                 <com.google.android.material.chip.ChipGroup
                     android:id="@+id/chipGroupRange"
                     android:layout_width="match_parent"
@@ -372,12 +364,40 @@
                         android:text="@string/range_hint"
                         android:textSize="12sp" />
 
-                    <Spinner
-                        android:id="@+id/spinnerNativeMode"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:id="@+id/groupNativeSelectors"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:visibility="gone" />
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/axis_y_label"
+                            android:textSize="13sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerNativeMode"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:text="@string/axis_x_label"
+                            android:textSize="13sp" />
+
+                        <Spinner
+                            android:id="@+id/spinnerNativeAxis"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp" />
+                    </LinearLayout>
 
                     <com.xiefeihong.volumecontrol.CurveChartView
                         android:id="@+id/curveChart"

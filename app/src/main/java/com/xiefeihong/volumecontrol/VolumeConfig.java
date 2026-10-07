@@ -121,6 +121,19 @@ public final class VolumeConfig {
         return (enabled && bluetooth.mode == Prefs.BT_MODE_ABSOLUTE) ? VolumeMode.ABSOLUTE : null;
     }
 
+    /** 三设备中是否存在任一非默认（选了绝对/相对）模式。 */
+    public boolean anyDeviceNonDefault() {
+        return !speaker.isDefault() || !wired.isDefault() || !bluetooth.isDefault();
+    }
+
+    /** 返回把三设备模式全部改为默认直通（保留各自 A/B 范围）后的副本，供门控强制回落。 */
+    public VolumeConfig withAllDevicesDefault() {
+        return new VolumeConfig(enabled, mediaSteps, keySteps,
+                speaker.withMode(Prefs.BT_MODE_DEFAULT),
+                wired.withMode(Prefs.BT_MODE_DEFAULT),
+                bluetooth.withMode(Prefs.BT_MODE_DEFAULT));
+    }
+
     // ==================== 不可变编辑辅助（供 UI） ====================
 
     public VolumeConfig withEnabled(boolean value) {

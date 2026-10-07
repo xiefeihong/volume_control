@@ -207,7 +207,7 @@ public final class Avrcp {
         int maxPercent = (int) Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("模式B：停用绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
+        sb.append("相对音量模式：停用绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
         sb.append("档位映射为 AVRCP，再换算回系统音量，范围 ")
                 .append(lowest).append('~').append(maxAbs).append("\n");
 
@@ -244,7 +244,7 @@ public final class Avrcp {
         int spacing = maxSteps >= 2
                 ? curveToAbsoluteVolume(2, maxSteps, range[0], range[1], curveType) - lowest : 0;
 
-        sb.append("模式A：保持绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
+        sb.append("绝对音量模式：保持绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
         sb.append("媒体 ").append(maxSteps).append(" 档 → 蓝牙 AVRCP（0~127），范围 ")
                 .append(range[0]).append('~').append(range[1]).append("\n");
         if (duplicates == 0) {
@@ -293,47 +293,71 @@ public final class Avrcp {
     }
 
     /**
-     * 默认（系统原生）曲线映射表。右列口径随 {@code showDb} 切换：
-     * <ul>
-     *   <li>{@code showDb=true}（纵轴 dB 线性）：显示每档硬件增益 dB 值（{@code gainDb}，负值、一位小数）；</li>
-     *   <li>{@code showDb=false}（感知响度等）：显示归一化相对增益 0~100%（{@code gainPct}）。</li>
-     * </ul>
+     * 默认（系统原生）曲线映射表，横轴=档位：左列音量键按下第几次（1~按键段数），
+     * 右列该次按键到达档位 {@code keyStepLevel} 的默认增益。{@code showDb} true 取硬件增益 dB，
+     * false 取按 dB 归一的相对增益 0~100%。
      *
-     * @param nativeSteps 系统默认档位数（横轴 1~nativeSteps）
-     * @param gainPct     长度 nativeSteps+1 的归一化增益（0~100）
-     * @param gainDb      长度 nativeSteps+1 的硬件增益 dB（可为 null）
-     * @param showDb      true＝右列取 dB；false＝右列取百分比
-     * @param perLine     每行条目数（&lt;=0 交回自然换行）
+     * @param steps    当前档位数（横轴 1~steps，与模式A/B 一致取当前档位）
+     * @param gainPct  长度 steps+1 的归一化增益（按档位索引）
+     * @param gainDb   长度 steps+1 的硬件增益 dB（可为 null）
+     * @param showDb   true＝右列取 dB；false＝右列取百分比
+     * @param keySteps 音量键步进（按键段数）
+     * @param perLine  每行条目数（&lt;=0 交回自然换行）
      */
-    public static String buildNativeCurveTable(int nativeSteps, float[] gainPct, float[] gainDb,
-            boolean showDb, int perLine) {
-        if (nativeSteps <= 0 || gainPct == null || gainPct.length < nativeSteps + 1) {
+    public static String buildNativeStepsTable(int steps, float[] gainPct, float[] gainDb,
+            boolean showDb, int keySteps, int perLine) {
+        if (steps <= 0 || gainPct == null || gainPct.length < steps + 1) {
             return "";
         }
-        int idxWidth = Math.max(2, String.valueOf(nativeSteps).length());
+        int segs = Prefs.clampKeySteps(keySteps);
+        int pressWidth = Math.max(2, String.valueOf(segs).length());
         StringBuilder sb = new StringBuilder();
-        if (showDb) {
-            // dB 为负、一位小数（如 -100.0 宽 6）；Locale.US 保证小数点为 '.'。
-            String cellFmt = "%" + idxWidth + "d→%6.1f  ";
-            sb.append("档位 → 增益（dB，硬件阶梯），共 ").append(nativeSteps).append(" 档：\n");
-            for (int i = 1; i <= nativeSteps; i++) {
-                float db = (gainDb != null && i < gainDb.length) ? gainDb[i] : 0f;
-                sb.append(String.format(java.util.Locale.US, cellFmt, i, db));
-                if (i < nativeSteps && perLine > 0 && i % perLine == 0) {
-                    sb.append('\n');
-                }
+        sb.append(showDb
+                ? "按键次数 → 增益（dB，硬件阶梯），共 " + segs + " 次：\n"
+                : "按键次数 → 相对增益（按dB归一 0~100%），共 " + segs + " 次：\n");
+        String cellFmt = "%" + pressWidth + "d→" + (showDb ? "%6.1f  " : "%3d%%  ");
+        for (int press = 1; press <= segs; press++) {
+            int level = Prefs.keyStepLevel(press, steps, keySteps);
+            if (showDb) {
+                float db = (gainDb != null && level < gainDb.length) ? gainDb[level] : 0f;
+                sb.append(String.format(java.util.Locale.US, cellFmt, press, db));
+            } else {
+                int out = Math.round(Math.max(0f, Math.min(100f, gainPct[level])));
+                sb.append(String.format(cellFmt, press, out));
             }
-            sb.append('\n');
-            return sb.toString();
+            if (press < segs && perLine > 0 && press % perLine == 0) {
+                sb.append('\n');
+            }
         }
-        int valWidth = 3;   // 百分比 0~100
-        String cellFmt = "%" + idxWidth + "d→%" + valWidth + "d%%  ";
-        sb.append("档位 → 相对增益（按dB归一 0~100%），共 ")
-                .append(nativeSteps).append(" 档：\n");
-        for (int i = 1; i <= nativeSteps; i++) {
-            int out = Math.round(Math.max(0f, Math.min(100f, gainPct[i])));
-            sb.append(String.format(cellFmt, i, out));
-            if (i < nativeSteps && perLine > 0 && i % perLine == 0) {
+        sb.append('\n');
+        return sb.toString();
+    }
+
+    /**
+     * 默认（系统原生）曲线映射表，横轴=百分比：左列 XML 点表的档位百分比（{@code anchorPct}），
+     * 右列该锚点增益（{@code showDb} 取 dB，否则取 0~100% 相对增益）。
+     */
+    public static String buildNativePercentTable(int[] anchorPct, float[] gainPct, float[] gainDb,
+            boolean showDb, int perLine) {
+        if (anchorPct == null || anchorPct.length == 0) {
+            return "";
+        }
+        int pctWidth = Math.max(2, String.valueOf(anchorPct[anchorPct.length - 1]).length());
+        StringBuilder sb = new StringBuilder();
+        sb.append(showDb
+                ? "档位百分比 → 增益（dB，硬件阶梯），共 " + anchorPct.length + " 点：\n"
+                : "档位百分比 → 相对增益（按dB归一 0~100%），共 " + anchorPct.length + " 点：\n");
+        String cellFmt = "%" + pctWidth + "d%%→" + (showDb ? "%6.1f  " : "%3d%%  ");
+        for (int i = 0; i < anchorPct.length; i++) {
+            if (showDb) {
+                float db = (gainDb != null && i < gainDb.length) ? gainDb[i] : 0f;
+                sb.append(String.format(java.util.Locale.US, cellFmt, anchorPct[i], db));
+            } else {
+                int out = (gainPct != null && i < gainPct.length)
+                        ? Math.round(Math.max(0f, Math.min(100f, gainPct[i]))) : 0;
+                sb.append(String.format(cellFmt, anchorPct[i], out));
+            }
+            if (i < anchorPct.length - 1 && perLine > 0 && (i + 1) % perLine == 0) {
                 sb.append('\n');
             }
         }

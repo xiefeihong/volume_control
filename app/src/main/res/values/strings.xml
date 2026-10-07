@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">音量阶数</string>
-    <string name="app_subtitle">外放/有线/蓝牙独立配档位 · 档位 10~127 · 按键段数 10~29</string>
+    <string name="app_subtitle">蓝牙/有线/外放独立配档位 · 档位 10~127 · 按键段数 10~29</string>
     <string name="xposed_description">自定义媒体音量档位（10~127）与音量键步进（10~29），并提供两种音量控制模式。</string>
 
     <string name="sec_status">运行状态</string>
@@ -25,9 +25,15 @@
     <string name="mode_db">dB 线性</string>
     <string name="mode_amp">振幅线性</string>
     <string name="mode_percept">感知响度</string>
+    <string name="axis_y_label">纵轴</string>
+    <string name="axis_x_label">横轴</string>
     <string-array name="native_mode_options">
-        <item>纵轴：感知响度</item>
-        <item>纵轴：dB 线性</item>
+        <item>感知响度</item>
+        <item>dB 线性</item>
+    </string-array>
+    <string-array name="native_axis_options">
+        <item>档位</item>
+        <item>百分比</item>
     </string-array>
 
     <string name="sec_actions">操作</string>
@@ -47,16 +53,13 @@
     <string name="label_key_steps_fmt">音量键步进：%1$d 段（每次约跳 %2$d 档）</string>
     <string name="key_steps_hint">每按一次音量键约跳「档位 ÷ 段数」个档。段数越大跳得越细；屏幕滑条不受此限，可逐档精调。未启用或恢复默认时，步进段数默认等于手机默认档位。</string>
 
-    <string name="mode_absolute">模式A：保持绝对音量（默认）</string>
-    <string name="mode_software">模式B：停用绝对音量（手机端衰减）</string>
-    <string name="mode_hint" formatted="false">模式A：蓝牙保持绝对音量映射，有线/外放按 A 范围衰减。模式B：停用绝对音量、由手机端软件衰减音频，耳机固定自身硬件音量。两种模式对蓝牙、有线耳机、外放全部生效。</string>
-    <string name="range_hint" formatted="false">顶部选项卡在「外放/有线耳机/蓝牙」间切换，各设备独立保存模式与范围。蓝牙可选「绝对音量/相对音量/默认」；外放与有线仅「相对音量/默认」（绝对音量为蓝牙专属）。绝对音量：蓝牙经 AVRCP 映射；相对音量：手机端软件曲线衰减；默认：该设备沿用系统直通。总开关关闭时全部设备直通。</string>
+    <string name="range_hint" formatted="false">顶部选项卡在「蓝牙/有线耳机/外放」间切换，各设备独立保存模式与范围。蓝牙可选「绝对音量/相对音量/默认」；外放与有线仅「相对音量/默认」（绝对音量为蓝牙专属）。绝对音量：蓝牙经 AVRCP 映射；相对音量：手机端软件曲线衰减；默认：该设备沿用系统直通。总开关关闭时全部设备直通。</string>
 
     <string name="sec_curve">映射曲线</string>
     <string name="curve_log">对数区间（等比倍增，默认）</string>
     <string name="curve_linear">线性区间（每档等量）</string>
     <string name="curve_sqrt">平方根区间（低音量增强）</string>
-    <string name="curve_hint" formatted="false">选择档位到音量范围的映射分布；三者第 1 档=最小音量、最高档=最大音量。模式A 与模式B 的曲线各自独立保存。</string>
+    <string name="curve_hint" formatted="false">选择档位到音量范围的映射分布；三者第 1 档=最小音量、最高档=最大音量。绝对音量模式与相对音量模式的曲线各自独立保存。</string>
     <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
     <string name="default_range_info" formatted="false">默认：沿用 ROM 原生音量曲线，不做自定义映射或衰减（该设备直通）。当前手机默认媒体档位数：%1$d 级；下方曲线图横轴为系统档位、纵轴为按 dB 归一的相对增益（0~100%%），按 ROM audio policy 配置绘制、读不到时回退 AOSP 参考曲线，对应顶部所选设备。</string>
@@ -72,8 +75,6 @@
     <string name="status_volume_line">档位：当前 %1$d · 默认 %2$d（%4$s）· 音量键步进 %3$d</string>
     <string name="status_bt_none">蓝牙音频设备：未连接（连接耳机后可回来看映射预览）</string>
     <string name="status_bt_fmt">蓝牙音频设备：%1$s</string>
-    <string name="status_config_fmt">系统配置键：%1$s</string>
-    <string name="status_config_none">系统配置键：未写入（Hook 将改用应用内配置）</string>
     <string name="status_btmode_fmt">音量模式：%1$s</string>
     <string name="mode_name_absolute">绝对音量模式</string>
     <string name="mode_name_software">相对音量模式</string>
@@ -142,10 +143,10 @@
 
     <string name="guide_text" formatted="false">1. 在 LSPosed 中启用本模块，然后重启系统框架（本页按钮即可）。\n
 2. 媒体音量档位：可设置 10~127 档（HyperOS 原生默认 15），档位即音量条的可分辨精度，只影响媒体流（音乐/视频）；修改档位后点「重启系统框架」，期间黑屏属正常现象。音量键步进（10~29 段）控制每按一次音量键跳过的档位数（约＝档位÷段数），只影响按键、不影响屏幕拖动。\n
-3. 模式A（绝对音量，默认）：蓝牙保持绝对音量映射（档位经曲线映射为 AVRCP 0~127），有线/外放则按 A 范围做系统档位衰减；第 1 档=最小音量、最高档=最大音量。\n
-4. 模式B（相对音量，低音量问题首选）：停用绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量。\n
-5. 顶部设备选项卡在「外放/有线耳机/蓝牙」间切换，各设备独立保存模式与范围（打开 App 会自动定位到当前输出设备）。绝对音量仅蓝牙可选；相对音量对三种设备都按各自范围在系统侧衰减；默认则该设备不映射，沿用 ROM 原生曲线。档位数与音量键步进为全局共用。\n
+3. 绝对音量模式（默认）：蓝牙保持绝对音量映射（档位经曲线映射为 AVRCP 0~127），有线/外放则按各自范围做系统档位衰减；第 1 档=最小音量、最高档=最大音量。\n
+4. 相对音量模式（低音量问题首选）：停用绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量。\n
+5. 顶部设备选项卡在「蓝牙/有线耳机/外放」间切换，各设备独立保存模式与范围（打开 App 会自动定位到当前输出设备）。绝对音量仅蓝牙可选；相对音量对三种设备都按各自范围在系统侧衰减；默认则该设备不映射，沿用 ROM 原生曲线。档位数与音量键步进为全局共用。\n
 6. 生效方式：点「保存修改」保存参数，按提示确认重启。切换模式或调整音量范围后需点「重启蓝牙」生效；仅档位修改后需点「重启系统框架」（音量键步进即时生效）。\n
 7. 恢复默认：点「恢复系统默认」并重启生效；或在 LSPosed 中停用模块后重启手机。\n
-8. 排查：状态区查看「系统配置键」与媒体档位是否生效；点「查看模块日志」查看模块自写日志。</string>
+8. 排查：状态区查看媒体档位是否生效；点「查看模块日志」查看模块自写日志。</string>
 </resources>

@@ -89,6 +89,17 @@ public class MainActivity extends AppCompatActivity {
             NativeVolumeCurve.Mode.PERCEPTUAL, NativeVolumeCurve.Mode.DB_LINEAR,
     };
 
+    /** 默认预览横轴口径（档位 / 百分比），Spinner 切换。 */
+    private NativeAxis selectedNativeAxis = NativeAxis.STEPS;
+
+    /** 默认预览横轴：档位（用当前档位数 + 按键次数）或 百分比（用 XML 配置的档位百分比）。 */
+    private enum NativeAxis { STEPS, PERCENT }
+
+    /** UI 设备标签显示顺序：蓝牙 → 有线耳机 → 外放（与 {@link OutputDevice} 序数解耦）。 */
+    private static final OutputDevice[] DEVICE_BY_TAB = {
+            OutputDevice.BT, OutputDevice.WIRED, OutputDevice.SPEAKER,
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -177,10 +188,10 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // 设备主维度选项卡：外放 / 有线耳机 / 蓝牙（序数与 OutputDevice 对齐）。
-        binding.tabDevice.addTab(binding.tabDevice.newTab().setText(getString(R.string.tab_speaker)));
-        binding.tabDevice.addTab(binding.tabDevice.newTab().setText(getString(R.string.tab_wired)));
-        binding.tabDevice.addTab(binding.tabDevice.newTab().setText(getString(R.string.tab_bt)));
+        // 设备主维度选项卡：蓝牙 / 有线耳机 / 外放（显示顺序由 DEVICE_BY_TAB 决定）。
+        for (OutputDevice d : DEVICE_BY_TAB) {
+            binding.tabDevice.addTab(binding.tabDevice.newTab().setText(getString(deviceTabTitle(d))));
+        }
         binding.tabDevice.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override
             public void onTabSelected(TabLayout.Tab tab) {
@@ -206,6 +217,26 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 selectedNativeMode = NATIVE_MODES[position];
+                if (showingDefault) {
+                    updatePreview();
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+
+        // 默认预览横轴口径切换（档位 / 百分比，仅默认设备可见）。
+        ArrayAdapter<CharSequence> axisAdapter = ArrayAdapter.createFromResource(this,
+                R.array.native_axis_options, android.R.layout.simple_spinner_item);
+        axisAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        binding.spinnerNativeAxis.setAdapter(axisAdapter);
+        binding.spinnerNativeAxis.setSelection(selectedNativeAxis == NativeAxis.PERCENT ? 1 : 0);
+        binding.spinnerNativeAxis.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                selectedNativeAxis = position == 1 ? NativeAxis.PERCENT : NativeAxis.STEPS;
                 if (showingDefault) {
                     updatePreview();
                 }
@@ -286,7 +317,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 设备标签切换：更新 {@link #editingDevice} 并载入其切片（标签切换本身不落盘）。 */
     private void onDeviceTabSelected(int position) {
-        OutputDevice d = OutputDevice.values()[position];
+        OutputDevice d = DEVICE_BY_TAB[position];
         if (model == null) {
             editingDevice = d;
             return;
@@ -301,9 +332,32 @@ public class MainActivity extends AppCompatActivity {
 
     /** 程序化选中设备标签（触发 onDeviceTabSelected）。 */
     private void selectDeviceTab(OutputDevice d) {
-        TabLayout.Tab tab = binding.tabDevice.getTabAt(d.ordinal());
+        TabLayout.Tab tab = binding.tabDevice.getTabAt(tabIndexForDevice(d));
         if (tab != null) {
             tab.select();
+        }
+    }
+
+    /** 设备在选项卡中的显示位置（按 {@link #DEVICE_BY_TAB} 顺序查找）。 */
+    private int tabIndexForDevice(OutputDevice d) {
+        for (int i = 0; i < DEVICE_BY_TAB.length; i++) {
+            if (DEVICE_BY_TAB[i] == d) {
+                return i;
+            }
+        }
+        return DEVICE_BY_TAB.length - 1;
+    }
+
+    /** {@link OutputDevice} → 选项卡标题资源 id。 */
+    private int deviceTabTitle(OutputDevice d) {
+        switch (d) {
+            case BT:
+                return R.string.tab_bt;
+            case WIRED:
+                return R.string.tab_wired;
+            case SPEAKER:
+            default:
+                return R.string.tab_speaker;
         }
     }
 
@@ -491,30 +545,44 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updatePreview() {
-        binding.spinnerNativeMode.setVisibility(showingDefault ? View.VISIBLE : View.GONE);
+        binding.groupNativeSelectors.setVisibility(showingDefault ? View.VISIBLE : View.GONE);
         int mediaSteps = currentMediaSteps();
         binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
         int keySteps = currentKeySteps();
         binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
                 keySteps, Prefs.keyDelta(mediaSteps, keySteps)));
 
-        // 默认（只读）：按当前设备选中的真实默认增益曲线（ROM 配置或 AOSP 回退）绘制。
+        // 默认（只读）：按当前设备选中的真实默认增益曲线（ROM 配置或 AOSP 回退）绘制；
+        // 横轴口径决定 x 轴/映射表左侧：档位（当前档位数 + 当前音量键步进）或 百分比（XML 档位百分比）。
         if (showingDefault) {
             int nativeSteps = systemDefaultSteps();
             NativeVolumeCurve.Device device =
                     NativeVolumeCurve.Device.values()[editingDevice.ordinal()];
-            NativeVolumeCurve.Curve curve =
-                    NativeVolumeCurve.curveFor(device, nativeSteps, selectedNativeMode);
-            binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
-            binding.curveChart.configureNativeCurve(nativeSteps, curve.gainPercent,
-                    getString(deviceTabLabel(device)) + " · " + getString(sourceLabel(curve.source))
-                            + " · 纵轴" + getString(modeLabel(curve.mode)));
             boolean showDb = selectedNativeMode == NativeVolumeCurve.Mode.DB_LINEAR;
-            int columns = showDb
-                    ? computeTableColumns(nativeSteps, 999999, /*percent*/ false)
-                    : computeTableColumns(nativeSteps, 100, /*percent*/ true);
-            binding.tvRangeMapping.setText(Avrcp.buildNativeCurveTable(
-                    nativeSteps, curve.gainPercent, curve.gainDb, showDb, columns));
+            String devTab = getString(deviceTabLabel(device));
+            binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
+            if (selectedNativeAxis == NativeAxis.PERCENT) {
+                NativeVolumeCurve.Anchors a =
+                        NativeVolumeCurve.anchorsFor(device, selectedNativeMode);
+                String caption = devTab + " · " + getString(sourceLabel(a.source))
+                        + " · 纵轴" + getString(modeLabel(a.mode));
+                binding.curveChart.configureNativeCurve(100, a.gainByPercent, a.percent,
+                        true, caption);
+                binding.tvRangeMapping.setText(Avrcp.buildNativePercentTable(
+                        a.percent, a.gainPercentAtAnchor, a.gainDbAtAnchor, showDb,
+                        computeTableColumns(100, showDb ? 999999 : 100, !showDb)));
+                return;
+            }
+            NativeVolumeCurve.Curve curve =
+                    NativeVolumeCurve.curveFor(device, mediaSteps, selectedNativeMode);
+            String caption = devTab + " · " + getString(sourceLabel(curve.source))
+                    + " · 纵轴" + getString(modeLabel(curve.mode));
+            binding.curveChart.configureNativeCurve(mediaSteps, curve.gainPercent,
+                    buildPressLevels(mediaSteps, keySteps), false, caption);
+            int segs = Prefs.clampKeySteps(keySteps);
+            binding.tvRangeMapping.setText(Avrcp.buildNativeStepsTable(
+                    mediaSteps, curve.gainPercent, curve.gainDb, showDb, keySteps,
+                    computeTableColumns(segs, showDb ? 999999 : 100, !showDb)));
             return;
         }
 
@@ -539,6 +607,17 @@ public class MainActivity extends AppCompatActivity {
         binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
                 mediaSteps, useSystemIndex, minAbs, maxAbs, curveType, keySteps,
                 computeTableColumns(segs, valueMax, /*percent*/ false)));
+    }
+
+    /** 构造音量键逐次按下的落点数组（含 0 档）：{@code [0, keyStepLevel(1..segs)]}，供默认曲线图圆点。 */
+    private int[] buildPressLevels(int maxSteps, int keySteps) {
+        int segs = Prefs.clampKeySteps(keySteps);
+        int[] levels = new int[segs + 1];
+        levels[0] = 0;
+        for (int i = 1; i <= segs; i++) {
+            levels[i] = Prefs.keyStepLevel(i, maxSteps, keySteps);
+        }
+        return levels;
     }
 
     /** 依 TextView 实测宽度与等宽单元宽度，估算映射表每行可容纳的单元个数（<=0 表示交回自然换行）。 */
@@ -760,9 +839,14 @@ public class MainActivity extends AppCompatActivity {
      */
     private void runSave(boolean forceDefault) {
         writeUiIntoModel();
-        final VolumeConfig pending = forceDefault ? buildDefaultConfig() : model;
+        VolumeConfig rawPending = forceDefault ? buildDefaultConfig() : model;
+        // 关闭态选中 绝对/相对(A/B) 且未获取系统默认档位：无法可靠调档 → 警告并强制回落默认后保存。
+        final boolean blocked = !forceDefault && !rawPending.enabled
+                && rawPending.anyDeviceNonDefault()
+                && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS);
+        final VolumeConfig pending = blocked ? rawPending.withAllDevicesDefault() : rawPending;
         final VolumeConfig base = VolumeConfig.fromXml(lastSavedXml);
-        if (base != null && base.toXml().equals(pending.toXml())) {
+        if (!blocked && base != null && base.toXml().equals(pending.toXml())) {
             Toast.makeText(this, R.string.dlg_save_none, Toast.LENGTH_SHORT).show();
             return;
         }
@@ -784,9 +868,9 @@ public class MainActivity extends AppCompatActivity {
                 sb.append("• ").append(line).append('\n');
             }
         }
-        if (pending.remapActive() && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)) {
+        if (blocked) {
             sb.append('\n').append(getString(R.string.save_need_system_default,
-                    modeLabelShort(VolumeMode.ABSOLUTE.modeId())));
+                    modeLabelShort(warnModeId(rawPending))));
         }
         new AlertDialog.Builder(this)
                 .setTitle(R.string.dlg_save_title)
@@ -795,6 +879,21 @@ public class MainActivity extends AppCompatActivity {
                         (d, w) -> commitSave(pending, restartBt, restartSystem))
                 .setNegativeButton(R.string.dlg_cancel, null)
                 .show();
+    }
+
+    /** 门控警告里的模式名：优先取当前编辑设备的非默认模式，否则取首个非默认设备模式。 */
+    private int warnModeId(VolumeConfig cfg) {
+        int m = cfg.modeFor(editingDevice);
+        if (m != Prefs.BT_MODE_DEFAULT) {
+            return m;
+        }
+        for (OutputDevice d : OutputDevice.values()) {
+            int dm = cfg.modeFor(d);
+            if (dm != Prefs.BT_MODE_DEFAULT) {
+                return dm;
+            }
+        }
+        return m;
     }
 
     /** 确认保存：把待写配置落到 prefs、统一回读界面，再推送系统。 */
@@ -832,9 +931,9 @@ public class MainActivity extends AppCompatActivity {
         if (base.keySteps != pending.keySteps) {
             out.add(getString(R.string.change_key_steps, base.keySteps, pending.keySteps));
         }
-        appendDeviceChanges(out, getString(R.string.tab_speaker), base.speaker, pending.speaker);
-        appendDeviceChanges(out, getString(R.string.tab_wired), base.wired, pending.wired);
         appendDeviceChanges(out, getString(R.string.tab_bt), base.bluetooth, pending.bluetooth);
+        appendDeviceChanges(out, getString(R.string.tab_wired), base.wired, pending.wired);
+        appendDeviceChanges(out, getString(R.string.tab_speaker), base.speaker, pending.speaker);
         return out;
     }
 
@@ -986,7 +1085,6 @@ public class MainActivity extends AppCompatActivity {
         binding.tvStatusVolume.setText(R.string.status_detecting);
         binding.tvStatusModule.setText(R.string.status_detecting);
         binding.tvStatusBt.setText(R.string.status_detecting);
-        binding.tvStatusConfig.setText(R.string.status_detecting);
         binding.tvStatusAv.setText(R.string.status_detecting);
 
         executor.execute(() -> {
@@ -1004,7 +1102,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            String globalRaw = root ? Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output.trim() : "";
             int actualMedia = readStreamMaxSafe(Prefs.STREAM_MUSIC_INDEX);
             // 首次捕获系统原生媒体档位数：仅在模块未启用（读到的即原生值）且从未记录过时写入一次
             VolumeConfig stored = VolumeConfig.fromXml(prefs.getString(Prefs.KEY_CONFIG_XML, ""));
@@ -1016,30 +1113,23 @@ public class MainActivity extends AppCompatActivity {
             String btSummary = buildBluetoothSummary();
 
             final boolean adoptedConfig = adopted;
-            final String globalText = globalRaw;
             mainHandler.post(() -> {
                 if (adoptedConfig) {
                     loadConfigIntoUi();
                     updatePreview();
                     Toast.makeText(this, R.string.toast_config_adopted, Toast.LENGTH_LONG).show();
                 }
-                renderStatus(root, lsposed, actualMedia, btSummary, globalText);
+                renderStatus(root, lsposed, actualMedia, btSummary);
             });
         });
     }
 
     private void renderStatus(boolean root, boolean lsposed, int actualMedia,
-                              String btSummary, String globalConfigRaw) {
+                              String btSummary) {
         binding.tvStatusRoot.setText(root ? R.string.status_root_ok : R.string.status_root_fail);
         binding.tvStatusLsposed.setText(lsposed
                 ? R.string.status_lsposed_ok : R.string.status_lsposed_fail);
 
-        if (globalConfigRaw == null || globalConfigRaw.isEmpty()
-                || "null".equals(globalConfigRaw)) {
-            binding.tvStatusConfig.setText(R.string.status_config_none);
-        } else {
-            binding.tvStatusConfig.setText(getString(R.string.status_config_fmt, globalConfigRaw));
-        }
         int btMode = model.modeFor(OutputDevice.BT);
         binding.tvStatusAv.setText(getString(R.string.status_btmode_fmt, modeLabelShort(btMode)));
 

@@ -36,11 +36,15 @@ public final class CurveChartView extends View {
     private int curveType = Prefs.CURVE_LOG;
     private boolean useSystemIndex;
     private int keySteps = Prefs.KEY_STEP_DEFAULT;
-    /** 「默认/系统原生」模式：true 时横轴＝系统档位(0~maxSteps)、纵轴＝增益(0~100%)，按真实曲线渲染。 */
+    /** 「默认/系统原生」模式：true 时按真实曲线渲染，横轴含义由 {@link #nativePercentAxis} 决定。 */
     private boolean nativeCurveMode;
-    /** 归一化增益数组 gainPercent[i]＝第 i 档的 0~100%（来自 {@link NativeVolumeCurve}）。 */
+    /** 归一化增益数组 gain[i]＝横轴第 i 个单位的 0~100%（来自 {@link NativeVolumeCurve}）。 */
     private float[] nativeGainPct;
-    /** 图注：「系统原生 · 设备 · 来源(引擎/策略/AOSP) · 纵轴口径」。 */
+    /** 默认曲线落点圆点的横坐标数组（档位模式=按键落点，百分比模式=XML 锚点）。 */
+    private int[] nativeDots;
+    /** 默认曲线横轴是否取百分比（true：0~100%；false：0~档位数）。 */
+    private boolean nativePercentAxis;
+    /** 图注：「设备 · 来源(引擎/策略/AOSP) · 纵轴口径」。 */
     private String nativeCaption = "";
 
     public CurveChartView(Context context) {
@@ -90,13 +94,21 @@ public final class CurveChartView extends View {
     }
 
     /**
-     * 「默认（系统原生）」专用：横轴＝系统音量档位(0~maxSteps)、纵轴＝增益(0~100%)，
-     * 按 {@code gainPct} 绘制真实默认曲线（ROM 配置或 AOSP 回退）。与普通映射模式互斥。
+     * 「默认（系统原生）」专用：按 {@code gainByX} 逐单位连成真实默认曲线。
+     *
+     * @param xMax        横轴右端值（档位模式=当前档位数，百分比模式=100）
+     * @param gainByX     长度 xMax+1 的归一化增益（0~100%，按横轴单位索引）
+     * @param dots        落点圆点横坐标（档位模式=每次按键落点，百分比模式=XML 锚点）
+     * @param percentAxis 横轴是否取百分比（影响轴标签）
+     * @param caption     图注
      */
-    public void configureNativeCurve(int maxSteps, float[] gainPct, String caption) {
+    public void configureNativeCurve(int xMax, float[] gainByX, int[] dots,
+            boolean percentAxis, String caption) {
         this.nativeCurveMode = true;
-        this.maxSteps = Math.max(1, maxSteps);
-        this.nativeGainPct = gainPct;
+        this.maxSteps = Math.max(1, xMax);
+        this.nativeGainPct = gainByX;
+        this.nativeDots = dots;
+        this.nativePercentAxis = percentAxis;
         this.nativeCaption = caption == null ? "" : caption;
         invalidate();
     }
@@ -195,17 +207,21 @@ public final class CurveChartView extends View {
             prevX = x;
             prevY = y;
         }
-        // 落点圆点：档位较多（>40）时省略，避免拥挤
+        // 落点圆点：横轴=档位时=每次按键落点；横轴=百分比时=XML 锚点
         float r = 3f * density;
-        if (xMax <= 40) {
-            for (int level = 0; level <= xMax; level++) {
-                canvas.drawCircle(mapX(level, left, right), mapPct(gainAt(level), top, bottom),
+        if (nativeDots != null) {
+            for (int dx : nativeDots) {
+                if (dx < 0 || dx > xMax) {
+                    continue;
+                }
+                canvas.drawCircle(mapX(dx, left, right), mapPct(gainAt(dx), top, bottom),
                         r, dotPaint);
             }
         }
-        // 横轴标签：系统档位 0 ~ xMax
-        drawLabel(canvas, "0", left, bottom + 3f * density, false);
-        drawLabel(canvas, String.valueOf(xMax), right, bottom + 3f * density, true);
+        // 横轴标签：百分比模式 0%~100%，否则 0~档位数
+        drawLabel(canvas, nativePercentAxis ? "0%" : "0", left, bottom + 3f * density, false);
+        drawLabel(canvas, nativePercentAxis ? "100%" : String.valueOf(xMax), right,
+                bottom + 3f * density, true);
         // 纵轴标签：增益百分比
         drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
         drawYText(canvas, "100%", top, left);
