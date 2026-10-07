@@ -858,11 +858,13 @@ public class MainActivity extends AppCompatActivity {
     private void runSave(boolean forceDefault) {
         writeUiIntoModel();
         VolumeConfig rawPending = forceDefault ? buildDefaultConfig() : model;
-        // 关闭态选中 绝对/相对(A/B) 且未获取系统默认档位：无法可靠调档 → 先弹警告框给出三种处理方式，
-        // 用户选定后再进入常规保存确认框（此时不再重复警告）。
+        // 关闭态选中 绝对/相对(A/B) 且尚未获取系统默认档位、且用户未确认过：无法可靠调档 →
+        // 先弹警告框给出三种处理方式，用户选定后再进入常规保存确认框（此时不再重复警告）。
+        // 是否仍弹由专用标志 KEY_SYSTEM_DEFAULT_ACK 控制（与 KEY_SYSTEM_DEFAULT_STEPS 解耦）。
         final boolean blocked = !forceDefault && !rawPending.enabled
                 && rawPending.anyDeviceNonDefault()
-                && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS);
+                && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)
+                && !prefs.getBoolean(Prefs.KEY_SYSTEM_DEFAULT_ACK, false);
         if (blocked) {
             showBlockedResolveDialog(rawPending);
             return;
@@ -873,15 +875,15 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 门控警告框：未获取系统默认档位时给出三个处理入口——
      * 启用档位修改（打开总开关）／使用默认模式（各设备回落默认直通）／
-     * 使用档位默认值（保留 A/B、把档位设为系统默认；仅当真正探测到引擎表档位时才记录，
-     * 取不到则不记录以便下次再探测/再提示）。
+     * 使用档位默认值（保留 A/B、把档位设为当前探测到的默认值）。
+     * 选「使用档位默认值」后置 KEY_SYSTEM_DEFAULT_ACK 不再弹警告；但 KEY_SYSTEM_DEFAULT_STEPS
+     * 只在真正从系统服务探到档位时才固化（取不到不写，保留下次再探测、不把内置兜底当作真实值）。
      * 选定后进入常规保存确认框。
      */
     private void showBlockedResolveDialog(VolumeConfig rawPending) {
         final int steps = systemDefaultSteps();
         final int key = defaultKeySteps();
-        // 是否真正从引擎表探到系统默认档位：探到才记录 KEY，否则（回落内置 15）不记录，
-        // 使下次同场景 blocked 仍为真、保留再探测/再弹警告的机会。
+        // 是否真正从系统服务（引擎表）探到默认档位：探到才固化 KEY_SYSTEM_DEFAULT_STEPS。
         final boolean capturedRealDefault = NativeVolumeCurve.nativeMusicIndexMax() > 0;
         new AlertDialog.Builder(this)
                 .setTitle(R.string.save_need_system_default_title)
@@ -892,10 +894,12 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton(R.string.resolve_default_mode,
                         (d, w) -> proceedSave(rawPending.withAllDevicesDefault(), false))
                 .setPositiveButton(R.string.resolve_default_steps, (d, w) -> {
-                    // 仅当探到真实引擎表档位时才写入 KEY（下次不再弹）；取不到则不写，保留再探测。
+                    // 只要用户主动选了「使用档位默认值」就不再弹告；但仅当探到真实档位才固化 KEY。
+                    SharedPreferences.Editor ed = prefs.edit();
                     if (capturedRealDefault) {
-                        prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, steps).commit();
+                        ed.putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, steps);
                     }
+                    ed.putBoolean(Prefs.KEY_SYSTEM_DEFAULT_ACK, true).commit();
                     proceedSave(rawPending.withSteps(steps, key), false);
                 })
                 .show();

@@ -29,6 +29,13 @@ public final class Prefs {
     public static final String KEY_SYSTEM_DEFAULT_STEPS = "system_default_steps";
 
     /**
+     * 「未获取系统默认档位」警告是否仍需弹出：用户点「使用档位默认值」后置 true 即不再弹。
+     * 与 {@link #KEY_SYSTEM_DEFAULT_STEPS} 解耦——后者只在真正从系统服务探到档位时才固化，
+     * 本标志仅记录「用户已知晓并选择继续」，不代表已拿到真实默认档位。
+     */
+    public static final String KEY_SYSTEM_DEFAULT_ACK = "system_default_ack";
+
+    /**
      * 蓝牙音量控制模式 A：保持绝对音量（默认）。
      * 手机档位经低音量增强曲线映射为 0~127 的绝对音量发送给耳机。
      */
