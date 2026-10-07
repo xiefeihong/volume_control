@@ -873,12 +873,16 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 门控警告框：未获取系统默认档位时给出三个处理入口——
      * 启用档位修改（打开总开关）／使用默认模式（各设备回落默认直通）／
-     * 使用档位默认值（保留 A/B、把档位设为系统默认并记录，下次不再弹此警告）。
+     * 使用档位默认值（保留 A/B、把档位设为系统默认；仅当真正探测到引擎表档位时才记录，
+     * 取不到则不记录以便下次再探测/再提示）。
      * 选定后进入常规保存确认框。
      */
     private void showBlockedResolveDialog(VolumeConfig rawPending) {
         final int steps = systemDefaultSteps();
         final int key = defaultKeySteps();
+        // 是否真正从引擎表探到系统默认档位：探到才记录 KEY，否则（回落内置 15）不记录，
+        // 使下次同场景 blocked 仍为真、保留再探测/再弹警告的机会。
+        final boolean capturedRealDefault = NativeVolumeCurve.nativeMusicIndexMax() > 0;
         new AlertDialog.Builder(this)
                 .setTitle(R.string.save_need_system_default_title)
                 .setMessage(getString(R.string.save_need_system_default,
@@ -888,8 +892,10 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton(R.string.resolve_default_mode,
                         (d, w) -> proceedSave(rawPending.withAllDevicesDefault(), false))
                 .setPositiveButton(R.string.resolve_default_steps, (d, w) -> {
-                    // 记录系统默认档位：下次同场景不再弹此警告。
-                    prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, steps).commit();
+                    // 仅当探到真实引擎表档位时才写入 KEY（下次不再弹）；取不到则不写，保留再探测。
+                    if (capturedRealDefault) {
+                        prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, steps).commit();
+                    }
                     proceedSave(rawPending.withSteps(steps, key), false);
                 })
                 .show();
