@@ -25,8 +25,8 @@
     <string name="mode_db">dB 线性</string>
     <string name="mode_amp">振幅线性</string>
     <string name="mode_percept">感知响度</string>
-    <string name="axis_y_label">纵轴：</string>
-    <string name="axis_x_label">横轴：</string>
+    <string name="axis_y_label">纵轴:</string>
+    <string name="axis_x_label">横轴:</string>
     <string-array name="native_mode_options">
         <item>感知响度</item>
         <item>dB 线性</item>

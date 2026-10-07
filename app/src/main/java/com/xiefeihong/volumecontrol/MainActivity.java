@@ -11,8 +11,11 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.util.TypedValue;
 import android.view.View;
 import android.widget.ArrayAdapter;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.AdapterView;
 import android.widget.SeekBar;
 import android.widget.Toast;
@@ -55,6 +58,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** {@code tvPending} 在「已保存」状态下显示的（重启待生效）文案，由 renderStatus 写入。 */
     private String pendingStatusText = "";
+
+    /** 应用内清除数据后，抑制随后一次 refreshStatus 的「已从系统恢复配置」提示（刚清除即最新状态，不应再提示恢复）。 */
+    private boolean suppressAdoptToast;
 
     /** 串行后台线程：所有 root / 系统查询操作都在此执行。 */
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -871,24 +877,62 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 门控警告框：未获取系统默认档位时给出三个处理入口——
-     * 启用档位修改（打开总开关，档位在 16~29 区间由用户指定，不再依赖系统默认档位）／
-     * 使用默认模式（各设备回落默认直通）／使用档位默认值（保留 A/B 选择、把档位设为系统默认）。
-     * 选定后进入常规保存确认框。
+     * 门控警告框（自定义视图：警告文案 + 四个可点击选项）：未获取系统默认档位时给出——
+     * 启用档位修改（打开总开关）／使用默认模式（各设备回落默认直通）／
+     * 使用档位默认值（保留 A/B、把档位设为系统默认并记录，下次不再弹此警告）／取消（不保存）。
+     * 选定前三个后进入常规保存确认框。
      */
     private void showBlockedResolveDialog(VolumeConfig rawPending) {
-        new AlertDialog.Builder(this)
+        final int steps = systemDefaultSteps();
+        final int key = defaultKeySteps();
+        final float density = getResources().getDisplayMetrics().density;
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding((int) (4 * density), (int) (8 * density),
+                (int) (4 * density), (int) (4 * density));
+        final AlertDialog[] dialogRef = new AlertDialog[1];
+
+        addResolveRow(list, R.string.resolve_enable, density, dialogRef,
+                () -> proceedSave(rawPending.withEnabled(true), false));
+        addResolveRow(list, R.string.resolve_default_mode, density, dialogRef,
+                () -> proceedSave(rawPending.withAllDevicesDefault(), false));
+        addResolveRow(list, R.string.resolve_default_steps, density, dialogRef, () -> {
+            // 记录系统默认档位：下次同场景不再弹此警告。
+            prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, steps).commit();
+            proceedSave(rawPending.withSteps(steps, key), false);
+        });
+        addResolveRow(list, R.string.dlg_cancel, density, dialogRef, null);
+
+        dialogRef[0] = new AlertDialog.Builder(this)
                 .setTitle(R.string.save_need_system_default_title)
                 .setMessage(getString(R.string.save_need_system_default,
                         modeLabelShort(warnModeId(rawPending))))
-                .setNeutralButton(R.string.resolve_enable,
-                        (d, w) -> proceedSave(rawPending.withEnabled(true), false))
-                .setNegativeButton(R.string.resolve_default_mode,
-                        (d, w) -> proceedSave(rawPending.withAllDevicesDefault(), false))
-                .setPositiveButton(R.string.resolve_default_steps,
-                        (d, w) -> proceedSave(
-                                rawPending.withSteps(systemDefaultSteps(), defaultKeySteps()), false))
+                .setView(list)
                 .show();
+    }
+
+    /** 向门控警告框追加一行可点击选项；点击先关闭对话框再执行 {@code action}（null 仅关闭）。 */
+    private void addResolveRow(LinearLayout parent, int labelRes, float density,
+            AlertDialog[] dialogRef, Runnable action) {
+        TextView row = new TextView(this);
+        row.setText(labelRes);
+        row.setTextSize(17);
+        row.setPadding((int) (16 * density), (int) (16 * density),
+                (int) (16 * density), (int) (16 * density));
+        TypedValue tv = new TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true)
+                && tv.resourceId != 0) {
+            row.setBackgroundResource(tv.resourceId);
+        }
+        row.setOnClickListener(v -> {
+            if (dialogRef[0] != null) {
+                dialogRef[0].dismiss();
+            }
+            if (action != null) {
+                action.run();
+            }
+        });
+        parent.addView(row);
     }
 
     /**
@@ -979,6 +1023,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 清除此应用写入的所有数据：SharedPreferences（配置、系统默认档位缓存）+ 模块日志文件。 */
     private void clearAppData() {
+        suppressAdoptToast = true;
         prefs.edit().clear().commit();
         lastSavedXml = model.toXml();
         updateTvPending();
@@ -1202,8 +1247,12 @@ public class MainActivity extends AppCompatActivity {
                 if (adoptedConfig) {
                     loadConfigIntoUi();
                     updatePreview();
-                    Toast.makeText(this, R.string.toast_config_adopted, Toast.LENGTH_LONG).show();
+                    if (!suppressAdoptToast) {
+                        Toast.makeText(this, R.string.toast_config_adopted,
+                                Toast.LENGTH_LONG).show();
+                    }
                 }
+                suppressAdoptToast = false;
                 renderStatus(root, lsposed, actualMedia, btSummary);
             });
         });
