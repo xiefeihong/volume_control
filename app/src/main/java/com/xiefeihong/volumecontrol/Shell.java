@@ -152,6 +152,21 @@ public final class Shell {
     }
 
     /**
+     * 清除本应用写入系统侧的全部配置，使数据不可恢复：
+     * 删除 Settings.Global 配置键、配置镜像文件、post-fs-data 开机脚本，
+     * 并 resetprop 删除被改写的媒体档位属性以回落 ROM 默认。
+     *
+     * <p>须在 root 下调用；各删除均静默容错（文件/键不存在时忽略）。</p>
+     */
+    public static void clearWrittenConfig() {
+        su("settings delete global " + Prefs.GLOBAL_KEY + " 2>/dev/null; "
+                + "rm -f " + Prefs.MIRROR_CONFIG_FILE + " 2>/dev/null; "
+                + "rm -f " + BOOT_SCRIPT_FILE + " 2>/dev/null; "
+                + "resetprop --delete " + PROP_MEDIA_VOL_STEPS + " 2>/dev/null"
+                + " || magisk resetprop --delete " + PROP_MEDIA_VOL_STEPS + " 2>/dev/null");
+    }
+
+    /**
      * 重启蓝牙（关闭再打开），使模块在蓝牙进程中的 Hook 重新加载。
      * 蓝牙耳机等设备会断开，需要重新连接。
      */
