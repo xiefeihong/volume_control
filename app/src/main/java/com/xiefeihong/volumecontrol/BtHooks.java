@@ -92,7 +92,7 @@ final class BtHooks {
             Object result = chain.proceed();
             try {
                 VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                VolumeMode m = VolumeMode.forBluetoothAvrcp(config);
+                VolumeMode m = config.bluetoothAvrcpMode();
                 if (m == null) {
                     return result; // 非模式A（含未启用/模式B）走系统原始换算
                 }
@@ -105,7 +105,7 @@ final class BtHooks {
                     return result;
                 }
                 int step = (Integer) arg0;
-                Range range = m.range(config);
+                Range range = config.bluetooth.absolute;
                 int minA = range.min;
                 int maxA = range.max;
                 int curveType = range.curve;
@@ -149,7 +149,7 @@ final class BtHooks {
             Object result = chain.proceed();
             try {
                 VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                VolumeMode m = VolumeMode.forBluetoothAvrcp(config);
+                VolumeMode m = config.bluetoothAvrcpMode();
                 if (m == null) {
                     return result; // 非模式A（含未启用/模式B）无需反算
                 }
@@ -161,7 +161,7 @@ final class BtHooks {
                 if (!(arg0 instanceof Integer)) {
                     return result;
                 }
-                Range range = m.range(config);
+                Range range = config.bluetooth.absolute;
                 int minA = range.min;
                 int maxA = range.max;
                 int curveType = range.curve;
@@ -196,7 +196,7 @@ final class BtHooks {
                             if (args.size() >= 2 && Boolean.TRUE.equals(args.get(1))) {
                                 VolumeConfig config = XposedKit.readConfig(
                                         XposedKit.bluetoothContext());
-                                if (VolumeMode.suppressAbsoluteVolume(config)) {
+                                if (config.suppressBtAbsoluteVolume()) {
                                     if (!sModeBLogged) {
                                         sModeBLogged = true;
                                         XposedKit.log("modeB: force absoluteVolume=false");
@@ -234,7 +234,7 @@ final class BtHooks {
                         try {
                             XposedKit.logOnce("hook-bt-sendvol", "HOOK fired: sendVolumeChanged (modeB)");
                             VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                            if (VolumeMode.suppressAbsoluteVolume(config)) {
+                            if (config.suppressBtAbsoluteVolume()) {
                                 return null; // 模式B：阻止发送 AVRCP
                             }
                         } catch (Throwable t) {

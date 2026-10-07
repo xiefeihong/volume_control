@@ -1,124 +1,313 @@
 package com.xiefeihong.volumecontrol;
 
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
+import java.io.StringReader;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+
+import org.xml.sax.InputSource;
+
 /**
  * 音量配置的不可变值对象（纯 Java，禁止引用任何 Android / Xposed API）。
  *
- * <p>取代此前贯穿全链路的 {@code int[] config}（12 字段魔法下标）。字段具名、按模式
- * 分组为两个 {@link Range}（模式A 绝对音量 / 模式B 软件衰减），配合
- * {@link VolumeMode} 的「枚举即策略」使读取端一眼可懂：{@code mode.range(cfg).min}。</p>
+ * <p>按「外放 / 有线 / 蓝牙」三设备各自持有一份 {@link DeviceConfig}（生效模式 +
+ * 模式A/B 范围），加全局的启用开关、档位数、音量键步进。整体以<b>自描述 XML</b>
+ * 序列化，供 App 单键持久化与跨进程（Settings.Global / 镜像文件 / boot 脚本）传递。</p>
  *
- * <p>与 {@link Prefs}/{@link Avrcp}/{@link VolumeMode} 一样同时被 App 进程与 Hook 端
- * （system_server / 蓝牙进程）使用。</p>
+ * <p><b>不兼容任何历史格式</b>：位置式 {@code ;} 串（{@code toRaw/fromRaw/readRange}）
+ * 已彻底删除，全链路只认 XML。{@link #fromXml(String)} 解析失败或字段缺失一律回落到
+ * 对象默认值。</p>
  *
- * <p>序列化字符串为唯一的 10 字段格式，字段按「全局项 → 各模式 {@code min;max;curve}」
- * 连续排列（不兼容任何历史格式）：
- * {@code enabled;mediaSteps;keySteps;mode;A.min;A.max;A.curve;B.min;B.max;B.curve}。
- * 其中 {@code mode} 取 0=模式A / 1=模式B / 2=默认（系统直通）。</p>
+ * <p>与 {@link Prefs}/{@link Avrcp}/{@link VolumeMode}/{@link DeviceConfig} 一样同时被
+ * App 进程与 Hook 端（system_server / 蓝牙进程）使用。</p>
  */
 public final class VolumeConfig {
 
-    /** 模块是否启用。 */
+    /** 模块总开关：关闭时全部设备直通（不重写档位数、不重映射）。 */
     public final boolean enabled;
-    /** 媒体音量级数（已限制在 10~127）。 */
+    /** 媒体音量级数（已限制在 10~127），全局共用。 */
     public final int mediaSteps;
-    /** 音量键步进（跨完整音量条需要的按键段数，已限制在 10~29）。 */
+    /** 音量键步进（跨完整音量条需要的按键段数，已限制在 10~29），全局共用。 */
     public final int keySteps;
-    /**
-     * 生效模式 id：{@link Prefs#BT_MODE_DEFAULT}(0·系统直通) / {@link Prefs#BT_MODE_ABSOLUTE}(1)
-     * / {@link Prefs#BT_MODE_SOFTWARE}(2)。模式与启用开关共同决定 {@link #remapActive()}，
-     * 且对所有输出（蓝牙/有线/外放）生效。</p>
-     */
-    public final int btMode;
-    /** 模式A：绝对音量范围（蓝牙经 AVRCP 映射；有线/外放经 system_server 衰减）。 */
-    public final Range absolute;
-    /** 模式B：手机端软件衰减范围。 */
-    public final Range software;
+    /** 外放（内置扬声器/受话器）配置。 */
+    public final DeviceConfig speaker;
+    /** 有线耳机/USB/底座配置。 */
+    public final DeviceConfig wired;
+    /** 蓝牙配置。 */
+    public final DeviceConfig bluetooth;
 
-    // 单模式范围值对象 Range 已提取为独立顶层类（见 Range.java）。
-
-    public VolumeConfig(boolean enabled, int mediaSteps, int keySteps, int btMode,
-            Range absolute, Range software) {
+    public VolumeConfig(boolean enabled, int mediaSteps, int keySteps,
+            DeviceConfig speaker, DeviceConfig wired, DeviceConfig bluetooth) {
         this.enabled = enabled;
-        this.mediaSteps = mediaSteps;
-        this.keySteps = keySteps;
-        this.btMode = btMode;
-        this.absolute = absolute;
-        this.software = software;
+        this.mediaSteps = Prefs.clampMediaSteps(mediaSteps);
+        this.keySteps = Prefs.clampKeySteps(keySteps);
+        this.speaker = speaker;
+        this.wired = wired;
+        this.bluetooth = bluetooth;
     }
 
-    /** 是否为默认（系统直通）模式（btMode=={@link Prefs#BT_MODE_DEFAULT}）。 */
-    public boolean isDefault() {
-        return btMode == Prefs.BT_MODE_DEFAULT;
+    // ==================== 按设备访问 ====================
+
+    /** 取指定设备的配置。 */
+    public DeviceConfig deviceFor(OutputDevice d) {
+        switch (d) {
+            case WIRED:
+                return wired;
+            case BT:
+                return bluetooth;
+            case SPEAKER:
+            default:
+                return speaker;
+        }
+    }
+
+    /** 指定设备的生效模式 id（0/1/2）。 */
+    public int modeFor(OutputDevice d) {
+        return deviceFor(d).mode;
     }
 
     /**
-     * Hook 端唯一的生效判据：模块是否应改写系统音量（档位数 / 重映射）。
-     * 未启用或处于默认（系统直通）模式时均为 false → 保持系统默认行为。
+     * 指定设备在 system_server 侧应采用的重映射模式；未启用或该设备为默认直通返回 {@code null}
+     * （返回 {@link VolumeMode#DEFAULT} 之外的实际重映射枚举）。
      */
-    public boolean remapActive() {
-        return enabled && !isDefault();
-    }
-
-    /**
-     * 解析配置字符串，仅接受 10 字段格式（{@code enabled;mediaSteps;keySteps;mode;} 后接
-     * 两个模式 {@code min;max;curve} 三元组，基址 4 与 7）；{@code mode} 归一为 0/1/2。
-     * 不兼容任何历史格式。
-     *
-     * <p>每个数值仅做取值域 clamp 规范化（{@code mediaSteps}/{@code keySteps}/{@code abs}/{@code curve}），
-     * 不做历史格式回退、不做 {@code min>max} 交换（App 端写入前已保证 {@code min<=max}）。</p>
-     *
-     * @return 规范化后的配置；{@code raw} 为 null、字段数不等于 10 或含非数字时返回 null。
-     */
-    public static VolumeConfig fromRaw(String raw) {
-        if (raw == null) {
+    public VolumeMode volumeModeFor(OutputDevice d) {
+        if (!enabled) {
             return null;
         }
-        String[] parts = raw.trim().split(";");
-        if (parts.length != 10) {
+        DeviceConfig c = deviceFor(d);
+        if (c.mode == Prefs.BT_MODE_SOFTWARE) {
+            return VolumeMode.SOFTWARE;
+        }
+        if (c.mode == Prefs.BT_MODE_ABSOLUTE) {
+            return VolumeMode.ABSOLUTE;
+        }
+        return null;
+    }
+
+    /**
+     * 指定设备当前生效的范围：仅当总开关开启且该设备非默认时返回其模式对应范围，否则 {@code null}
+     * （默认/关闭=直通）。
+     */
+    public Range activeRangeFor(OutputDevice d) {
+        if (!enabled) {
+            return null;
+        }
+        DeviceConfig c = deviceFor(d);
+        return c.isDefault() ? null : c.activeRange();
+    }
+
+    // ==================== 生效判据 ====================
+
+    /**
+     * Hook 端唯一的生效判据：模块是否应改写系统全局档位数（{@link #mediaSteps} 是否落地）。
+     * 总开关关闭，或三设备全部处于默认直通时为 false → 保持系统默认档位数。
+     */
+    public boolean remapActive() {
+        return enabled && (!speaker.isDefault() || !wired.isDefault() || !bluetooth.isDefault());
+    }
+
+    /** 蓝牙是否处于「相对音量（模式B）」：需抑制 AVRCP 绝对音量、走系统软件衰减。 */
+    public boolean suppressBtAbsoluteVolume() {
+        return enabled && bluetooth.mode == Prefs.BT_MODE_SOFTWARE;
+    }
+
+    /** 蓝牙是否处于「绝对音量（模式A）」：由蓝牙进程经 AVRCP 映射，返回 {@link VolumeMode#ABSOLUTE}；否则 {@code null}。 */
+    public VolumeMode bluetoothAvrcpMode() {
+        return (enabled && bluetooth.mode == Prefs.BT_MODE_ABSOLUTE) ? VolumeMode.ABSOLUTE : null;
+    }
+
+    // ==================== 不可变编辑辅助（供 UI） ====================
+
+    public VolumeConfig withEnabled(boolean value) {
+        return new VolumeConfig(value, mediaSteps, keySteps, speaker, wired, bluetooth);
+    }
+
+    public VolumeConfig withSteps(int media, int key) {
+        return new VolumeConfig(enabled, media, key, speaker, wired, bluetooth);
+    }
+
+    /** 返回把指定设备替换为新配置后的副本。 */
+    public VolumeConfig withDevice(OutputDevice d, DeviceConfig c) {
+        switch (d) {
+            case WIRED:
+                return new VolumeConfig(enabled, mediaSteps, keySteps, speaker, c, bluetooth);
+            case BT:
+                return new VolumeConfig(enabled, mediaSteps, keySteps, speaker, wired, c);
+            case SPEAKER:
+            default:
+                return new VolumeConfig(enabled, mediaSteps, keySteps, c, wired, bluetooth);
+        }
+    }
+
+    // ==================== XML 序列化 ====================
+
+    private static final String TAG_ROOT = "config";
+    private static final String TAG_DEVICE = "device";
+    /** 缺字段时的兜底范围（App 正常写入总会给出完整三元组，此处仅防御畸形 XML）。 */
+    private static final Range FALLBACK_RANGE =
+            new Range(Prefs.ABS_VOLUME_MIN_DEFAULT, Prefs.ABS_VOLUME_MAX_DEFAULT,
+                    Prefs.CURVE_TYPE_DEFAULT);
+
+    /**
+     * 序列化为紧凑单行 XML（不含单引号，可安全嵌入 {@code settings put global '<v>'} 与镜像
+     * {@code echo}）。每设备始终写模式B 范围 {@code <b>}；仅蓝牙额外写模式A 范围 {@code <a>}。
+     */
+    public String toXml() {
+        StringBuilder sb = new StringBuilder(256);
+        sb.append('<').append(TAG_ROOT)
+                .append(" enabled=\"").append(enabled ? 1 : 0)
+                .append("\" mediaSteps=\"").append(Prefs.clampMediaSteps(mediaSteps))
+                .append("\" keySteps=\"").append(Prefs.clampKeySteps(keySteps))
+                .append("\">");
+        appendDevice(sb, "speaker", speaker, false);
+        appendDevice(sb, "wired", wired, false);
+        appendDevice(sb, "bt", bluetooth, true);
+        sb.append("</").append(TAG_ROOT).append('>');
+        return sb.toString();
+    }
+
+    private static void appendDevice(StringBuilder sb, String name, DeviceConfig c, boolean withAbsolute) {
+        sb.append('<').append(TAG_DEVICE)
+                .append(" name=\"").append(name)
+                .append("\" mode=\"").append(c.mode).append("\">");
+        if (withAbsolute) {
+            appendRange(sb, 'a', c.absolute);
+        }
+        appendRange(sb, 'b', c.software);
+        sb.append("</").append(TAG_DEVICE).append('>');
+    }
+
+    private static void appendRange(StringBuilder sb, char tag, Range r) {
+        Range safe = (r != null) ? r : FALLBACK_RANGE;
+        sb.append('<').append(tag)
+                .append(" min=\"").append(Prefs.clampAbs(safe.min))
+                .append("\" max=\"").append(Prefs.clampAbs(safe.max))
+                .append("\" curve=\"").append(Prefs.clampCurve(safe.curve))
+                .append("\"/>");
+    }
+
+    /**
+     * 解析配置 XML。字段缺失按默认值、未知标签忽略；{@code xml} 为 null/空白、解析异常或根标签
+     * 非 {@code config} 时返回 {@code null}（调用方回落默认配置）。
+     */
+    public static VolumeConfig fromXml(String xml) {
+        if (xml == null) {
+            return null;
+        }
+        String trimmed = xml.trim();
+        if (trimmed.isEmpty()) {
             return null;
         }
         try {
-            boolean enabled = Integer.parseInt(parts[0].trim()) != 0;
-            int mediaSteps = Prefs.clampMediaSteps(Integer.parseInt(parts[1].trim()));
-            int keySteps = Prefs.clampKeySteps(Integer.parseInt(parts[2].trim()));
-            int rawMode = Integer.parseInt(parts[3].trim());
-            int btMode = rawMode == Prefs.BT_MODE_SOFTWARE ? Prefs.BT_MODE_SOFTWARE
-                    : rawMode == Prefs.BT_MODE_DEFAULT ? Prefs.BT_MODE_DEFAULT
-                    : Prefs.BT_MODE_ABSOLUTE;
-            return new VolumeConfig(enabled, mediaSteps, keySteps, btMode,
-                    readRange(parts, 4), readRange(parts, 7));
-        } catch (NumberFormatException e) {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(false);
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            Document doc = builder.parse(new InputSource(new StringReader(trimmed)));
+            Element root = doc.getDocumentElement();
+            if (root == null || !TAG_ROOT.equals(root.getTagName())) {
+                return null;
+            }
+            boolean enabled = intAttr(root, "enabled", 0) != 0;
+            int mediaSteps = Prefs.clampMediaSteps(
+                    intAttr(root, "mediaSteps", Prefs.MEDIA_STEPS_DEFAULT));
+            int keySteps = Prefs.clampKeySteps(
+                    intAttr(root, "keySteps", Prefs.KEY_STEP_DEFAULT));
+            return new VolumeConfig(enabled, mediaSteps, keySteps,
+                    readDevice(root, "speaker", false),
+                    readDevice(root, "wired", false),
+                    readDevice(root, "bt", true));
+        } catch (Throwable t) {
             return null;
         }
     }
 
-    /** 读取按 {@code [base]=min,[base+1]=max,[base+2]=curve} 排列的一个模式三元组（逐项 clamp）。 */
-    private static Range readRange(String[] parts, int base) {
-        int min = Prefs.clampAbs(Integer.parseInt(parts[base].trim()));
-        int max = Prefs.clampAbs(Integer.parseInt(parts[base + 1].trim()));
-        int curve = Prefs.clampCurve(Integer.parseInt(parts[base + 2].trim()));
-        return new Range(min, max, curve);
+    /** 读取指定 name 的设备元素；缺失时给出默认（直通 + 兜底范围）。 */
+    private static DeviceConfig readDevice(Element root, String name, boolean withAbsolute) {
+        Element el = findDevice(root, name);
+        if (el == null) {
+            return new DeviceConfig(Prefs.BT_MODE_DEFAULT, FALLBACK_RANGE, FALLBACK_RANGE);
+        }
+        int rawMode = intAttr(el, "mode", Prefs.BT_MODE_DEFAULT);
+        int mode = normalizeMode(rawMode, withAbsolute);
+        Range absolute = withAbsolute ? readRange(el, "a") : FALLBACK_RANGE;
+        Range software = readRange(el, "b");
+        return new DeviceConfig(mode, absolute, software);
     }
 
-    /** 序列化为 10 字段字符串（全局项 + 两个模式三元组，逐项 clamp，与 {@link #fromRaw} 互逆）。 */
-    public String toRaw() {
-        return (enabled ? 1 : 0) + ";" + Prefs.clampMediaSteps(mediaSteps)
-                + ";" + Prefs.clampKeySteps(keySteps)
-                + ";" + btMode
-                + ";" + Prefs.clampAbs(absolute.min) + ";" + Prefs.clampAbs(absolute.max)
-                + ";" + Prefs.clampCurve(absolute.curve)
-                + ";" + Prefs.clampAbs(software.min) + ";" + Prefs.clampAbs(software.max)
-                + ";" + Prefs.clampCurve(software.curve);
+    private static Element findDevice(Element root, String name) {
+        NodeList nodes = root.getElementsByTagName(TAG_DEVICE);
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Node node = nodes.item(i);
+            if (node instanceof Element
+                    && name.equals(((Element) node).getAttribute("name"))) {
+                return (Element) node;
+            }
+        }
+        return null;
     }
 
-    /** 供日志输出的人类可读摘要（取代原 {@code Arrays.toString(config)}）。 */
+    /** 读取指定标签的范围；缺失回落 {@link #FALLBACK_RANGE}。 */
+    private static Range readRange(Element parent, String tag) {
+        NodeList list = parent.getElementsByTagName(tag);
+        for (int i = 0; i < list.getLength(); i++) {
+            Node node = list.item(i);
+            if (node instanceof Element) {
+                Element el = (Element) node;
+                return new Range(
+                        Prefs.clampAbs(intAttr(el, "min", Prefs.ABS_VOLUME_MIN_DEFAULT)),
+                        Prefs.clampAbs(intAttr(el, "max", Prefs.ABS_VOLUME_MAX_DEFAULT)),
+                        Prefs.clampCurve(intAttr(el, "curve", Prefs.CURVE_TYPE_DEFAULT)));
+            }
+        }
+        return FALLBACK_RANGE;
+    }
+
+    private static int intAttr(Element el, String name, int def) {
+        String v = el.getAttribute(name);
+        if (v == null || v.isEmpty()) {
+            return def;
+        }
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    /**
+     * 归一模式：允许绝对(仅蓝牙)时 0/1/2 原样；否则把绝对(1) 归一为相对(2)（外放/有线不支持模式A），
+     * 非法值一律回落默认(0)。
+     */
+    private static int normalizeMode(int m, boolean allowAbsolute) {
+        if (m == Prefs.BT_MODE_SOFTWARE) {
+            return Prefs.BT_MODE_SOFTWARE;
+        }
+        if (m == Prefs.BT_MODE_ABSOLUTE) {
+            return allowAbsolute ? Prefs.BT_MODE_ABSOLUTE : Prefs.BT_MODE_SOFTWARE;
+        }
+        return Prefs.BT_MODE_DEFAULT;
+    }
+
+    /** 供日志输出的人类可读摘要。 */
     @Override
     public String toString() {
         return (enabled ? "on" : "off")
                 + ",steps=" + mediaSteps
                 + ",keySteps=" + keySteps
-                + ",mode=" + (isDefault() ? "默认" : btMode == Prefs.BT_MODE_SOFTWARE ? "B" : "A")
-                + ",A=[" + absolute.min + "~" + absolute.max + "/" + absolute.curve + "]"
-                + ",B=[" + software.min + "~" + software.max + "/" + software.curve + "]";
+                + ",speaker=" + deviceDesc(speaker)
+                + ",wired=" + deviceDesc(wired)
+                + ",bt=" + deviceDesc(bluetooth);
+    }
+
+    private static String deviceDesc(DeviceConfig c) {
+        String m = (c.mode == Prefs.BT_MODE_SOFTWARE) ? "B"
+                : c.mode == Prefs.BT_MODE_ABSOLUTE ? "A" : "默认";
+        Range r = c.activeRange();
+        return m + (r == null ? "" : "[" + r.min + "~" + r.max + "/" + r.curve + "]");
     }
 }

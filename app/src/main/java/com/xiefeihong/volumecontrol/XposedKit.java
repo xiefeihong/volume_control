@@ -359,7 +359,7 @@ public final class XposedKit {
         if (context != null) {
             try {
                 String raw = SettingsGlobal.getString(context, Prefs.GLOBAL_KEY);
-                VolumeConfig config = VolumeConfig.fromRaw(raw);
+                VolumeConfig config = parseCached(raw);
                 if (config != null) {
                     return config;
                 }
@@ -375,7 +375,7 @@ public final class XposedKit {
         }
         // 通道2：配置镜像文件（不依赖 SettingsProvider；冷启动早期唯一可靠通道）
         try {
-            VolumeConfig config = VolumeConfig.fromRaw(readMirrorConfig());
+            VolumeConfig config = parseCached(readMirrorConfig());
             if (config != null) {
                 logOnce("mirror-used", "config loaded from mirror file");
                 return config;
@@ -384,6 +384,25 @@ public final class XposedKit {
             logErrorOnce("mirror-failed", "read mirror config failed: " + t);
         }
         return null;
+    }
+
+    /** 按原始串缓存已解析配置（DOM 解析较 {@code split} 重，高频 hook 路径避免重复解析）。 */
+    private static volatile String sCachedRaw;
+    private static volatile VolumeConfig sCachedConfig;
+
+    private static VolumeConfig parseCached(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw.equals(sCachedRaw)) {
+            return sCachedConfig;
+        }
+        VolumeConfig config = VolumeConfig.fromXml(raw);
+        if (config != null) {
+            sCachedRaw = raw;
+            sCachedConfig = config;
+        }
+        return config;
     }
 
     // Settings.Global 薄封装已提取为独立顶层类（见 SettingsGlobal.java）。

@@ -108,26 +108,23 @@ public final class Shell {
     
     /**
      * 写入 post-fs-data 开机脚本（档位开机生效的终极保险，不依赖任何 Hook）：
-     * 开机最早阶段（system_server 启动前）读取配置镜像，以 resetprop 直接设置
+     * 开机最早阶段（system_server 启动前）以 resetprop 直接设置
      * ro.config.media_vol_steps，AudioService 初始化时读到的就是用户档位数。
      *
-     * <p>脚本内容固定（运行时读镜像文件）；写入后立即对齐当前属性值——本周期内任何原因的
+     * <p>生效标志与档位数以字面量烘分进脚本（配置已改为 XML，shell 无法用 cut 解析）；写入后立即对齐当前属性值——本周期内任何原因的
      * system_server 重启都会读到正确档位。停用或镜像异常时删除属性恢复 ROM 默认。
      * resetprop 对 ro. 属性的修改只能通过 Magisk / KernelSU 的 resetprop 工具
      * （setprop 不允许改 ro.），两者都不可用时静默失败，不影响其他保险。</p>
      */
-    public static ShellResult writeBootScript(boolean enabled, int mediaSteps) {
+    public static ShellResult writeBootScript(boolean active, int mediaSteps) {
+        int steps = Prefs.clampMediaSteps(mediaSteps);
         String[] lines = {
                 "#!/system/bin/sh",
                 "# VolumeControl boot script: set media volume steps before system_server starts.",
-                "CFG=" + Prefs.MIRROR_CONFIG_FILE,
-                "[ -r \"$CFG\" ] || exit 0",
-                "ENA=$(cut -d\\; -f1 \"$CFG\" 2>/dev/null)",
-                "MODE=$(cut -d\\; -f4 \"$CFG\" 2>/dev/null)",
-                "STEPS=$(cut -d\\; -f2 \"$CFG\" 2>/dev/null)",
-                "if [ \"$ENA\" = \"1\" ] && [ \"$MODE\" != \"0\" ] && [ \"$STEPS\" -ge 16 ] && [ \"$STEPS\" -le 29 ] 2>/dev/null; then",
-                "  resetprop " + PROP_MEDIA_VOL_STEPS + " \"$STEPS\" 2>/dev/null"
-                        + " || magisk resetprop " + PROP_MEDIA_VOL_STEPS + " \"$STEPS\" 2>/dev/null",
+                "if [ \"" + (active ? 1 : 0) + "\" = \"1\" ] && [ " + steps
+                        + " -ge 16 ] && [ " + steps + " -le 29 ]; then",
+                "  resetprop " + PROP_MEDIA_VOL_STEPS + " " + steps + " 2>/dev/null"
+                        + " || magisk resetprop " + PROP_MEDIA_VOL_STEPS + " " + steps + " 2>/dev/null",
                 "else",
                 "  resetprop --delete " + PROP_MEDIA_VOL_STEPS + " 2>/dev/null"
                         + " || magisk resetprop --delete " + PROP_MEDIA_VOL_STEPS + " 2>/dev/null",
@@ -143,10 +140,10 @@ public final class Shell {
         ShellResult write = su(command.toString());
 
         // 立即对齐当前属性值（供本周期内任何 system_server 重启使用）
-        if (enabled) {
-            su("resetprop " + PROP_MEDIA_VOL_STEPS + " " + Prefs.clampMediaSteps(mediaSteps)
+        if (active) {
+            su("resetprop " + PROP_MEDIA_VOL_STEPS + " " + steps
                     + " 2>/dev/null || magisk resetprop " + PROP_MEDIA_VOL_STEPS + " "
-                    + Prefs.clampMediaSteps(mediaSteps) + " 2>/dev/null");
+                    + steps + " 2>/dev/null");
         } else {
             su("resetprop --delete " + PROP_MEDIA_VOL_STEPS + " 2>/dev/null"
                     + " || magisk resetprop --delete " + PROP_MEDIA_VOL_STEPS + " 2>/dev/null");

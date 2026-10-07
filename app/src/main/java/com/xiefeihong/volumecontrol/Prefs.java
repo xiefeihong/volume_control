@@ -20,26 +20,13 @@ public final class Prefs {
     /** 配置镜像文件：App 以 root 同步写入，Hook 端在 Settings 读取失败时直读该文件兜底。 */
     public static final String MIRROR_CONFIG_FILE = "/data/system/volumecontrol_config";
 
-    public static final String KEY_ENABLED = "enabled";
-    public static final String KEY_MEDIA_STEPS = "media_steps";
-    /** 音量键步进（按键段数）SharedPreferences 键。 */
-    public static final String KEY_KEY_STEPS = "key_steps";
-    public static final String KEY_BT_MODE = "bt_volume_mode";
-    /** 首次运行时捕获的系统原生媒体档位数（模块未覆盖时的 getStreamMaxVolume）。 */
+    /**
+     * App 侧唯一的配置持久化键：整份 {@link VolumeConfig} 以其 {@code toXml()} 存此一键，
+     * 读时 {@code VolumeConfig.fromXml()}。取代此前散落的每模式标量键（对象图取代键位映射）。
+     */
+    public static final String KEY_CONFIG_XML = "config_xml";
+    /** 首次运行时捕获的系统原生媒体档位数（模块未覆盖时的 getStreamMaxVolume，属环境事实、不入配置 XML）。 */
     public static final String KEY_SYSTEM_DEFAULT_STEPS = "system_default_steps";
-    /** 模式A 映射曲线类型 SharedPreferences 键。 */
-    public static final String KEY_CURVE_TYPE_A = "curve_type_a";
-    /** 模式B 映射曲线类型 SharedPreferences 键。 */
-    public static final String KEY_CURVE_TYPE_B = "curve_type_b";
-
-    /** 模式A 音量范围 SharedPreferences 键。 */
-    public static final String KEY_MIN_ABS_A = "min_abs_volume_a";
-    public static final String KEY_MAX_ABS_A = "max_abs_volume_a";
-
-    /** 模式B 音量范围 SharedPreferences 键。 */
-    public static final String KEY_MIN_ABS_B = "min_abs_volume_b";
-    public static final String KEY_MAX_ABS_B = "max_abs_volume_b";
-
 
     /**
      * 蓝牙音量控制模式 A：保持绝对音量（默认）。
@@ -192,6 +179,6 @@ public final class Prefs {
     /** 曲线类型限制在 0~2。 */
     public static int clampCurve(int v) { return Math.max(0, Math.min(CURVE_SQRT, v)); }
 
-    // 配置字符串的序列化 / 解析（原 encodeConfig / decodeConfig）已迁至
-    // VolumeConfig.toRaw() / VolumeConfig.fromRaw()，以具名值对象取代 int[] config。
+    // 配置的序列化 / 解析（toXml / fromXml）统一收敛于 VolumeConfig；
+    // App 侧整份配置以 XML 存于 KEY_CONFIG_XML 单键，不再使用散落的每模式标量键。
 }

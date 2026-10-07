@@ -574,7 +574,7 @@ final class AudioHooks {
                 }
                 VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(chain.getThisObject()));
-                if (!VolumeMode.suppressAbsoluteVolume(config)) {
+                if (!config.suppressBtAbsoluteVolume()) {
                     return chain.proceed();
                 }
                 XposedKit.logOnce("modeb-support", "modeB: force avrcp support=false");
@@ -600,7 +600,7 @@ final class AudioHooks {
                 }
                 VolumeConfig config = XposedKit.readConfig(
                         XposedKit.systemServerContext(chain.getThisObject()));
-                if (!VolumeMode.suppressAbsoluteVolume(config)) {
+                if (!config.suppressBtAbsoluteVolume()) {
                     return chain.proceed();
                 }
                 int index = (Integer) arg0;
@@ -1099,13 +1099,19 @@ final class AudioHooks {
                 // 诊断：媒体档位落到「非按键网格」且近期无按键接管 → 音量键可能走了
                 // 绕过 adjustStreamVolume 的路径，抓一次调用栈以定位该方法。
                 maybeLogKeyBypass(index, config);
-                // 按输出设备分派：软件衰减模式（模式B/耳机模式）在 system_server 改写档位；
-                // 蓝牙模式A（AVRCP）与未识别设备返回 null → 放行。
-                VolumeMode mode = VolumeMode.forSystemServer(config, device);
-                if (mode == null) {
+                // 按输出设备分派：外放/有线/蓝牙各自按其模式在 system_server 改写档位；
+                // 蓝牙模式A（AVRCP）由蓝牙进程处理、该设备默认直通、未识别设备一律放行。
+                OutputDevice d = OutputDevice.fromOutMask(device);
+                if (d == null) {
                     return chain.proceed();
                 }
-                Range range = mode.range(config);
+                Range range = config.activeRangeFor(d);
+                if (range == null) {
+                    return chain.proceed();            // 总开关关闭或该设备默认=直通
+                }
+                if (d.supportsAbsolute() && config.modeFor(d) == Prefs.BT_MODE_ABSOLUTE) {
+                    return chain.proceed();            // 蓝牙模式A 经 AVRCP，不在此衰减
+                }
                 int minAbs = range.min;
                 int maxAbs = range.max;
                 int curveType = range.curve;

@@ -225,6 +225,15 @@
                     android:text="@string/sec_bt_range"
                     android:textStyle="bold" />
 
+                <!-- 设备主维度选项卡：外放 / 有线耳机 / 蓝牙，各自独立配置模式与范围 -->
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/tabDevice"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    app:tabMode="fixed"
+                    app:tabGravity="fill" />
+
                 <!-- 顶部单选芯片：模式A/模式B 同时决定「生效模式」（均对蓝牙/有线/外放生效） -->
                 <com.google.android.material.chip.ChipGroup
                     android:id="@+id/chipGroupRange"
@@ -362,15 +371,6 @@
                         android:alpha="0.7"
                         android:text="@string/range_hint"
                         android:textSize="12sp" />
-
-                    <com.google.android.material.tabs.TabLayout
-                        android:id="@+id/tabNativeDevice"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:visibility="gone"
-                        app:tabMode="fixed"
-                        app:tabGravity="fill" />
 
                     <Spinner
                         android:id="@+id/spinnerNativeMode"
