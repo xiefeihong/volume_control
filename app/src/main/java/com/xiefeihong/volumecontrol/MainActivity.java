@@ -875,16 +875,19 @@ public class MainActivity extends AppCompatActivity {
     /**
      * 门控警告框：未获取系统默认档位时给出三个处理入口——
      * 启用档位修改（打开总开关）／使用默认模式（各设备回落默认直通）／
-     * 使用档位默认值（保留 A/B、把档位设为当前探测到的默认值）。
+     * 使用档位默认值（保留 A/B、把档位设为系统真实默认档位）。
      * 选「使用档位默认值」后置 KEY_SYSTEM_DEFAULT_ACK 不再弹警告；但 KEY_SYSTEM_DEFAULT_STEPS
-     * 只在真正从系统服务探到档位时才固化（取不到不写，保留下次再探测、不把内置兜底当作真实值）。
+     * 只在读到系统服务(AudioManager.getStreamMaxVolume)的真实档位时才固化——本机引擎表
+     * (nativeMusicIndexMax)的值不一定被系统采用，绝不用于固化；读不到可信真实值则不写、留待再探测。
      * 选定后进入常规保存确认框。
      */
     private void showBlockedResolveDialog(VolumeConfig rawPending) {
-        final int steps = systemDefaultSteps();
-        final int key = defaultKeySteps();
-        // 是否真正从系统服务（引擎表）探到默认档位：探到才固化 KEY_SYSTEM_DEFAULT_STEPS。
-        final boolean capturedRealDefault = NativeVolumeCurve.nativeMusicIndexMax() > 0;
+        // 唯一可信来源：系统服务实时读到的媒体档位上限（与 refreshStatus 捕获口径一致：
+        // 1~100 视为原生值，>100 可能被模块放大过、不予固化）。引擎表值不可信，不用。
+        final int realSteps = readStreamMaxSafe(Prefs.STREAM_MUSIC_INDEX);
+        final boolean capturedRealDefault = realSteps >= 1 && realSteps <= 100;
+        final int steps = capturedRealDefault ? Prefs.clampMediaSteps(realSteps) : systemDefaultSteps();
+        final int key = Prefs.clampKeySteps(steps);
         new AlertDialog.Builder(this)
                 .setTitle(R.string.save_need_system_default_title)
                 .setMessage(getString(R.string.save_need_system_default,
@@ -894,7 +897,7 @@ public class MainActivity extends AppCompatActivity {
                 .setNegativeButton(R.string.resolve_default_mode,
                         (d, w) -> proceedSave(rawPending.withAllDevicesDefault(), false))
                 .setPositiveButton(R.string.resolve_default_steps, (d, w) -> {
-                    // 只要用户主动选了「使用档位默认值」就不再弹告；但仅当探到真实档位才固化 KEY。
+                    // 用户主动选了「使用档位默认值」→置 ACK 不再弹；但仅读到可信系统真实档位才固化 KEY。
                     SharedPreferences.Editor ed = prefs.edit();
                     if (capturedRealDefault) {
                         ed.putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, steps);
