@@ -570,7 +570,7 @@ public class MainActivity extends AppCompatActivity {
                         true, caption);
                 binding.tvRangeMapping.setText(Avrcp.buildNativePercentTable(
                         a.percent, a.gainPercentAtAnchor, a.gainDbAtAnchor, showDb,
-                        computeTableColumns(100, showDb ? 999999 : 100, !showDb)));
+                        computePercentTableColumns(a.percent[a.percent.length - 1], showDb)));
                 return;
             }
             NativeVolumeCurve.Curve curve =
@@ -630,6 +630,24 @@ public class MainActivity extends AppCompatActivity {
         String cell = String.format(
                 "%" + pressWidth + "d→%" + valWidth + "d" + (percent ? "%%" : "") + "  ",
                 segs, valueMax);
+        return measureCellColumns(cell);
+    }
+
+    /**
+     * 百分比映射表专用列宽估算：左列为档位百分比（带 {@code %} 后缀），右列 dB（{@code %6.1f}）
+     * 或百分比（{@code %3d%%}）。与 {@link Avrcp#buildNativePercentTable} 的实际单元格格式严格对齐，
+     * 避免宽度低估导致每行最后一个数据换行。
+     */
+    private int computePercentTableColumns(int maxAnchorPct, boolean showDb) {
+        int pctWidth = Math.max(2, String.valueOf(maxAnchorPct).length());
+        String cell = showDb
+                ? String.format(java.util.Locale.US, "%" + pctWidth + "d%%→%6.1f  ", maxAnchorPct, -1.0)
+                : String.format("%" + pctWidth + "d%%→%3d%%  ", maxAnchorPct, 100);
+        return measureCellColumns(cell);
+    }
+
+    /** 以等宽字体测量代表单元格 {@code cell} 的像素宽，返回每行可容纳的列数（<=0 交回自然换行）。 */
+    private int measureCellColumns(String cell) {
         Paint paint = new Paint(binding.tvRangeMapping.getPaint());
         float cellPx = paint.measureText(cell);
         if (cellPx <= 0) {
@@ -840,13 +858,47 @@ public class MainActivity extends AppCompatActivity {
     private void runSave(boolean forceDefault) {
         writeUiIntoModel();
         VolumeConfig rawPending = forceDefault ? buildDefaultConfig() : model;
-        // 关闭态选中 绝对/相对(A/B) 且未获取系统默认档位：无法可靠调档 → 警告并强制回落默认后保存。
+        // 关闭态选中 绝对/相对(A/B) 且未获取系统默认档位：无法可靠调档 → 先弹警告框给出三种处理方式，
+        // 用户选定后再进入常规保存确认框（此时不再重复警告）。
         final boolean blocked = !forceDefault && !rawPending.enabled
                 && rawPending.anyDeviceNonDefault()
                 && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS);
-        final VolumeConfig pending = blocked ? rawPending.withAllDevicesDefault() : rawPending;
+        if (blocked) {
+            showBlockedResolveDialog(rawPending);
+            return;
+        }
+        proceedSave(rawPending, forceDefault);
+    }
+
+    /**
+     * 门控警告框：未获取系统默认档位时给出三个处理入口——
+     * 启用档位修改（打开总开关，档位在 16~29 区间由用户指定，不再依赖系统默认档位）／
+     * 使用默认模式（各设备回落默认直通）／使用档位默认值（保留 A/B 选择、把档位设为系统默认）。
+     * 选定后进入常规保存确认框。
+     */
+    private void showBlockedResolveDialog(VolumeConfig rawPending) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.save_need_system_default_title)
+                .setMessage(getString(R.string.save_need_system_default,
+                        modeLabelShort(warnModeId(rawPending))))
+                .setNeutralButton(R.string.resolve_enable,
+                        (d, w) -> proceedSave(rawPending.withEnabled(true), false))
+                .setNegativeButton(R.string.resolve_default_mode,
+                        (d, w) -> proceedSave(rawPending.withAllDevicesDefault(), false))
+                .setPositiveButton(R.string.resolve_default_steps,
+                        (d, w) -> proceedSave(
+                                rawPending.withSteps(systemDefaultSteps(), defaultKeySteps()), false))
+                .show();
+    }
+
+    /**
+     * 常规保存确认框：与已生效配置比对列出改动，确认才落到 prefs 并推送系统。
+     *
+     * @param fromReset true=「恢复系统默认」路径，保存成功后追加询问是否清除数据。
+     */
+    private void proceedSave(VolumeConfig pending, boolean fromReset) {
         final VolumeConfig base = VolumeConfig.fromXml(lastSavedXml);
-        if (!blocked && base != null && base.toXml().equals(pending.toXml())) {
+        if (base != null && base.toXml().equals(pending.toXml())) {
             Toast.makeText(this, R.string.dlg_save_none, Toast.LENGTH_SHORT).show();
             return;
         }
@@ -868,15 +920,11 @@ public class MainActivity extends AppCompatActivity {
                 sb.append("• ").append(line).append('\n');
             }
         }
-        if (blocked) {
-            sb.append('\n').append(getString(R.string.save_need_system_default,
-                    modeLabelShort(warnModeId(rawPending))));
-        }
         new AlertDialog.Builder(this)
                 .setTitle(R.string.dlg_save_title)
                 .setMessage(sb.toString())
                 .setPositiveButton(R.string.btn_save_confirm,
-                        (d, w) -> commitSave(pending, restartBt, restartSystem))
+                        (d, w) -> commitSave(pending, restartBt, restartSystem, fromReset))
                 .setNegativeButton(R.string.dlg_cancel, null)
                 .show();
     }
@@ -896,13 +944,50 @@ public class MainActivity extends AppCompatActivity {
         return m;
     }
 
-    /** 确认保存：把待写配置落到 prefs、统一回读界面，再推送系统。 */
-    private void commitSave(VolumeConfig pending, boolean restartBt, boolean restartSystem) {
+    /**
+     * 确认保存：把待写配置落到 prefs、统一回读界面，再推送系统。
+     *
+     * @param thenClearData true=「恢复系统默认」路径，推送成功后追加询问是否清除数据；否则直接走重启提示。
+     */
+    private void commitSave(VolumeConfig pending, boolean restartBt, boolean restartSystem,
+            boolean thenClearData) {
         model = pending;
         applyConfigToPrefs(pending);
         loadConfigIntoUi();
         updatePreview();
-        saveToSystem(() -> promptRestart(restartBt, restartSystem));
+        if (thenClearData) {
+            saveToSystem(() -> promptClearData(restartBt, restartSystem));
+        } else {
+            saveToSystem(() -> promptRestart(restartBt, restartSystem));
+        }
+    }
+
+    /** 恢复系统默认保存后追加询问：是否清除此应用写入的数据（配置与日志）。 */
+    private void promptClearData(boolean restartBt, boolean restartSystem) {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.dlg_clear_data_title)
+                .setMessage(R.string.dlg_clear_data_msg)
+                .setPositiveButton(R.string.dlg_clear_data_confirm,
+                        (d, w) -> {
+                            clearAppData();
+                            promptRestart(restartBt, restartSystem);
+                        })
+                .setNegativeButton(R.string.dlg_cancel,
+                        (d, w) -> promptRestart(restartBt, restartSystem))
+                .show();
+    }
+
+    /** 清除此应用写入的所有数据：SharedPreferences（配置、系统默认档位缓存）+ 模块日志文件。 */
+    private void clearAppData() {
+        prefs.edit().clear().commit();
+        lastSavedXml = model.toXml();
+        updateTvPending();
+        try {
+            executor.execute(Shell::clearModuleLogs);
+        } catch (RuntimeException ignored) {
+            Log.i(LOG_TAG, "clear logs task rejected", ignored);
+        }
+        Toast.makeText(this, R.string.toast_data_cleared, Toast.LENGTH_SHORT).show();
     }
 
     /** 三设备模式/范围是否有任一改动（含蓝牙绝对/相对切换的抑制态翻转）。 */

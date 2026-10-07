@@ -25,8 +25,8 @@
     <string name="mode_db">dB 线性</string>
     <string name="mode_amp">振幅线性</string>
     <string name="mode_percept">感知响度</string>
-    <string name="axis_y_label">纵轴</string>
-    <string name="axis_x_label">横轴</string>
+    <string name="axis_y_label">纵轴：</string>
+    <string name="axis_x_label">横轴：</string>
     <string-array name="native_mode_options">
         <item>感知响度</item>
         <item>dB 线性</item>
@@ -91,7 +91,9 @@
     <string name="dlg_reset_title">恢复系统默认</string>
     <string name="dlg_reset_msg">将关闭模块并恢复系统默认（默认档位 %1$d、模式与默认范围）。档位修改需重启系统框架恢复。继续？</string>
     <string name="dlg_restart_bt_title">重启蓝牙</string>
-    <string name="dlg_restart_bt_msg">将关闭并重新打开蓝牙（设置已自动保存）：\n\n• 蓝牙耳机/设备会断开，请重新连接\n• 耗时约数秒，不需要重启系统框架</string>
+    <string name="dlg_restart_bt_msg">将关闭并重新打开蓝牙（设置已自动保存）：\n\n
+• 蓝牙耳机/设备会断开，请重新连接\n
+• 耗时约数秒，不需要重启系统框架</string>
 
     <string name="toast_push_fail">写入系统配置失败，请确认 su 已授权</string>
     <string name="toast_auto_save_fail">自动保存失败：无法写入系统配置，请确认 su 已授权</string>
@@ -111,7 +113,11 @@
     <string name="dlg_save_title">保存修改</string>
     <string name="dlg_save_none">没有需要保存的修改。</string>
     <string name="dlg_save_first">首次保存，将写入以下配置并使其生效：</string>
-    <string name="save_need_system_default">⚠ 当前「启用档位修改」已关闭且处于%1$s模式 (非默认)，但未获取到系统默认音量档位，无法可靠调整档位。将切换到默认模式，或点「恢复系统默认」重启获取系统默认档位后再重试。</string>
+    <string name="save_need_system_default">⚠ 当前「启用档位修改」已关闭且处于%1$s模式（非默认），但未获取到系统默认音量档位，无法可靠调整档位。请选择处理方式：</string>
+    <string name="save_need_system_default_title">无法可靠调整档位</string>
+    <string name="resolve_enable">启用档位修改</string>
+    <string name="resolve_default_mode">使用默认模式</string>
+    <string name="resolve_default_steps">使用档位默认值</string>
     <string name="save_default_note">\n已选中「默认」：保存后模块走系统默认音量并关闭「启用档位修改」开关（不改媒体档位数、不重映射），其余设置保留。</string>
     <string name="change_enable">启用档位修改：%1$s → %2$s</string>
     <string name="mode_name_default">默认</string>
@@ -130,11 +136,17 @@
     <string name="dlg_restart_now">立即重启</string>
     <string name="dlg_restart_later">稍后手动</string>
     <string name="toast_save_done">已保存，无需重启即可生效。</string>
+    <string name="dlg_clear_data_title">清除数据</string>
+    <string name="dlg_clear_data_msg">已恢复系统默认。是否同时清除此应用写入的所有数据（配置与日志）？</string>
+    <string name="dlg_clear_data_confirm">清除</string>
+    <string name="toast_data_cleared">已清除应用配置与日志。</string>
     <string name="toast_restarting">正在重启…</string>
 
     <string name="log_title">模块日志（VolumeControl）</string>
     <string name="btn_logs">查看模块日志</string>
-    <string name="log_empty">未找到模块日志。可能原因：\n• LSPosed 中未启用模块\n• 安装本版本后尚未重启过系统框架 / 蓝牙（Hook 只在进程启动时加载）\n• 此处显示全部级别日志；LSPosed 日志页仅记录错误日志（E 级）</string>
+    <string name="log_empty">未找到模块日志。可能原因：\n
+• LSPosed 中未启用模块\n• 安装本版本后尚未重启过系统框架 / 蓝牙（Hook 只在进程启动时加载）\n
+• 此处显示全部级别日志；LSPosed 日志页仅记录错误日志（E 级）</string>
     <string name="dlg_copy">复制</string>
     <string name="dlg_close">关闭</string>
     <string name="dlg_clear">清理</string>
@@ -143,7 +155,7 @@
 
     <string name="guide_text" formatted="false">1. 在 LSPosed 中启用本模块，然后重启系统框架（本页按钮即可）。\n
 2. 媒体音量档位：可设置 10~127 档（HyperOS 原生默认 15），档位即音量条的可分辨精度，只影响媒体流（音乐/视频）；修改档位后点「重启系统框架」，期间黑屏属正常现象。音量键步进（10~29 段）控制每按一次音量键跳过的档位数（约＝档位÷段数），只影响按键、不影响屏幕拖动。\n
-3. 绝对音量模式（默认）：蓝牙保持绝对音量映射（档位经曲线映射为 AVRCP 0~127），有线/外放则按各自范围做系统档位衰减；第 1 档=最小音量、最高档=最大音量。\n
+3. 绝对音量模式（默认）：蓝牙保持绝对音量映射（档位经曲线映射为 AVRCP 0~127）；第 1 档=最小音量、最高档=最大音量。\n
 4. 相对音量模式（低音量问题首选）：停用绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量。\n
 5. 顶部设备选项卡在「蓝牙/有线耳机/外放」间切换，各设备独立保存模式与范围（打开 App 会自动定位到当前输出设备）。绝对音量仅蓝牙可选；相对音量对三种设备都按各自范围在系统侧衰减；默认则该设备不映射，沿用 ROM 原生曲线。档位数与音量键步进为全局共用。\n
 6. 生效方式：点「保存修改」保存参数，按提示确认重启。切换模式或调整音量范围后需点「重启蓝牙」生效；仅档位修改后需点「重启系统框架」（音量键步进即时生效）。\n
