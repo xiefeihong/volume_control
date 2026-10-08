@@ -44,6 +44,8 @@ public final class CurveChartView extends View {
     private int[] nativeDots;
     /** 默认曲线横轴是否取百分比（true：0~100%；false：0~档位数）。 */
     private boolean nativePercentAxis;
+    /** 默认曲线横轴左端起值（窗口化：百分比模式下可为非 0，表示从设定最小值开始）。 */
+    private int nativeXMin;
     /** 图注：「设备 · 来源(引擎/策略/AOSP) · 纵轴口径」。 */
     private String nativeCaption = "";
 
@@ -94,18 +96,20 @@ public final class CurveChartView extends View {
     }
 
     /**
-     * 「默认（系统原生）」专用：按 {@code gainByX} 逐单位连成真实默认曲线。
+     * 「默认（系统原生）」专用：按 {@code gainByX} 逐单位连成真实默认曲线，横轴可窗口化到 {@code [xMin,xMax]}。
      *
-     * @param xMax        横轴右端值（档位模式=当前档位数，百分比模式=100）
-     * @param gainByX     长度 xMax+1 的归一化增益（0~100%，按横轴单位索引）
-     * @param dots        落点圆点横坐标（档位模式=每次按键落点，百分比模式=XML 锚点）
+     * @param xMin        横轴左端值（窗口起点：百分比模式可为设定最小值对应百分比；常规为 0）
+     * @param xMax        横轴右端值（档位模式=当前档位数，百分比模式=100 或窗口上限）
+     * @param gainByX     按绝对横轴索引的归一化增益（0~100%，长度至少 {@code xMax+1}，仅取 {@code [xMin,xMax]} 段）
+     * @param dots        落点圆点横坐标（绝对值；超出 {@code [xMin,xMax]} 的被裁剪）
      * @param percentAxis 横轴是否取百分比（影响轴标签）
      * @param caption     图注
      */
-    public void configureNativeCurve(int xMax, float[] gainByX, int[] dots,
+    public void configureNativeCurve(int xMin, int xMax, float[] gainByX, int[] dots,
             boolean percentAxis, String caption) {
         this.nativeCurveMode = true;
-        this.maxSteps = Math.max(1, xMax);
+        this.nativeXMin = Math.max(0, xMin);
+        this.maxSteps = Math.max(this.nativeXMin + 1, xMax);
         this.nativeGainPct = gainByX;
         this.nativeDots = dots;
         this.nativePercentAxis = percentAxis;
@@ -185,8 +189,10 @@ public final class CurveChartView extends View {
      * 按 {@link #nativeGainPct} 逐档连成真实默认曲线（ROM 配置或 AOSP 回退）。
      */
     private void drawNative(Canvas canvas, float left, float right, float top, float bottom) {
-        int xMax = Math.max(1, maxSteps);   // 横轴＝系统档位 0~xMax；纵轴＝增益 0~100%
-        // 纵向网格：0 / 半 / 满 档位
+        int xMin = nativeXMin;
+        int xMax = Math.max(xMin + 1, maxSteps);   // 横轴＝[xMin,xMax]（可窗口化）；纵轴＝增益 0~100%
+        float spanX = xMax - xMin;
+        // 纵向网格：0 / 半 / 满（按绘图宽度三等分）
         for (int p = 0; p <= 2; p++) {
             float gx = left + (right - left) * p / 2f;
             canvas.drawLine(gx, top, gx, bottom, gridPaint);
@@ -197,36 +203,42 @@ public final class CurveChartView extends View {
             canvas.drawLine(left, gy, right, gy, gridPaint);
         }
         canvas.drawRect(left, top, right, bottom, axisPaint);
-        // 曲线：逐档位按归一化增益连线（0 档＝0%，满档＝0dB→100%）
-        float prevX = mapX(0, left, right);
-        float prevY = mapPct(gainAt(0), top, bottom);
-        for (int level = 1; level <= xMax; level++) {
-            float x = mapX(level, left, right);
-            float y = mapPct(gainAt(level), top, bottom);
-            canvas.drawLine(prevX, prevY, x, y, curvePaint);
-            prevX = x;
-            prevY = y;
+        // 曲线：逐横轴单位按归一化增益连线（仅取 [xMin,xMax] 段）
+        float prevX = nativeMapX(xMin, xMin, spanX, left, right);
+        float prevY = mapPct(gainAt(xMin), top, bottom);
+        for (int x = xMin + 1; x <= xMax; x++) {
+            float x2 = nativeMapX(x, xMin, spanX, left, right);
+            float y2 = mapPct(gainAt(x), top, bottom);
+            canvas.drawLine(prevX, prevY, x2, y2, curvePaint);
+            prevX = x2;
+            prevY = y2;
         }
-        // 落点圆点：横轴=档位时=每次按键落点；横轴=百分比时=XML 锚点
+        // 落点圆点：横轴=档位时=每次按键落点；横轴=百分比时=XML 锚点（仅落在窗口内）
         float r = 3f * density;
         if (nativeDots != null) {
             for (int dx : nativeDots) {
-                if (dx < 0 || dx > xMax) {
+                if (dx < xMin || dx > xMax) {
                     continue;
                 }
-                canvas.drawCircle(mapX(dx, left, right), mapPct(gainAt(dx), top, bottom),
-                        r, dotPaint);
+                canvas.drawCircle(nativeMapX(dx, xMin, spanX, left, right),
+                        mapPct(gainAt(dx), top, bottom), r, dotPaint);
             }
         }
-        // 横轴标签：百分比模式 0%~100%，否则 0~档位数
-        drawLabel(canvas, nativePercentAxis ? "0%" : "0", left, bottom + 3f * density, false);
-        drawLabel(canvas, nativePercentAxis ? "100%" : String.valueOf(xMax), right,
+        // 横轴标签：百分比模式带 % 后缀，否则取档位数值；端点反映窗口
+        drawLabel(canvas, nativePercentAxis ? xMin + "%" : String.valueOf(xMin),
+                left, bottom + 3f * density, false);
+        drawLabel(canvas, nativePercentAxis ? xMax + "%" : String.valueOf(xMax), right,
                 bottom + 3f * density, true);
         // 纵轴标签：增益百分比
         drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
         drawYText(canvas, "100%", top, left);
         canvas.drawText("系统原生 · " + nativeCaption,
                 left, top - 6f * density, labelPaint);
+    }
+
+    /** 默认曲线横轴映射：把绝对横轴值 {@code x} 按窗口 {@code [xMin, xMin+spanX]} 线性映到画布 x 坐标。 */
+    private static float nativeMapX(int x, int xMin, float spanX, float left, float right) {
+        return left + (right - left) * ((x - xMin) / spanX);
     }
 
     /** 取第 {@code level} 档的归一化增益百分比（越界钳到数组末端）。 */

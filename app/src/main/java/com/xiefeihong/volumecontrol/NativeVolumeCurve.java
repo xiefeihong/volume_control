@@ -195,15 +195,18 @@ public final class NativeVolumeCurve {
         public final float[] gainDbAtAnchor;
         /** 长度 101：整数百分比 0~100 处的归一化增益（画平滑曲线用）。 */
         public final float[] gainByPercent;
+        /** 长度 101：整数百分比 0~100 处的硬件增益 dB（millibel/100，负值），供百分比表取窗口端点。 */
+        public final float[] gainDbByPercent;
         public final Source source;
         public final Mode mode;
 
         Anchors(int[] percent, float[] gainPercentAtAnchor, float[] gainDbAtAnchor,
-                float[] gainByPercent, Source source, Mode mode) {
+                float[] gainByPercent, float[] gainDbByPercent, Source source, Mode mode) {
             this.percent = percent;
             this.gainPercentAtAnchor = gainPercentAtAnchor;
             this.gainDbAtAnchor = gainDbAtAnchor;
             this.gainByPercent = gainByPercent;
+            this.gainDbByPercent = gainDbByPercent;
             this.source = source;
             this.mode = mode;
         }
@@ -225,10 +228,13 @@ public final class NativeVolumeCurve {
             gain[i] = transform(db, floor, ceil, mode);
         }
         float[] byPct = new float[101];
+        float[] dbByPct = new float[101];
         for (int p = 0; p <= 100; p++) {
-            byPct[p] = transform(interpolateDb(points, p), floor, ceil, mode);
+            float db = interpolateDb(points, p);
+            byPct[p] = transform(db, floor, ceil, mode);
+            dbByPct[p] = db / 100f;
         }
-        return new Anchors(pct, gain, gdb, byPct, sourceOf(device), mode);
+        return new Anchors(pct, gain, gdb, byPct, dbByPct, sourceOf(device), mode);
     }
 
     // --- 归一化 / 采样 ---

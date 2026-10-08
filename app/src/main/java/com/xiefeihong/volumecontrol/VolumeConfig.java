@@ -90,8 +90,8 @@ public final class VolumeConfig {
     }
 
     /**
-     * 指定设备当前生效的范围：总开关开启时，非默认设备返回其模式对应范围；默认设备仅当软件
-     * 范围被收窄（非满量程）时返回该范围，满量程/关闭=直通返回 {@code null}。
+     * 指定设备当前生效的范围：总开关开启时，非默认设备返回其模式对应范围；默认设备仅当
+     * 默认范围（{@link DeviceConfig#defaultRange}）被收窄（非满量程）时返回该范围，满量程/关闭=直通返回 {@code null}。
      */
     public Range activeRangeFor(OutputDevice d) {
         if (!enabled) {
@@ -99,7 +99,7 @@ public final class VolumeConfig {
         }
         DeviceConfig c = deviceFor(d);
         if (c.mode == Prefs.BT_MODE_DEFAULT) {
-            return isFullSpan(c.software) ? null : c.software;
+            return isFullSpan(c.defaultRange) ? null : c.defaultRange;
         }
         return c.activeRange();
     }
@@ -175,10 +175,14 @@ public final class VolumeConfig {
     private static final Range FALLBACK_RANGE =
             new Range(Prefs.ABS_VOLUME_MIN_DEFAULT, Prefs.ABS_VOLUME_MAX_DEFAULT,
                     Prefs.CURVE_TYPE_DEFAULT);
+    /** 默认范围的兜底：满量程直通（min=0、max=最大档位数），curve 对默认无效。 */
+    private static final Range DEFAULT_FALLBACK_RANGE =
+            new Range(0, Prefs.MEDIA_STEPS_MAX, Prefs.CURVE_LINEAR);
 
     /**
      * 序列化为紧凑单行 XML（不含单引号，可安全嵌入 {@code settings put global '<v>'} 与镜像
-     * {@code echo}）。每设备始终写模式B 范围 {@code <b>}；仅蓝牙额外写模式A 范围 {@code <a>}。
+     * {@code echo}）。每设备始终写模式B 范围 {@code <b>} 与默认范围 {@code <d>}；
+     * 仅蓝牙额外写模式A 范围 {@code <a>}。
      */
     public String toXml() {
         StringBuilder sb = new StringBuilder(256);
@@ -202,6 +206,7 @@ public final class VolumeConfig {
             appendRange(sb, 'a', c.absolute);
         }
         appendRange(sb, 'b', c.software);
+        appendRange(sb, 'd', c.defaultRange);
         sb.append("</").append(TAG_DEVICE).append('>');
     }
 
@@ -253,13 +258,15 @@ public final class VolumeConfig {
     private static DeviceConfig readDevice(Element root, String name, boolean withAbsolute) {
         Element el = findDevice(root, name);
         if (el == null) {
-            return new DeviceConfig(Prefs.BT_MODE_DEFAULT, FALLBACK_RANGE, FALLBACK_RANGE);
+            return new DeviceConfig(Prefs.BT_MODE_DEFAULT, FALLBACK_RANGE, FALLBACK_RANGE,
+                    DEFAULT_FALLBACK_RANGE);
         }
         int rawMode = intAttr(el, "mode", Prefs.BT_MODE_DEFAULT);
         int mode = normalizeMode(rawMode, withAbsolute);
         Range absolute = withAbsolute ? readRange(el, "a") : FALLBACK_RANGE;
         Range software = readRange(el, "b");
-        return new DeviceConfig(mode, absolute, software);
+        Range defaultRange = readRange(el, "d", DEFAULT_FALLBACK_RANGE);
+        return new DeviceConfig(mode, absolute, software, defaultRange);
     }
 
     private static Element findDevice(Element root, String name) {
@@ -276,6 +283,11 @@ public final class VolumeConfig {
 
     /** 读取指定标签的范围；缺失回落 {@link #FALLBACK_RANGE}。 */
     private static Range readRange(Element parent, String tag) {
+        return readRange(parent, tag, FALLBACK_RANGE);
+    }
+
+    /** 读取指定标签的范围；缺失回落 {@code fallback}。 */
+    private static Range readRange(Element parent, String tag, Range fallback) {
         NodeList list = parent.getElementsByTagName(tag);
         for (int i = 0; i < list.getLength(); i++) {
             Node node = list.item(i);
@@ -287,7 +299,7 @@ public final class VolumeConfig {
                         Prefs.clampCurve(intAttr(el, "curve", Prefs.CURVE_TYPE_DEFAULT)));
             }
         }
-        return FALLBACK_RANGE;
+        return fallback;
     }
 
     private static int intAttr(Element el, String name, int def) {
@@ -330,7 +342,7 @@ public final class VolumeConfig {
     private static String deviceDesc(DeviceConfig c) {
         String m = (c.mode == Prefs.BT_MODE_SOFTWARE) ? "B"
                 : c.mode == Prefs.BT_MODE_ABSOLUTE ? "A" : "默认";
-        Range r = c.activeRange();
+        Range r = (c.mode == Prefs.BT_MODE_DEFAULT) ? c.defaultRange : c.activeRange();
         return m + (r == null ? "" : "[" + r.min + "~" + r.max + "/" + r.curve + "]");
     }
 }

@@ -316,7 +316,8 @@ public class MainActivity extends AppCompatActivity {
     /** 把 {@link #editingDevice} 在 {@link #editingMode} 下的范围载入滑条/曲线（调用方负责 suppress）。 */
     private void loadRangeIntoUi() {
         DeviceConfig dc = model.deviceFor(editingDevice);
-        Range r = (editingMode == VolumeMode.ABSOLUTE) ? dc.absolute : dc.software;
+        Range r = showingDefault ? dc.defaultRange
+                : (editingMode == VolumeMode.ABSOLUTE) ? dc.absolute : dc.software;
         int valueMax = rangeValueMax();
         binding.seekMinAbs.setMax(valueMax);
         binding.seekMaxAbs.setMax(valueMax);
@@ -596,13 +597,40 @@ public class MainActivity extends AppCompatActivity {
             if (selectedNativeAxis == NativeAxis.PERCENT) {
                 NativeVolumeCurve.Anchors a =
                         NativeVolumeCurve.anchorsFor(device, selectedNativeMode);
+                int minPct = (int) Math.round(minS * 100.0 / mediaSteps);
+                int maxPct = (int) Math.round(maxS * 100.0 / mediaSteps);
+                if (maxPct < minPct) {
+                    int tmp = minPct;
+                    minPct = maxPct;
+                    maxPct = tmp;
+                }
+                // 仅取窗口 [minPct,maxPct] 内的点位：窗口内 XML 锚点 + 两端点（保证覆盖窗口）。
+                java.util.TreeSet<Integer> pts = new java.util.TreeSet<>();
+                pts.add(minPct);
+                pts.add(maxPct);
+                for (int p : a.percent) {
+                    if (p >= minPct && p <= maxPct) {
+                        pts.add(p);
+                    }
+                }
+                int[] wp = new int[pts.size()];
+                float[] wg = new float[pts.size()];
+                float[] wdb = new float[pts.size()];
+                int k = 0;
+                for (int p : pts) {
+                    wp[k] = p;
+                    wg[k] = a.gainByPercent[p];
+                    wdb[k] = a.gainDbByPercent[p];
+                    k++;
+                }
                 String caption = devTab + " · " + getString(sourceLabel(a.source))
-                        + " · 纵轴" + getString(modeLabel(a.mode));
-                binding.curveChart.configureNativeCurve(100, a.gainByPercent, a.percent,
-                        true, caption);
-                binding.tvRangeMapping.setText(Avrcp.buildNativePercentTable(
-                        a.percent, a.gainPercentAtAnchor, a.gainDbAtAnchor, showDb,
-                        computePercentTableColumns(a.percent[a.percent.length - 1], showDb)));
+                        + " · 纵轴" + getString(modeLabel(a.mode))
+                        + " · 范围" + minPct + "%~" + maxPct + "%";
+                // 曲线图：横轴窗口化到 [minPct,maxPct]（从设定最小值开始），仅取窗内原生增益。
+                binding.curveChart.configureNativeCurve(minPct, maxPct, a.gainByPercent,
+                        a.percent, true, caption);
+                binding.tvRangeMapping.setText(Avrcp.buildNativePercentTable(wp, wg, wdb, showDb,
+                        computePercentTableColumns(wp[wp.length - 1], showDb)));
                 return;
             }
             NativeVolumeCurve.Curve curve =
@@ -619,7 +647,7 @@ public class MainActivity extends AppCompatActivity {
             String caption = devTab + " · " + getString(sourceLabel(curve.source))
                     + " · 纵轴" + getString(modeLabel(curve.mode))
                     + " · 范围" + minS + "~" + maxS;
-            binding.curveChart.configureNativeCurve(mediaSteps, effGain,
+            binding.curveChart.configureNativeCurve(0, mediaSteps, effGain,
                     buildPressLevels(mediaSteps, keySteps), false, caption);
             int segs = Prefs.clampKeySteps(keySteps);
             binding.tvRangeMapping.setText(Avrcp.buildNativeStepsTable(
@@ -801,7 +829,7 @@ public class MainActivity extends AppCompatActivity {
             model = m;
             return;
         }
-        // A/B/默认：模式A 写绝对范围（AVRCP 0~127）；模式B/默认写软件范围（系统档位单位）。
+        // A/B/默认 各写自己独立的范围：模式A→absolute（AVRCP 0~127）；模式B→software；默认→defaultRange（均系统档位单位）。
         DeviceConfig cur = m.deviceFor(editingDevice);
         boolean absolute = editingMode == VolumeMode.ABSOLUTE && editingDevice.supportsAbsolute();
         int valueMax = absolute ? Prefs.AVRCP_MAX_VOLUME : currentMediaSteps();
@@ -810,9 +838,11 @@ public class MainActivity extends AppCompatActivity {
         int hi = absolute ? Prefs.clampAbs(currentMaxAbs())
                 : Prefs.clampSystemStep(currentMaxAbs(), valueMax);
         Range r = new Range(lo, hi, Prefs.clampCurve(currentCurveType()));
-        DeviceConfig upd = absolute
-                ? new DeviceConfig(cur.mode, r, cur.software)
-                : new DeviceConfig(cur.mode, cur.absolute, r);
+        DeviceConfig upd = showingDefault
+                ? new DeviceConfig(cur.mode, cur.absolute, cur.software, r)
+                : absolute
+                        ? new DeviceConfig(cur.mode, r, cur.software, cur.defaultRange)
+                        : new DeviceConfig(cur.mode, cur.absolute, r, cur.defaultRange);
         m = m.withDevice(editingDevice, upd);
         model = m;
     }
@@ -830,13 +860,14 @@ public class MainActivity extends AppCompatActivity {
                 defaultDeviceConfig(), defaultDeviceConfig(), defaultDeviceConfig());
     }
 
-    /** 一个默认设备配置：A 范围取 AVRCP 默认；B/默认共用软件范围以满量程(0~MEDIA_STEPS_MAX)为中立直通起点。 */
+    /** 一个默认设备配置：A 范围取 AVRCP 默认；B/默认 各持一套独立的满量程(0~MEDIA_STEPS_MAX)中立直通起点。 */
     private DeviceConfig defaultDeviceConfig() {
         Range a = new Range(defaultMinAbs(), Prefs.AVRCP_MAX_VOLUME,
                 defaultCurveType(VolumeMode.ABSOLUTE));
-        // max 用 MEDIA_STEPS_MAX（≥任何档位数）→ 默认模式恒为直通；用户拖动才会收窄。
+        // max 用 MEDIA_STEPS_MAX（≥任何档位数）→ 模式B/默认 初值恒为直通；用户拖动才会收窄。
         Range b = new Range(0, Prefs.MEDIA_STEPS_MAX, defaultCurveType(VolumeMode.SOFTWARE));
-        return new DeviceConfig(Prefs.BT_MODE_DEFAULT, a, b);
+        Range d = new Range(0, Prefs.MEDIA_STEPS_MAX, defaultCurveType(VolumeMode.SOFTWARE));
+        return new DeviceConfig(Prefs.BT_MODE_DEFAULT, a, b, d);
     }
 
     /** 当前待保存配置（模型即时反映界面）。 */
@@ -1114,6 +1145,7 @@ public class MainActivity extends AppCompatActivity {
         }
         addRangeChange(out, name + "·" + getString(R.string.mode_short_absolute), from.absolute, to.absolute);
         addRangeChange(out, name + "·" + getString(R.string.mode_short_software), from.software, to.software);
+        addRangeChange(out, name + "·" + getString(R.string.mode_name_default), from.defaultRange, to.defaultRange);
     }
 
     private void addRangeChange(List<String> out, String name, Range from, Range to) {
