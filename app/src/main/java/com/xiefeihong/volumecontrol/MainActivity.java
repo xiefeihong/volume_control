@@ -157,7 +157,9 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
                 }
-                onConfigChanged();
+                // 仅 min/max 滑条变更才回写设备范围；改档位/步进只同步 steps，避免把中立满量程范围压扁。
+                boolean rangeSource = seekBar == binding.seekMinAbs || seekBar == binding.seekMaxAbs;
+                onConfigChanged(rangeSource);
             }
 
             @Override
@@ -293,25 +295,33 @@ public class MainActivity extends AppCompatActivity {
         int mode = clampModeForDevice(editingDevice, dc.mode);
         if (mode == Prefs.BT_MODE_DEFAULT) {
             showingDefault = true;
-            editingMode = allowAbs ? VolumeMode.ABSOLUTE : VolumeMode.SOFTWARE;
+            editingMode = VolumeMode.SOFTWARE;   // 默认用系统档位口径编辑最小/最大
             binding.chipGroupRange.check(R.id.chipDefault);
-            binding.groupRangeEditors.setVisibility(View.GONE);
+            loadRangeIntoUi();
         } else {
             showingDefault = false;
             editingMode = (mode == Prefs.BT_MODE_ABSOLUTE && allowAbs)
                     ? VolumeMode.ABSOLUTE : VolumeMode.SOFTWARE;
             binding.chipGroupRange.check(modeToChipId(editingMode));
-            binding.groupRangeEditors.setVisibility(View.VISIBLE);
             loadRangeIntoUi();
         }
+    }
+
+    /** 当前编辑口径下 min/max 滑条的满量程值：模式A=127（AVRCP），模式B/默认=当前档位数。 */
+    private int rangeValueMax() {
+        boolean absolute = editingMode == VolumeMode.ABSOLUTE && editingDevice.supportsAbsolute();
+        return absolute ? Prefs.AVRCP_MAX_VOLUME : currentMediaSteps();
     }
 
     /** 把 {@link #editingDevice} 在 {@link #editingMode} 下的范围载入滑条/曲线（调用方负责 suppress）。 */
     private void loadRangeIntoUi() {
         DeviceConfig dc = model.deviceFor(editingDevice);
         Range r = (editingMode == VolumeMode.ABSOLUTE) ? dc.absolute : dc.software;
-        binding.seekMinAbs.setProgress(r.min);
-        binding.seekMaxAbs.setProgress(r.max);
+        int valueMax = rangeValueMax();
+        binding.seekMinAbs.setMax(valueMax);
+        binding.seekMaxAbs.setMax(valueMax);
+        binding.seekMinAbs.setProgress(Prefs.clampAbs(Math.min(valueMax, r.min)));
+        binding.seekMaxAbs.setProgress(Prefs.clampAbs(Math.min(valueMax, r.max)));
         binding.radioCurveType.check(curveRadioId(r.curve));
     }
 
@@ -377,7 +387,7 @@ public class MainActivity extends AppCompatActivity {
         // 仅用户真实点击开关时落盘/刷新；loadConfigIntoUi 里程序化 setChecked 也会触发本方法，
         // 此刻切片尚未载入，若落盘会用中间态覆盖模型，故 suppress 期间跳过。
         if (!outer) {
-            onConfigChanged();
+            onConfigChanged(false);
         }
     }
 
@@ -407,15 +417,18 @@ public class MainActivity extends AppCompatActivity {
         updateTvPending();
     }
 
-    /** 选中「默认」芯片：把当前设备设为默认直通（保留其 A/B 范围），隐藏编辑控件、只读预览。 */
+    /** 选中「默认」芯片：把当前设备设为默认（可编辑最小/最大、保留窗内原生形状），隐藏曲线区。 */
     private void showDefaultTab() {
         if (suppressListeners) {
             return;
         }
         showingDefault = true;
-        binding.groupRangeEditors.setVisibility(View.GONE);
+        editingMode = VolumeMode.SOFTWARE;
+        suppressListeners = true;
         DeviceConfig cur = model.deviceFor(editingDevice);
         model = model.withDevice(editingDevice, cur.withMode(Prefs.BT_MODE_DEFAULT));
+        loadRangeIntoUi();
+        suppressListeners = false;
         persistToPrefs(false);
         updatePreview();
         updateTvPending();
@@ -453,7 +466,7 @@ public class MainActivity extends AppCompatActivity {
 
     // ==================== 配置计算与预览 ====================
 
-    /** 当前选择的媒体音量级数（10~127）。 */
+    /** 当前选择的媒体音量级数（10~100）。 */
     private int currentMediaSteps() {
         return Prefs.MEDIA_STEPS_MIN + binding.seekMediaSteps.getProgress();
     }
@@ -546,21 +559,40 @@ public class MainActivity extends AppCompatActivity {
 
     private void updatePreview() {
         binding.groupNativeSelectors.setVisibility(showingDefault ? View.VISIBLE : View.GONE);
+        // 编辑区常显；默认模式隐藏曲线选择区（无映射曲线）。
+        binding.groupRangeEditors.setVisibility(View.VISIBLE);
+        int curveBlockVis = showingDefault ? View.GONE : View.VISIBLE;
+        binding.labelCurve.setVisibility(curveBlockVis);
+        binding.radioCurveType.setVisibility(curveBlockVis);
+        binding.tvCurveHint.setVisibility(curveBlockVis);
+        // min/max 滑条满量程随编辑口径变化（模式A=127，B/默认=当前档位数）。
+        int sliderMax = rangeValueMax();
+        if (binding.seekMinAbs.getMax() != sliderMax) {
+            binding.seekMinAbs.setMax(sliderMax);
+        }
+        if (binding.seekMaxAbs.getMax() != sliderMax) {
+            binding.seekMaxAbs.setMax(sliderMax);
+        }
         int mediaSteps = currentMediaSteps();
         binding.tvMediaSteps.setText(getString(R.string.label_media_steps_fmt, mediaSteps));
         int keySteps = currentKeySteps();
         binding.tvKeySteps.setText(getString(R.string.label_key_steps_fmt,
                 keySteps, Prefs.keyDelta(mediaSteps, keySteps)));
 
-        // 默认（只读）：按当前设备选中的真实默认增益曲线（ROM 配置或 AOSP 回退）绘制；
-        // 横轴口径决定 x 轴/映射表左侧：档位（当前档位数 + 当前音量键步进）或 百分比（XML 档位百分比）。
+        // 默认：与 A/B 同范式，按当前 [min,max] 把窗内原生响度曲线重算（目标档位线性等分）。
         if (showingDefault) {
-            int nativeSteps = systemDefaultSteps();
             NativeVolumeCurve.Device device =
                     NativeVolumeCurve.Device.values()[editingDevice.ordinal()];
             boolean showDb = selectedNativeMode == NativeVolumeCurve.Mode.DB_LINEAR;
             String devTab = getString(deviceTabLabel(device));
-            binding.tvSummary.setText(getString(R.string.default_range_info, nativeSteps));
+            int minS = Prefs.clampSystemStep(currentMinAbs(), mediaSteps);
+            int maxS = Prefs.clampSystemStep(currentMaxAbs(), mediaSteps);
+            binding.tvMinAbs.setText(getString(R.string.label_min_abs_fmt, minS,
+                    Math.round(minS * 100.0 / mediaSteps)));
+            binding.tvMaxAbs.setText(getString(R.string.label_max_abs_fmt, maxS,
+                    Math.round(maxS * 100.0 / mediaSteps)));
+            binding.tvRangeHint.setText(getString(R.string.range_hint));
+            binding.tvSummary.setText(getString(R.string.default_range_info, systemDefaultSteps()));
             if (selectedNativeAxis == NativeAxis.PERCENT) {
                 NativeVolumeCurve.Anchors a =
                         NativeVolumeCurve.anchorsFor(device, selectedNativeMode);
@@ -575,33 +607,43 @@ public class MainActivity extends AppCompatActivity {
             }
             NativeVolumeCurve.Curve curve =
                     NativeVolumeCurve.curveFor(device, mediaSteps, selectedNativeMode);
+            float[] effGain = new float[mediaSteps + 1];
+            float[] effDb = curve.gainDb != null ? new float[mediaSteps + 1] : null;
+            for (int i = 0; i <= mediaSteps; i++) {
+                int t = Avrcp.defaultRangeToIndex(i, mediaSteps, minS, maxS);
+                effGain[i] = curve.gainPercent[t];
+                if (effDb != null) {
+                    effDb[i] = curve.gainDb[t];
+                }
+            }
             String caption = devTab + " · " + getString(sourceLabel(curve.source))
-                    + " · 纵轴" + getString(modeLabel(curve.mode));
-            binding.curveChart.configureNativeCurve(mediaSteps, curve.gainPercent,
+                    + " · 纵轴" + getString(modeLabel(curve.mode))
+                    + " · 范围" + minS + "~" + maxS;
+            binding.curveChart.configureNativeCurve(mediaSteps, effGain,
                     buildPressLevels(mediaSteps, keySteps), false, caption);
             int segs = Prefs.clampKeySteps(keySteps);
             binding.tvRangeMapping.setText(Avrcp.buildNativeStepsTable(
-                    mediaSteps, curve.gainPercent, curve.gainDb, showDb, keySteps,
+                    mediaSteps, effGain, effDb, showDb, keySteps,
                     computeTableColumns(segs, showDb ? 999999 : 100, !showDb)));
             return;
         }
 
         int minAbs = currentMinAbs();
         int maxAbs = currentMaxAbs();
+        boolean useSystemIndex = editingMode.attenuatesInSystemServer();
+        int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
         binding.tvMinAbs.setText(getString(R.string.label_min_abs_fmt, minAbs,
-                Math.round(minAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
+                Math.round(minAbs * 100.0 / valueMax)));
         binding.tvMaxAbs.setText(getString(R.string.label_max_abs_fmt, maxAbs,
-                Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME)));
+                Math.round(maxAbs * 100.0 / valueMax)));
         binding.tvRangeHint.setText(getString(R.string.range_hint));
 
         // 关闭「启用档位修改」时档位/步进滑条锁到系统默认，故按 mediaSteps/keySteps（=系统默认）
         // + 当前 A/B 的最小/最大/曲线渲染预览；音量范围编辑区仍保持可用。
         int curveType = currentCurveType();
         int segs = Prefs.clampKeySteps(keySteps);
-        boolean useSystemIndex = editingMode.attenuatesInSystemServer();
         binding.tvSummary.setText(Avrcp.buildPreview(
                 mediaSteps, editingMode.modeId(), minAbs, maxAbs, curveType, keySteps));
-        int valueMax = useSystemIndex ? mediaSteps : Prefs.AVRCP_MAX_VOLUME;
         binding.curveChart.configure(
                 mediaSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps);
         binding.tvRangeMapping.setText(Avrcp.buildMappingTable(
@@ -723,33 +765,55 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** 界面任一设置变更：把控件当前值写回模型、暂存 Preferences 并刷新预览/未保存提示。 */
+    /** 界面任一设置变更（含曲线/范围）：写回 steps + 当前设备范围。 */
     private void onConfigChanged() {
+        onConfigChanged(true);
+    }
+
+    /**
+     * 界面任一设置变更：把控件当前值写回模型、暂存 Preferences 并刷新预览/未保存提示。
+     * {@code writeRange=false} 时仅同步档位/步进、不动当前设备 min/max（改档位不应把中立满量程范围压扁），
+     * 随后按新档位数重载 min/max 滑条。
+     */
+    private void onConfigChanged(boolean writeRange) {
         if (suppressListeners) {
             return;
         }
-        writeUiIntoModel();
+        writeUiIntoModel(writeRange);
         persistToPrefs(false);
+        if (!writeRange) {
+            suppressListeners = true;
+            loadRangeIntoUi();   // 档位变了：滑条满量程随新档位数重载，进度读回未改动的存储范围。
+            suppressListeners = false;
+        }
         updatePreview();
         updateTvPending();
     }
 
-    /** 把共享控件当前状态（启用开关 / 档位 / 步进 / 当前设备范围）写回 {@link #model}。 */
-    private void writeUiIntoModel() {
+    /** 把共享控件当前状态写回 {@link #model}；{@code writeRange=false} 时仅同步启用/档位/步进。 */
+    private void writeUiIntoModel(boolean writeRange) {
         boolean enabled = binding.switchEnable.isChecked();
         VolumeConfig m = model.withEnabled(enabled);
         if (enabled) {
             m = m.withSteps(currentMediaSteps(), currentKeySteps());
         }
-        if (!showingDefault) {
-            DeviceConfig cur = m.deviceFor(editingDevice);
-            Range r = new Range(Prefs.clampAbs(currentMinAbs()), Prefs.clampAbs(currentMaxAbs()),
-                    Prefs.clampCurve(currentCurveType()));
-            DeviceConfig upd = (editingMode == VolumeMode.ABSOLUTE)
-                    ? new DeviceConfig(cur.mode, r, cur.software)
-                    : new DeviceConfig(cur.mode, cur.absolute, r);
-            m = m.withDevice(editingDevice, upd);
+        if (!writeRange) {
+            model = m;
+            return;
         }
+        // A/B/默认：模式A 写绝对范围（AVRCP 0~127）；模式B/默认写软件范围（系统档位单位）。
+        DeviceConfig cur = m.deviceFor(editingDevice);
+        boolean absolute = editingMode == VolumeMode.ABSOLUTE && editingDevice.supportsAbsolute();
+        int valueMax = absolute ? Prefs.AVRCP_MAX_VOLUME : currentMediaSteps();
+        int lo = absolute ? Prefs.clampAbs(currentMinAbs())
+                : Prefs.clampSystemStep(currentMinAbs(), valueMax);
+        int hi = absolute ? Prefs.clampAbs(currentMaxAbs())
+                : Prefs.clampSystemStep(currentMaxAbs(), valueMax);
+        Range r = new Range(lo, hi, Prefs.clampCurve(currentCurveType()));
+        DeviceConfig upd = absolute
+                ? new DeviceConfig(cur.mode, r, cur.software)
+                : new DeviceConfig(cur.mode, cur.absolute, r);
+        m = m.withDevice(editingDevice, upd);
         model = m;
     }
 
@@ -766,12 +830,12 @@ public class MainActivity extends AppCompatActivity {
                 defaultDeviceConfig(), defaultDeviceConfig(), defaultDeviceConfig());
     }
 
-    /** 一个默认直通的设备配置，A/B 范围取各自默认值（供首次进入某模式时预览合理起点）。 */
+    /** 一个默认设备配置：A 范围取 AVRCP 默认；B/默认共用软件范围以满量程(0~MEDIA_STEPS_MAX)为中立直通起点。 */
     private DeviceConfig defaultDeviceConfig() {
-        Range a = new Range(defaultMinAbs(), Prefs.ABS_VOLUME_MAX_DEFAULT,
+        Range a = new Range(defaultMinAbs(), Prefs.AVRCP_MAX_VOLUME,
                 defaultCurveType(VolumeMode.ABSOLUTE));
-        Range b = new Range(defaultMinAbs(), Prefs.ABS_VOLUME_MAX_DEFAULT,
-                defaultCurveType(VolumeMode.SOFTWARE));
+        // max 用 MEDIA_STEPS_MAX（≥任何档位数）→ 默认模式恒为直通；用户拖动才会收窄。
+        Range b = new Range(0, Prefs.MEDIA_STEPS_MAX, defaultCurveType(VolumeMode.SOFTWARE));
         return new DeviceConfig(Prefs.BT_MODE_DEFAULT, a, b);
     }
 
@@ -856,7 +920,7 @@ public class MainActivity extends AppCompatActivity {
      * @param forceDefault true=「恢复系统默认」完整重置（关闭总开关、各设备默认直通）。
      */
     private void runSave(boolean forceDefault) {
-        writeUiIntoModel();
+        writeUiIntoModel(true);
         VolumeConfig rawPending = forceDefault ? buildDefaultConfig() : model;
         // 关闭态选中 绝对/相对(A/B) 且尚未获取系统默认档位、且用户未确认过：无法可靠调档 →
         // 先弹警告框给出三种处理方式，用户选定后再进入常规保存确认框（此时不再重复警告）。

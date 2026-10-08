@@ -30,7 +30,7 @@ public final class VolumeConfig {
 
     /** 模块总开关：关闭时全部设备直通（不重写档位数、不重映射）。 */
     public final boolean enabled;
-    /** 媒体音量级数（已限制在 10~127），全局共用。 */
+    /** 媒体音量级数（已限制在 10~100），全局共用。 */
     public final int mediaSteps;
     /** 音量键步进（跨完整音量条需要的按键段数，已限制在 10~29），全局共用。 */
     public final int keySteps;
@@ -90,15 +90,23 @@ public final class VolumeConfig {
     }
 
     /**
-     * 指定设备当前生效的范围：仅当总开关开启且该设备非默认时返回其模式对应范围，否则 {@code null}
-     * （默认/关闭=直通）。
+     * 指定设备当前生效的范围：总开关开启时，非默认设备返回其模式对应范围；默认设备仅当软件
+     * 范围被收窄（非满量程）时返回该范围，满量程/关闭=直通返回 {@code null}。
      */
     public Range activeRangeFor(OutputDevice d) {
         if (!enabled) {
             return null;
         }
         DeviceConfig c = deviceFor(d);
-        return c.isDefault() ? null : c.activeRange();
+        if (c.mode == Prefs.BT_MODE_DEFAULT) {
+            return isFullSpan(c.software) ? null : c.software;
+        }
+        return c.activeRange();
+    }
+
+    /** 满量程（等价直通）：{@code min<=0 且 max>=mediaSteps}；null 视为满量程。 */
+    private boolean isFullSpan(Range r) {
+        return r == null || (r.min <= 0 && r.max >= mediaSteps);
     }
 
     // ==================== 生效判据 ====================
@@ -108,7 +116,9 @@ public final class VolumeConfig {
      * 总开关关闭，或三设备全部处于默认直通时为 false → 保持系统默认档位数。
      */
     public boolean remapActive() {
-        return enabled && (!speaker.isDefault() || !wired.isDefault() || !bluetooth.isDefault());
+        return enabled && (activeRangeFor(OutputDevice.SPEAKER) != null
+                || activeRangeFor(OutputDevice.WIRED) != null
+                || activeRangeFor(OutputDevice.BT) != null);
     }
 
     /** 蓝牙是否处于「相对音量（模式B）」：需抑制 AVRCP 绝对音量、走系统软件衰减。 */

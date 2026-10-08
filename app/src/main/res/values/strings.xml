@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">音量阶数</string>
-    <string name="app_subtitle">蓝牙/有线/外放独立配档位 · 档位 10~127 · 按键段数 10~29</string>
-    <string name="xposed_description">自定义媒体音量档位（10~127）与音量键步进（10~29），并提供两种音量控制模式。</string>
+    <string name="app_subtitle">蓝牙/有线/外放独立配档位 · 档位 10~100 · 按键段数 10~29</string>
+    <string name="xposed_description">自定义媒体音量档位（10~100）与音量键步进（10~29），并提供两种音量控制模式。</string>
 
     <string name="sec_status">运行状态</string>
     <string name="sec_media">媒体音量档位</string>
@@ -45,10 +45,10 @@
     <string name="btn_reset">恢复系统默认（关闭模块）</string>
 
     <string name="label_enable">启用档位修改</string>
-    <string name="label_media_steps_default">档位（范围 10~127）</string>
+    <string name="label_media_steps_default">档位（范围 10~100）</string>
     <string name="label_media_steps_sys_default">档位：默认</string>
-    <string name="label_media_steps_fmt">档位：%1$d 档（范围 10~127）</string>
-    <string name="media_hint">可设置 10~127 档（默认为系统原生档位）。档位越多，音量条越细、可分辨的档位越多。修改暂存于界面，需点「保存修改」后写入并按提示重启生效。</string>
+    <string name="label_media_steps_fmt">档位：%1$d 档（范围 10~100）</string>
+    <string name="media_hint">可设置 10~100 档（默认为系统原生档位）。档位越多，音量条越细、可分辨的档位越多。修改暂存于界面，需点「保存修改」后写入并按提示重启生效。</string>
     <string name="label_key_steps_default">音量键步进（按键段数 10~29）</string>
     <string name="label_key_steps_fmt">音量键步进：%1$d 段（每次约跳 %2$d 档）</string>
     <string name="key_steps_hint">每按一次音量键约跳「档位 ÷ 段数」个档。段数越大跳得越细；屏幕滑条不受此限，可逐档精调。未启用或恢复默认时，步进段数默认等于手机默认档位。</string>
@@ -154,7 +154,7 @@
     <string name="toast_logs_cleared">日志文件已清理</string>
 
     <string name="guide_text" formatted="false">1. 在 LSPosed 中启用本模块，然后重启系统框架（本页按钮即可）。\n
-2. 媒体音量档位：可设置 10~127 档（HyperOS 原生默认 15），档位即音量条的可分辨精度，只影响媒体流（音乐/视频）；修改档位后点「重启系统框架」，期间黑屏属正常现象。音量键步进（10~29 段）控制每按一次音量键跳过的档位数（约＝档位÷段数），只影响按键、不影响屏幕拖动。\n
+2. 媒体音量档位：可设置 10~100 档（HyperOS 原生默认 15），档位即音量条的可分辨精度，只影响媒体流（音乐/视频）；修改档位后点「重启系统框架」，期间黑屏属正常现象。音量键步进（10~29 段）控制每按一次音量键跳过的档位数（约＝档位÷段数），只影响按键、不影响屏幕拖动。\n
 3. 绝对音量模式（默认）：蓝牙保持绝对音量映射（档位经曲线映射为 AVRCP 0~127）；第 1 档=最小音量、最高档=最大音量。\n
 4. 相对音量模式（低音量问题首选）：停用绝对音量，由手机端软件衰减音频信号，耳机固定自身硬件音量。\n
 5. 顶部设备选项卡在「蓝牙/有线耳机/外放」间切换，各设备独立保存模式与范围（打开 App 会自动定位到当前输出设备）。绝对音量仅蓝牙可选；相对音量对三种设备都按各自范围在系统侧衰减；默认则该设备不映射，沿用 ROM 原生曲线。档位数与音量键步进为全局共用。\n

@@ -163,7 +163,7 @@
                     android:id="@+id/seekMediaSteps"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:max="117" />
+                    android:max="90" />
 
                 <TextView
                     android:layout_width="match_parent"
@@ -279,6 +279,7 @@
                         android:orientation="vertical">
 
                     <TextView
+                        android:id="@+id/labelCurve"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
@@ -315,6 +316,7 @@
                     </RadioGroup>
 
                     <TextView
+                        android:id="@+id/tvCurveHint"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"

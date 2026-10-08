@@ -1112,19 +1112,23 @@ final class AudioHooks {
                 if (d.supportsAbsolute() && config.modeFor(d) == Prefs.BT_MODE_ABSOLUTE) {
                     return chain.proceed();            // 蓝牙模式A 经 AVRCP，不在此衰减
                 }
-                int minAbs = range.min;
-                int maxAbs = range.max;
+                int minStep = range.min;
+                int maxStep = range.max;
                 int curveType = range.curve;
-                // 全量程无需衰减时直接放行
-                if (maxAbs >= Prefs.AVRCP_MAX_VOLUME && minAbs <= 0) {
-                    return chain.proceed();
-                }
                 int maxSteps = XposedKit.getIntField(state, FIELD_INDEX_MAX) / 10;
                 if (maxSteps <= 0) {
                     return chain.proceed();
                 }
-                // curve 映射（按所选曲线，与模式A 同算法）
-                int mapped = Avrcp.curveToSystemIndex(index, maxSteps, minAbs, maxAbs, curveType);
+                boolean defaultMode = config.modeFor(d) == Prefs.BT_MODE_DEFAULT;
+                // 模式B 满量程（0~maxSteps）无需衰减时直接放行；
+                // 默认模式已由 activeRangeFor 在满量程时返回 null 拦截，此处只需处理收窄。
+                if (!defaultMode && maxStep >= maxSteps && minStep <= 0) {
+                    return chain.proceed();
+                }
+                // 默认：目标档位在 [min,max] 线性等分（无曲线）；模式B：按所选曲线直映射为系统档位。
+                int mapped = defaultMode
+                        ? Avrcp.defaultRangeToIndex(index, maxSteps, minStep, maxStep)
+                        : Avrcp.curveToSystemIndex(index, maxSteps, minStep, maxStep, curveType);
                 // 仅在无需改变时放行；mapped>index 抬升低档位以生效「最小音量」下限，
                 // mapped<index 压低高档位以生效「最大音量」上限（软件衰减）。
                 if (mapped == index) {
@@ -1132,9 +1136,9 @@ final class AudioHooks {
                 }
                 if (index != sLastLoggedSystemIndex) {
                     sLastLoggedSystemIndex = index;
-                    XposedKit.log("vol remap: " + index + "/" + maxSteps
-                            + " -> " + mapped + " (range=" + minAbs + "~" + maxAbs
-                            + " device=" + device + ")");
+                    XposedKit.log("vol remap(" + (defaultMode ? "default" : "B") + "): "
+                            + index + "/" + maxSteps + " -> " + mapped
+                            + " (range=" + minStep + "~" + maxStep + " device=" + device + ")");
                 }
                 Object[] newArgs = args.toArray();
                 newArgs[0] = mapped;

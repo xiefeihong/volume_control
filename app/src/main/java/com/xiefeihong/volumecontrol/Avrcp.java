@@ -17,8 +17,7 @@ package com.xiefeihong.volumecontrol;
  * <p>三者均保证：档位 1 精确命中 minAbs（minAbs=0 时按 {@link #MIN_VOLUME_FLOOR_RATIO}
  * 取自适应可闻下限，避免第 1 档接近无声）；最大档位精确命中 maxAbs；档位 0 恒为静音。
  * 预览与实际发送（{@code BtHooks.SystemToAvrcpHooker}）调用同一函数，天然一致。
- * 模式B 复用同一曲线（{@code curveToAbsoluteVolume}）再换算回系统档位
- * （{@code avrcp / 127 * maxSteps}）。</p>
+ * 模式B 与 AVRCP 无关，直接在同一曲线族下把档位映射为系统音量档位（{@code curveToSystemIndex}）。</p>
  */
 public final class Avrcp {
 
@@ -127,27 +126,39 @@ public final class Avrcp {
     }
 
     /**
-     * 模式B 映射：与模式A 相同曲线——手机档位经 {@link #curveToAbsoluteVolume}
-     * 映射为 AVRCP 值，再换算回系统音量档位（{@code avrcp / 127 * maxSteps}）。
-     *
-     * <p>双模式曲线统一；maxAbs&lt;127 时最高系统档位被压缩（滑块上限受限），
-     * 为软件衰减固有行为。档位 0 恒为静音。</p>
-     *
-     * <p><b>精度实测结论（诊断日志 181a202 得出）：</b>本端下发给 audioserver 的
-     * {@code AudioSystem#setStreamVolumeIndex} 的 index 恒为粗档位（与返回的
-     * {@code mapped} 一致），从不出现 ×10——{@code mIndexMap} 里的 ×10 只是
-     * system_server 内部记账。故真实可分辨级数 == maxSteps（与模式A 不同：模式A
-     * 的 0~127 是交给耳机渲染的 AVRCP 绝对音量）。因此 {@code maxAbs<127} 时不同
-     * UI 档塞入 {@code round(maxAbs/127*maxSteps)} 个落点，相邻重复为鸽笼原理
-     * 必然，算法只能重新分布、无法消除；唯一提升精度的是提高 {@code maxSteps}。</p>
+     * 模式B 映射（系统档位直映射，与 AVRCP 无关）：与模式A 同曲线族，但 min/max 以
+     * <b>系统档位单位 0~maxSteps</b> 为经，一次 {@link #applyCurve} 直接得到目标系统档位，
+     * 不再绕道 0~127（消除双重取整、精度更好）。min=0 时按同一自适应下限（{@code minStep} 空间）。
      */
-    public static int curveToSystemIndex(int step, int maxSteps, int minAbs, int maxAbs,
+    public static int curveToSystemIndex(int step, int maxSteps, int minStep, int maxStep,
             int curveType) {
         if (maxSteps <= 0 || step <= 0) {
             return 0;
         }
-        int avrcp = curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
-        int value = (int) Math.round(avrcp / (double) Prefs.AVRCP_MAX_VOLUME * maxSteps);
+        int lo = Math.max(0, Math.min(maxSteps, Math.min(minStep, maxStep)));
+        int hi = Math.max(0, Math.min(maxSteps, Math.max(minStep, maxStep)));
+        if (lo <= 0) {
+            lo = Math.max(1, (int) Math.round(MIN_VOLUME_FLOOR_RATIO * hi));
+        }
+        if (lo > hi) {
+            lo = hi;
+        }
+        return Math.max(0, Math.min(maxSteps, applyCurve(step, maxSteps, lo, hi, curveType)));
+    }
+
+    /**
+     * 默认模式映射（无曲线）：把用户档位的目标系统档位在 {@code [minStep,maxStep]} 间线性等分
+     * 选取：{@code target = round(min + (max-min) * step / maxSteps)}。HAL 仍对目标档位施加其
+     * 原生 dB，故中间听感保持原生曲线形状、仅两端被锚到 min/max。满量程
+     * （{@code min=0 且 max=maxSteps}）时 {@code target=step}，恒等于直通。App 预览与 Hook 共用。
+     */
+    public static int defaultRangeToIndex(int step, int maxSteps, int minStep, int maxStep) {
+        if (maxSteps <= 0 || step <= 0) {
+            return 0;
+        }
+        int lo = Math.max(0, Math.min(maxSteps, Math.min(minStep, maxStep)));
+        int hi = Math.max(0, Math.min(maxSteps, Math.max(minStep, maxStep)));
+        int value = (int) Math.round(lo + (hi - lo) * (double) step / maxSteps);
         return Math.max(0, Math.min(maxSteps, value));
     }
 
@@ -200,30 +211,30 @@ public final class Avrcp {
         return buildAbsolutePreview(maxSteps, minAbs, maxAbs, curveType, keySteps);
     }
 
-    /** 模式B：手机端软件衰减。 */
-    private static String buildSoftwarePreview(int maxSteps, int minAbs, int maxAbs,
+    /** 模式B：手机端软件衰减（系统档位直映射）。 */
+    private static String buildSoftwarePreview(int maxSteps, int minStep, int maxStep,
             int curveType, int keySteps) {
-        int lowest = curveToAbsoluteVolume(1, maxSteps, minAbs, maxAbs, curveType);
-        int maxPercent = (int) Math.round(maxAbs * 100.0 / Prefs.AVRCP_MAX_VOLUME);
+        int lowest = curveToSystemIndex(1, maxSteps, minStep, maxStep, curveType);
+        int maxPercent = (int) Math.round(maxStep * 100.0 / maxSteps);
 
         StringBuilder sb = new StringBuilder();
         sb.append("相对音量模式：停用绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
-        sb.append("档位映射为 AVRCP，再换算回系统音量，范围 ")
-                .append(lowest).append('~').append(maxAbs).append("\n");
+        sb.append("档位直接映射为系统音量档位，范围 ")
+                .append(lowest).append('~').append(maxStep).append("（共 ").append(maxSteps).append(" 档）\n");
 
-        int dups = countDuplicateAtKeySteps(maxSteps, keySteps, minAbs, maxAbs, curveType, true);
+        int dups = countDuplicateAtKeySteps(maxSteps, keySteps, minStep, maxStep, curveType, true);
         if (dups == 0) {
             sb.append("✓ 各次按键的系统音量档位互不相同\n");
         } else {
             sb.append("⚠ 有 ").append(dups)
                     .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
         }
-        sb.append("第 1 档 → 音量 ").append(lowest).append("/127\n");
-        if (maxAbs < Prefs.AVRCP_MAX_VOLUME) {
-            sb.append("最大音量：").append(maxAbs).append("（约 ").append(maxPercent)
+        sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps).append("\n");
+        if (maxStep < maxSteps) {
+            sb.append("最大音量：").append(maxStep).append("（约 ").append(maxPercent)
                     .append("%，滑块上限）\n");
         } else {
-            sb.append("最大音量 127：不限制，滑块可达 100%\n");
+            sb.append("最大档位 ").append(maxSteps).append("：不衰减，滑块可达 100%\n");
         }
         sb.append("· 耳机音量请用耳机自身的音量键调整\n");
         sb.append("· 耳机端音量同步显示会失效（正常现象）\n");

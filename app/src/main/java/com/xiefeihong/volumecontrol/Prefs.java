@@ -75,9 +75,9 @@ public final class Prefs {
     public static final int ABS_VOLUME_MIN_DEFAULT = 0;
     public static final int ABS_VOLUME_MAX_DEFAULT = AVRCP_MAX_VOLUME;
 
-    /** 媒体音量级数的可选范围（10~127）。实测 127 级几乎每级可辨。 */
+    /** 媒体音量级数的可选范围（10~100）。 */
     public static final int MEDIA_STEPS_MIN = 10;
-    public static final int MEDIA_STEPS_MAX = 127;
+    public static final int MEDIA_STEPS_MAX = 100;
     /** 兜底默认媒体档位数（仅在无法探测系统原生档位时使用）。 */
     public static final int MEDIA_STEPS_DEFAULT = 15;
 
@@ -107,6 +107,14 @@ public final class Prefs {
     /** 把音量键步进（按键段数）限制在可选范围 10~29 内。 */
     public static int clampKeySteps(int steps) {
         return Math.max(KEY_STEP_MIN, Math.min(KEY_STEP_MAX, steps));
+    }
+
+    /** 把系统档位（模式B/默认的映射最小/最大目标档）限制在 {@code 0..maxSteps}。 */
+    public static int clampSystemStep(int v, int maxSteps) {
+        if (maxSteps <= 0) {
+            return 0;
+        }
+        return Math.max(0, Math.min(maxSteps, v));
     }
 
     /**
