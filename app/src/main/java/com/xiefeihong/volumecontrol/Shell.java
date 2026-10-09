@@ -122,7 +122,7 @@ public final class Shell {
                 "#!/system/bin/sh",
                 "# VolumeControl boot script: set media volume steps before system_server starts.",
                 "if [ \"" + (active ? 1 : 0) + "\" = \"1\" ] && [ " + steps
-                        + " -ge 16 ] && [ " + steps + " -le 29 ]; then",
+                        + " -ge 10 ] && [ " + steps + " -le 100 ]; then",
                 "  resetprop " + PROP_MEDIA_VOL_STEPS + " " + steps + " 2>/dev/null"
                         + " || magisk resetprop " + PROP_MEDIA_VOL_STEPS + " " + steps + " 2>/dev/null",
                 "else",

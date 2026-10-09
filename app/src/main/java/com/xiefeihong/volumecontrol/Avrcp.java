@@ -1,5 +1,7 @@
 package com.xiefeihong.volumecontrol;
 
+import java.util.function.IntUnaryOperator;
+
 /**
  * 蓝牙 AVRCP 绝对音量映射计算与预览文本。
  *
@@ -163,14 +165,14 @@ public final class Avrcp {
     }
 
     /**
-     * 以音量键步进为主，统计「相邻两次按键落到相同输出值」的次数：第 {@code i} 次按键
-     * 到达档位 {@code keyStepLevel(i, maxSteps, keySteps)}（吸附到 {@code round(i*maxSteps/keySteps)} 网格），
-     * 逐比较相邻按键的输出值。{@code useSystemIndex=true} 取系统档位（模式B/耳机），
-     * {@code false} 取 AVRCP（模式A）。因按键序列只是全部档位的一个子集，重复对数明显少于
-     * “逐档统计”。
+     * 以音量键步进为主，统计「相邻两次按键落到相同输出值」的次数：第 {@code i} 次按键到达档位
+     * {@code keyStepLevel(i, maxSteps, keySteps)}（吸附到 {@code round(i*maxSteps/keySteps)} 网格），
+     * 经 {@code levelToOutput} 映射为输出值后逐比较相邻按键。三种模式共用：模式A 传 AVRCP 映射、
+     * 模式B 传系统档位直映射、默认传 {@link #defaultRangeToIndex}。因按键序列只是全部档位的一个子集，
+     * 重复对数明显少于“逐档统计”。
      */
-    public static int countDuplicateAtKeySteps(int maxSteps, int keySteps, int minAbs, int maxAbs,
-            int curveType, boolean useSystemIndex) {
+    public static int countDuplicateAtKeySteps(int maxSteps, int keySteps,
+            IntUnaryOperator levelToOutput) {
         if (maxSteps <= 0) {
             return 0;
         }
@@ -179,15 +181,26 @@ public final class Avrcp {
         int prevValue = -1;
         for (int press = 1; press <= segs; press++) {
             int level = Prefs.keyStepLevel(press, maxSteps, keySteps);
-            int value = useSystemIndex
-                    ? curveToSystemIndex(level, maxSteps, minAbs, maxAbs, curveType)
-                    : curveToAbsoluteVolume(level, maxSteps, minAbs, maxAbs, curveType);
+            int value = levelToOutput.applyAsInt(level);
             if (press > 1 && value == prevValue) {
                 duplicates++;
             }
             prevValue = value;
         }
         return duplicates;
+    }
+
+    /**
+     * 默认（系统直通）模式的「相邻按键是否落到相同系统档位」提示行：按 {@code [minStep,maxStep]}
+     * 线性等分映射后统计，与模式A/B 的判重文案一致。
+     */
+    public static String defaultKeyStepHint(int maxSteps, int minStep, int maxStep, int keySteps) {
+        int dups = countDuplicateAtKeySteps(maxSteps, keySteps,
+                level -> defaultRangeToIndex(level, maxSteps, minStep, maxStep));
+        if (dups == 0) {
+            return "✓ 各次按键的系统音量档位互不相同";
+        }
+        return "⚠ 有 " + dups + " 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）";
     }
 
     /**
@@ -222,7 +235,8 @@ public final class Avrcp {
         sb.append("档位直接映射为系统音量档位，范围 ")
                 .append(lowest).append('~').append(maxStep).append("（共 ").append(maxSteps).append(" 档）\n");
 
-        int dups = countDuplicateAtKeySteps(maxSteps, keySteps, minStep, maxStep, curveType, true);
+        int dups = countDuplicateAtKeySteps(maxSteps, keySteps,
+                level -> curveToSystemIndex(level, maxSteps, minStep, maxStep, curveType));
         if (dups == 0) {
             sb.append("✓ 各次按键的系统音量档位互不相同\n");
         } else {
@@ -248,8 +262,8 @@ public final class Avrcp {
         int[] range = normalizedRange(minAbs, maxAbs);
         StringBuilder sb = new StringBuilder();
 
-        int duplicates = countDuplicateAtKeySteps(maxSteps, keySteps, range[0], range[1],
-                curveType, false);
+        int duplicates = countDuplicateAtKeySteps(maxSteps, keySteps,
+                level -> curveToAbsoluteVolume(level, maxSteps, range[0], range[1], curveType));
         int lowest = curveToAbsoluteVolume(1, maxSteps, range[0], range[1], curveType);
         int lowestPercent = (int) Math.round(lowest * 100.0 / Prefs.AVRCP_MAX_VOLUME);
         int spacing = maxSteps >= 2
@@ -299,8 +313,16 @@ public final class Avrcp {
         int segs = Prefs.clampKeySteps(keySteps);
         String column = useSystemIndex
                 ? "系统音量档位（0~" + maxSteps + "）" : "AVRCP 音量（0~127）";
-        return renderMappingTable("按键次数 → " + column + "，共 " + segs + " 次：\n",
-                maxSteps, minAbs, maxAbs, curveType, useSystemIndex, keySteps, perLine);
+        int valueMax = useSystemIndex ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
+        String cellFmt = "%" + Math.max(2, String.valueOf(segs).length()) + "d→%"
+                + Math.max(2, String.valueOf(valueMax).length()) + "d";
+        return renderKeyPressTable("按键次数 → " + column + "，共 " + segs + " 次：\n",
+                maxSteps, keySteps, perLine, (press, level) -> {
+                    int value = useSystemIndex
+                            ? curveToSystemIndex(level, maxSteps, minAbs, maxAbs, curveType)
+                            : curveToAbsoluteVolume(level, maxSteps, minAbs, maxAbs, curveType);
+                    return String.format(cellFmt, press, value);
+                });
     }
 
     /**
@@ -321,27 +343,19 @@ public final class Avrcp {
             return "";
         }
         int segs = Prefs.clampKeySteps(keySteps);
-        int pressWidth = Math.max(2, String.valueOf(segs).length());
-        StringBuilder sb = new StringBuilder();
-        sb.append(showDb
+        String title = showDb
                 ? "按键次数 → 增益（dB，硬件阶梯），共 " + segs + " 次：\n"
-                : "按键次数 → 相对增益（按dB归一 0~100%），共 " + segs + " 次：\n");
-        String cellFmt = "%" + pressWidth + "d→" + (showDb ? "%6.1f  " : "%3d%%  ");
-        for (int press = 1; press <= segs; press++) {
-            int level = Prefs.keyStepLevel(press, steps, keySteps);
+                : "按键次数 → 相对增益（按dB归一 0~100%），共 " + segs + " 次：\n";
+        String cellFmt = "%" + Math.max(2, String.valueOf(segs).length()) + "d→"
+                + (showDb ? "%6.1f" : "%3d%%");
+        return renderKeyPressTable(title, steps, keySteps, perLine, (press, level) -> {
             if (showDb) {
                 float db = (gainDb != null && level < gainDb.length) ? gainDb[level] : 0f;
-                sb.append(String.format(java.util.Locale.US, cellFmt, press, db));
-            } else {
-                int out = Math.round(Math.max(0f, Math.min(100f, gainPct[level])));
-                sb.append(String.format(cellFmt, press, out));
+                return String.format(java.util.Locale.US, cellFmt, press, db);
             }
-            if (press < segs && perLine > 0 && press % perLine == 0) {
-                sb.append('\n');
-            }
-        }
-        sb.append('\n');
-        return sb.toString();
+            int out = Math.round(Math.max(0f, Math.min(100f, gainPct[level])));
+            return String.format(cellFmt, press, out);
+        });
     }
 
     /**
@@ -376,28 +390,24 @@ public final class Avrcp {
         return sb.toString();
     }
 
+    /** 单元格格式化：给定第 {@code press} 次按键与其到达档位 {@code level}，产出对齐好的单元格文本（不含分隔符）。 */
+    private interface PressCell {
+        String format(int press, int level);
+    }
+
     /**
-     * 按所选曲线渲染「按键次数 → 输出值」行：左列 = 第几次按键（1~clampKeySteps(keySteps)），
-     * 右列 = 该次到达档位 {@code keyStepLevel(i, ...)}（吸附到 round(i*maxSteps/keySteps)）的输出值。
-     * 每个条目格式化为统一宽度（右对齐补空格）、条目间以两空格分隔；等宽字体下 TextView
-     * 可在空格处自然换行并保持各列对齐。useSystemIndex 时取系统档位（0~maxSteps），否则取 0~127。
+     * 「按键次数 → 输出值」映射表骨架：三种模式（A/B 传 int 输出值、默认传增益百分比/dB）共用。
+     * 逐次按键取到达档位 {@code keyStepLevel(press, maxSteps, keySteps)}，交 {@code cell} 格式化为单元格；
+     * 单元格间以两空格分隔、每满 {@code perLine} 个换行（{@code perLine<=0} 则交给 TextView 自然换行）。
      */
-    private static String renderMappingTable(String title, int maxSteps, int minAbs, int maxAbs,
-            int curveType, boolean useSystemIndex, int keySteps, int perLine) {
-        StringBuilder sb = new StringBuilder(title);
+    private static String renderKeyPressTable(String title, int maxSteps, int keySteps,
+            int perLine, PressCell cell) {
         int segs = Prefs.clampKeySteps(keySteps);
-        int valueMax = useSystemIndex ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
-        int pressWidth = Math.max(2, String.valueOf(segs).length());
-        int valWidth = Math.max(2, String.valueOf(valueMax).length());
-        String cellFmt = "%" + pressWidth + "d→%" + valWidth + "d";
+        StringBuilder sb = new StringBuilder(title);
         for (int press = 1; press <= segs; press++) {
             int level = Prefs.keyStepLevel(press, maxSteps, keySteps);
-            int value = useSystemIndex
-                    ? curveToSystemIndex(level, maxSteps, minAbs, maxAbs, curveType)
-                    : curveToAbsoluteVolume(level, maxSteps, minAbs, maxAbs, curveType);
-            sb.append(String.format(cellFmt, press, value));
+            sb.append(cell.format(press, level));
             if (press < segs) {
-                // perLine>0 时每满一行换行（等宽单元→列对齐）；perLine<=0 则交给 TextView 自然换行。
                 if (perLine > 0 && press % perLine == 0) {
                     sb.append('\n');
                 } else {

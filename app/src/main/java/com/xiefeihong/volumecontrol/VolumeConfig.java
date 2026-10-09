@@ -112,13 +112,14 @@ public final class VolumeConfig {
     // ==================== 生效判据 ====================
 
     /**
-     * Hook 端唯一的生效判据：模块是否应改写系统全局档位数（{@link #mediaSteps} 是否落地）。
-     * 总开关关闭，或三设备全部处于默认直通时为 false → 保持系统默认档位数。
+     * Hook 端是否应改写系统全局媒体档位数（{@link #mediaSteps} 是否落地）：
+     * 「启用档位修改」即 {@link #enabled} 为真时应用用户档位数，关闭时保持系统默认（系统直通）。
+     *
+     * <p>本判据只决定<b>全局档位数</b>是否改写；单个设备是否做音量重映射另由
+     * {@link #activeRangeFor(OutputDevice)} 决定（默认满量程返回 {@code null} → 该设备直通），二者解耦。</p>
      */
     public boolean remapActive() {
-        return enabled && (activeRangeFor(OutputDevice.SPEAKER) != null
-                || activeRangeFor(OutputDevice.WIRED) != null
-                || activeRangeFor(OutputDevice.BT) != null);
+        return enabled;
     }
 
     /** 蓝牙是否处于「相对音量（模式B）」：需抑制 AVRCP 绝对音量、走系统软件衰减。 */

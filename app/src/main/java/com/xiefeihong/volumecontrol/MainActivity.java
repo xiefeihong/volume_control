@@ -39,8 +39,8 @@ import java.util.concurrent.Executors;
  * 整体以 {@code toXml()} 暂存于单一 SharedPreferences 键；须点「保存修改」才推送到系统
  * （Settings.Global + 镜像文件 + boot 脚本），再按需重启蓝牙 / 系统框架使其生效。</p>
  *
- * <p>打开界面时按当前音频输出（{@link #detectCurrentDevice()}）自动选中对应设备标签，并注册
- * {@link AudioManager.AudioDeviceCallback} 在设备插拔时实时跟随切换。</p>
+ * <p>打开界面时按当前音频输出（{@link #detectCurrentDevice()}）定位选中对应设备标签（仅一次），
+ * 之后编辑其它设备时不再因当前输出变化而自动切走。</p>
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -127,8 +127,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 回到前台按当前输出同步设备标签（覆盖软重启 / 后台切设备后返回的情况），再刷新状态。
-        syncDeviceTabToActual();
+        // 回到前台仅刷新状态；设备标签只在 onCreate 定位一次，不随当前输出自动切走（req-5）。
         refreshStatus();
     }
 
@@ -155,6 +154,15 @@ public class MainActivity extends AppCompatActivity {
                     if (seekBar == binding.seekMaxAbs && progress < binding.seekMinAbs.getProgress()) {
                         seekBar.setProgress(binding.seekMinAbs.getProgress());
                         return;
+                    }
+                    // 档位 >= 音量键步进（req-6）：档位滑条不能向左拖到低于步进，回退到步进值。
+                    if (seekBar == binding.seekMediaSteps && currentMediaSteps() < currentKeySteps()) {
+                        seekBar.setProgress(currentKeySteps() - Prefs.MEDIA_STEPS_MIN);
+                        return;
+                    }
+                    // 步进上调超过档位时，把档位滑条顶到步进值（保持档位>=步进）。
+                    if (seekBar == binding.seekKeySteps && currentKeySteps() > currentMediaSteps()) {
+                        binding.seekMediaSteps.setProgress(currentKeySteps() - Prefs.MEDIA_STEPS_MIN);
                     }
                 }
                 // 仅 min/max 滑条变更才回写设备范围；改档位/步进只同步 steps，避免把中立满量程范围压扁。
@@ -275,6 +283,7 @@ public class MainActivity extends AppCompatActivity {
         int keyToShow = enabled ? model.keySteps : defaultKeySteps();
         binding.seekMediaSteps.setProgress(mediaToShow - Prefs.MEDIA_STEPS_MIN);
         binding.seekKeySteps.setProgress(keyToShow - Prefs.KEY_STEP_MIN);
+        clampStepsFloor();
         applyStepsEditable(enabled);
 
         // 设备标签：selectTab 触发 onDeviceTabSelected 载入对应切片（suppress 保护下仅载入不落盘）。
@@ -383,6 +392,7 @@ public class MainActivity extends AppCompatActivity {
         int keySteps = enabled ? model.keySteps : defaultKeySteps();
         binding.seekMediaSteps.setProgress(mediaSteps - Prefs.MEDIA_STEPS_MIN);
         binding.seekKeySteps.setProgress(keySteps - Prefs.KEY_STEP_MIN);
+        clampStepsFloor();
         applyStepsEditable(enabled);
         suppressListeners = outer;
         // 仅用户真实点击开关时落盘/刷新；loadConfigIntoUi 里程序化 setChecked 也会触发本方法，
@@ -477,6 +487,13 @@ public class MainActivity extends AppCompatActivity {
         return Prefs.KEY_STEP_MIN + binding.seekKeySteps.getProgress();
     }
 
+    /** 保证档位滑条不低于音量键步进（req-6 初始态自洽）：当前档位<步进时把档位顶到步进。 */
+    private void clampStepsFloor() {
+        if (currentMediaSteps() < currentKeySteps()) {
+            binding.seekMediaSteps.setProgress(currentKeySteps() - Prefs.MEDIA_STEPS_MIN);
+        }
+    }
+
     /** 共享控件当前选中的映射曲线类型（恒代表 {@link #editingMode}）。 */
     private int currentCurveType() {
         int id = binding.radioCurveType.getCheckedRadioButtonId();
@@ -528,6 +545,17 @@ public class MainActivity extends AppCompatActivity {
     /** 用作滑块默认/恢复目标的值（限制在合法区间）。 */
     private int systemDefaultSteps() {
         return Prefs.clampMediaSteps(systemDefaultStepsRaw());
+    }
+
+    /**
+     * 指定配置生效后系统实际物理媒体档位数：启用时=用户 {@code mediaSteps}，关闭时=系统默认。
+     * 用于判定「保存后是否真的需要重启系统框架」——只有此值相对上次变化才需重启。
+     */
+    private int targetPhysicalSteps(VolumeConfig cfg) {
+        if (cfg == null) {
+            return systemDefaultSteps();
+        }
+        return cfg.enabled ? Prefs.clampMediaSteps(cfg.mediaSteps) : systemDefaultSteps();
     }
 
     /** 音量键步进（段数）的默认/恢复目标：等于媒体级数（再 clampKeySteps 限制到 10~29）。 */
@@ -593,7 +621,8 @@ public class MainActivity extends AppCompatActivity {
             binding.tvMaxAbs.setText(getString(R.string.label_max_abs_fmt, maxS,
                     Math.round(maxS * 100.0 / mediaSteps)));
             binding.tvRangeHint.setText(getString(R.string.range_hint));
-            binding.tvSummary.setText(getString(R.string.default_range_info, systemDefaultSteps()));
+            binding.tvSummary.setText(getString(R.string.default_range_info, systemDefaultSteps())
+                    + "\n" + Avrcp.defaultKeyStepHint(mediaSteps, minS, maxS, keySteps));
             if (selectedNativeAxis == NativeAxis.PERCENT) {
                 NativeVolumeCurve.Anchors a =
                         NativeVolumeCurve.anchorsFor(device, selectedNativeMode);
@@ -1015,12 +1044,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         final List<String> changes = describeChanges(base, pending);
-        final boolean activeToggled = base == null || pending.remapActive() != base.remapActive();
-        final boolean stepsChanged = base != null && pending.mediaSteps != base.mediaSteps;
-        final boolean deviceChanged = deviceConfigChanged(base, pending);
-        // 影响系统档位数的改动须重启系统框架；模式/范围改动须重启蓝牙进程。
-        final boolean needsSystem = activeToggled || stepsChanged;
-        final boolean needsBt = activeToggled || deviceChanged;
+        // 是否需重启系统框架：仅当「实际物理档位数」相对上次生效值发生变化。
+        // 启用 ON 但档位数=系统默认（或启用 OFF）时物理档位数不变 → 不提示重启。
+        final boolean needsSystem = base == null
+                || targetPhysicalSteps(pending) != targetPhysicalSteps(base);
+        // 是否需重启蓝牙：仅当蓝牙设备模式发生变化影响 AVRCP 绝对音量协商（需重连）。
+        // 有线/外放的模式或范围改动经 Hook 每次实时读配置生效，无需重启任何组件。
+        final boolean needsBt = base == null
+                || base.bluetooth.mode != pending.bluetooth.mode;
         final boolean restartSystem = needsSystem;
         final boolean restartBt = !needsSystem && needsBt;
 
@@ -1103,16 +1134,6 @@ public class MainActivity extends AppCompatActivity {
             Log.i(LOG_TAG, "clear data task rejected", ignored);
         }
         Toast.makeText(this, R.string.toast_data_cleared, Toast.LENGTH_SHORT).show();
-    }
-
-    /** 三设备模式/范围是否有任一改动（含蓝牙绝对/相对切换的抑制态翻转）。 */
-    private boolean deviceConfigChanged(VolumeConfig base, VolumeConfig pending) {
-        if (base == null) {
-            return true;
-        }
-        return !base.speaker.equals(pending.speaker)
-                || !base.wired.equals(pending.wired)
-                || !base.bluetooth.equals(pending.bluetooth);
     }
 
     /** 列出待保存配置相对已生效配置的改动（可读条目）；{@code base} 为 null 时返回空。 */
@@ -1266,18 +1287,6 @@ public class MainActivity extends AppCompatActivity {
         return OutputDevice.SPEAKER;
     }
 
-    /** 把设备标签同步到当前实际输出（不一致才切换，切 tab 会载入对应切片）。 */
-    private void syncDeviceTabToActual() {
-        if (binding == null || model == null) {
-            return;
-        }
-        OutputDevice now = detectCurrentDevice();
-        if (now == editingDevice) {
-            return;
-        }
-        selectDeviceTab(now);
-    }
-
     // ==================== 状态检测 ====================
 
     private void refreshStatus() {
@@ -1304,10 +1313,15 @@ public class MainActivity extends AppCompatActivity {
             }
 
             int actualMedia = readStreamMaxSafe(Prefs.STREAM_MUSIC_INDEX);
-            // 首次捕获系统原生媒体档位数：仅在模块未启用（读到的即原生值）且从未记录过时写入一次
+            // 首次捕获系统原生媒体档位数：仅当本地与系统侧都未启用覆盖时，读到的才是未被
+            // 模块改写过的真实原生值（req-3）；否则（已推送生效配置）不固化，避免把覆盖值当默认。
             VolumeConfig stored = VolumeConfig.fromXml(prefs.getString(Prefs.KEY_CONFIG_XML, ""));
             boolean enabledNow = stored != null && stored.enabled;
-            if (!enabledNow && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)
+            VolumeConfig pushed = VolumeConfig.fromXml(
+                    Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output);
+            boolean systemActive = pushed != null && pushed.remapActive();
+            if (!enabledNow && !systemActive
+                    && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)
                     && actualMedia >= 1 && actualMedia <= 100) {
                 prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, actualMedia).commit();
             }
