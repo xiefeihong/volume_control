@@ -25,21 +25,8 @@ public final class Prefs {
      * 读时 {@code VolumeConfig.fromXml()}。取代此前散落的每模式标量键（对象图取代键位映射）。
      */
     public static final String KEY_CONFIG_XML = "config_xml";
-    /**
-     * 系统原生媒体档位数（模块未覆盖时的 getStreamMaxVolume，属环境事实、不入配置 XML）。
-     *
-     * <p>不再只固化首次运行值：每次状态检测时，只要本地与系统侧都停用覆盖、且实时读到的
-     * 档位数不是「上次已推送但尚未重启生效」的覆盖值，就用该真实原生值刷新本键，
-     * 从而关闭「启用档位修改」并重启回退原生后档位值会自动更新。</p>
-     */
+    /** 首次运行时捕获的系统原生媒体档位数（模块未覆盖时的 getStreamMaxVolume，属环境事实、不入配置 XML）。 */
     public static final String KEY_SYSTEM_DEFAULT_STEPS = "system_default_steps";
-
-    /**
-     * 上次推送「启用覆盖」配置时写入的物理档位数（{@code mediaSteps}）。用于判别当前系统实际
-     * 档位数是否仍是尚未重启清除的旧覆盖值：若与实时读到的值相同，说明覆盖仍在生效（重启待完成），
-     * 此时读到的不是原生值，不能刷新 {@link #KEY_SYSTEM_DEFAULT_STEPS}。重启回退原生后自动清除。
-     */
-    public static final String KEY_LAST_PUSHED_STEPS = "last_pushed_steps";
 
     /**
      * 「未获取系统默认档位」警告是否仍需弹出：用户点「使用档位默认值」后置 true 即不再弹。

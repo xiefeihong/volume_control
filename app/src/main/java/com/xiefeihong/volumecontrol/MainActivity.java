@@ -976,12 +976,6 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
                     lastSavedXml = configXml;
-                    // 启用覆盖：记录本次推送的物理档位数，供状态检测判别“重启是否已回退原生”。
-                    // 关闭（active=false）时故意保留旧标记：重启前物理仍为旧覆盖，靠它阻止误刷新；重启后自动清除。
-                    if (active) {
-                        prefs.edit().putInt(Prefs.KEY_LAST_PUSHED_STEPS,
-                                Prefs.clampMediaSteps(mediaSteps)).commit();
-                    }
                     updateTvPending();
                     if (onSaved != null) {
                         onSaved.run();
@@ -1339,22 +1333,17 @@ public class MainActivity extends AppCompatActivity {
             }
 
             int actualMedia = readStreamMaxSafe(Prefs.STREAM_MUSIC_INDEX);
-            // 刷新系统原生媒体档位数（req：关闭“启用档位修改”后应更新）：只要本地与系统侧都停用
-            // 覆盖，读到的就应接近原生值；但“上次已推送但尚未重启生效”的旧覆盖仍可能残留在物理
-            // 档位数里（actualMedia == 旧覆盖），此时不能当作原生值固化，否则会把覆盖值误写为默认
-            // 并破坏 “off_pending” 状态判定。等到重启回退原生后（actualMedia ≠ 旧覆盖）才刷新并清标记。
+            // 首次捕获系统原生媒体档位数：仅当本地与系统侧都未启用覆盖时，读到的才是未被
+            // 模块改写过的真实原生值（req-3）；否则（已推送生效配置）不固化，避免把覆盖值当默认。
             VolumeConfig stored = VolumeConfig.fromXml(prefs.getString(Prefs.KEY_CONFIG_XML, ""));
             boolean enabledNow = stored != null && stored.enabled;
             VolumeConfig pushed = VolumeConfig.fromXml(
                     Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output);
             boolean systemActive = pushed != null && pushed.remapActive();
-            if (!enabledNow && !systemActive && actualMedia >= 1 && actualMedia <= 100) {
-                int lastPushed = prefs.getInt(Prefs.KEY_LAST_PUSHED_STEPS, -1);
-                boolean overrideStillInstalled = lastPushed > 0 && actualMedia == lastPushed;
-                if (!overrideStillInstalled) {
-                    prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, actualMedia)
-                            .remove(Prefs.KEY_LAST_PUSHED_STEPS).commit();
-                }
+            if (!enabledNow && !systemActive
+                    && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)
+                    && actualMedia >= 1 && actualMedia <= 100) {
+                prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, actualMedia).commit();
             }
             String btSummary = buildBluetoothSummary();
 
