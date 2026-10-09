@@ -9,20 +9,22 @@ import io.github.libxposed.api.XposedModule;
 /**
  * 蓝牙进程（com.android.bluetooth）侧 Hook：音量控制模式。
  *
- * <p>Hook {@code com.android.bluetooth.avrcp.AvrcpVolumeManager}：</p>
+ * <p>Hook {@code com.android.bluetooth.avrcp.AvrcpVolumeManager} 与
+ * {@code com.android.bluetooth.avrcp.AvrcpNativeInterface}：</p>
  * <ul>
  *   <li>模式A（保持绝对音量，默认）：{@code systemToAvrcpVolume()} 使用低音量增强曲线
  *       （sqrt 映射），与 UI 预览保持一致；{@code avrcpToSystemVolume()}（耳机音量键回调）
  *       使用曲线反函数保持双向一致；</li>
+ *   <li>默认模式但收窄了音量范围：{@code AvrcpNativeInterface.sendVolumeChanged} 是手机→耳机
+ *       绝对音量的真正 JNI 出口（本 mainline APEX 上 {@code systemToAvrcpVolume} 不在热路径、
+ *       疑被 ART 内联），在此按 {@code defaultRange} 把 AVRCP 绝对音量抬升，使最小音量生效、
+ *       消除首档无声（保留绝对音量，不强制软件衰减）；</li>
  *   <li>模式B（停用绝对音量）：{@code deviceConnected} 强制上报不支持 + {@code sendVolumeChanged}
  *       阻断 AVRCP 发送。耳机固定于自身硬件音量，手机端通过 AudioService 软件衰减控制音量。</li>
- *   <li>默认模式（保持绝对音量、无曲线）：耳机音量由 AVRCP 绝对音量决定，system_server 侧对 BT
- *       的重映射被绝对音量旁路，故其「最小/最大音量」必须在 {@code systemToAvrcpVolume} 生效——按
- *       {@code defaultRange} 用 {@link Avrcp#defaultRangeToIndex} 抬升系统档位后再套 AOSP 线性公式换算，
- *       使抬高最小音量真正生效、消除首档无声。</li>
  * </ul>
  *
- * <p>切换模式（A↔B）后需重启蓝牙使 {@code deviceConnected} 重新触发。</p>
+ * <p>切换模式（A↔B）后需重启蓝牙使 {@code deviceConnected} 重新触发；默认收窄范围经
+ * {@code AvrcpNativeInterface} 每次实时读配置生效，无需重连。</p>
  */
 final class BtHooks {
 
@@ -30,6 +32,8 @@ final class BtHooks {
     static final String BT_PACKAGE = "com.android.bluetooth";
     private static final String BT_VOLUME_MANAGER_CLASS =
             "com.android.bluetooth.avrcp.AvrcpVolumeManager";
+    private static final String BT_NATIVE_INTERFACE_CLASS =
+            "com.android.bluetooth.avrcp.AvrcpNativeInterface";
     private static final String FIELD_DEVICE_MAX_VOLUME = "sDeviceMaxVolume";
 
     /** 日志节流：避免音量调节时高频刷屏。 */
@@ -68,6 +72,17 @@ final class BtHooks {
         XposedKit.log("sendVolumeChanged hooked: " + sendChanged);
 
         XposedKit.log(BT_VOLUME_MANAGER_CLASS + " hooks installed");
+
+        // 默认模式（保持绝对音量）但收窄音量范围：在真正的 JNI 出口 AvrcpNativeInterface.sendVolumeChanged
+        // 抬升发往耳机的 AVRCP 绝对音量（本 ROM 上 systemToAvrcpVolume 不在热路径）。
+        try {
+            Class<?> nativeInterface = classLoader.loadClass(BT_NATIVE_INTERFACE_CLASS);
+            int nativeSend = XposedKit.hookAllMethodsNamed(module, nativeInterface,
+                    "sendVolumeChanged", new AvrcpNativeSendHooker(volumeManager));
+            XposedKit.log("AvrcpNativeInterface.sendVolumeChanged hooked: " + nativeSend);
+        } catch (Throwable t) {
+            XposedKit.logError("bluetooth AvrcpNativeInterface not found: " + t);
+        }
     }
 
     /** 读取音量管理器记录的系统最大档位（sDeviceMaxVolume）；失败返回 -1。 */
@@ -100,9 +115,8 @@ final class BtHooks {
                     return result; // 未启用：走系统原始换算
                 }
                 VolumeMode m = config.bluetoothAvrcpMode();
-                boolean defaultMode = config.modeFor(OutputDevice.BT) == Prefs.BT_MODE_DEFAULT;
-                if (m == null && !defaultMode) {
-                    return result; // 模式B（软件衰减，不经 AVRCP）走系统原始换算
+                if (m == null) {
+                    return result; // 非模式A（含未启用/模式B/默认）走系统原始换算
                 }
                 int maxSteps = readDeviceMaxVolume(volumeManager);
                 if (maxSteps <= 0) {
@@ -113,25 +127,6 @@ final class BtHooks {
                     return result;
                 }
                 int step = (Integer) arg0;
-                if (defaultMode) {
-                    // 默认模式：耳机音量由 AVRCP 绝对音量决定，system_server 侧对 BT 的重映射
-                    // 被绝对音量旁路（且 mIndexMap 已恢复原值），故最小/最大音量必须在 AVRCP 生效。
-                    // 按 defaultRange 把系统档位线性等分抬升后，再套 AOSP 线性公式换算 AVRCP。
-                    Range dr = config.activeRangeFor(OutputDevice.BT); // 满量程=直通返回 null
-                    if (dr == null) {
-                        return result;
-                    }
-                    int mappedIndex = Avrcp.defaultRangeToIndex(step, maxSteps, dr.min, dr.max);
-                    int abs = (int) Math.round(mappedIndex * (double) Prefs.AVRCP_MAX_VOLUME / maxSteps);
-                    abs = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, abs));
-                    if (abs != sLastLoggedCurveValue) {
-                        sLastLoggedCurveValue = abs;
-                        XposedKit.log("default(BT): step " + step + "/" + maxSteps + " -> index "
-                                + mappedIndex + " avrcp " + result + " -> " + abs
-                                + " (range=" + dr.min + "~" + dr.max + ")");
-                    }
-                    return abs;
-                }
                 Range range = config.bluetooth.absolute;
                 int minA = range.min;
                 int maxA = range.max;
@@ -276,5 +271,69 @@ final class BtHooks {
             }
         }
         return count;
+    }
+
+    /**
+     * 默认模式（保持绝对音量）但收窄了音量范围：在真正的 JNI 出口
+     * {@code AvrcpNativeInterface.sendVolumeChanged} 把发往耳机的 AVRCP 绝对音量按
+     * {@code defaultRange} 抬升。入参 {@code volume} 是 AOSP 线性 {@code round(index*127/max)} 的结果，
+     * 先反推系统档位 {@code index}，再经 {@link Avrcp#defaultRangeToIndex} 线性映射、回算 AVRCP，写回该 int 参数。
+     */
+    private static final class AvrcpNativeSendHooker implements XposedInterface.Hooker {
+        private final Class<?> volumeManager;
+
+        AvrcpNativeSendHooker(Class<?> volumeManager) {
+            this.volumeManager = volumeManager;
+        }
+
+        @Override
+        public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            try {
+                VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
+                if (config == null || !config.enabled
+                        || config.modeFor(OutputDevice.BT) != Prefs.BT_MODE_DEFAULT) {
+                    return chain.proceed();          // 非默认模式不在此处理（模式A/B 各自已有路径）
+                }
+                Range dr = config.activeRangeFor(OutputDevice.BT); // 满量程直通 = null
+                if (dr == null) {
+                    return chain.proceed();
+                }
+                int maxSteps = readDeviceMaxVolume(volumeManager);
+                if (maxSteps <= 0) {
+                    return chain.proceed();
+                }
+                List<Object> args = chain.getArgs();
+                int volIdx = -1;
+                for (int i = args.size() - 1; i >= 0; i--) {
+                    if (args.get(i) instanceof Integer) {
+                        volIdx = i;
+                        break;
+                    }
+                }
+                if (volIdx < 0) {
+                    return chain.proceed();
+                }
+                int vol = (Integer) args.get(volIdx);
+                // 反推系统档位：AOSP abs = round(index*127/maxSteps) → index = round(vol*maxSteps/127)
+                int index = (int) Math.round(vol * (double) maxSteps / Prefs.AVRCP_MAX_VOLUME);
+                index = Math.max(0, Math.min(maxSteps, index));
+                int mapped = Avrcp.defaultRangeToIndex(index, maxSteps, dr.min, dr.max);
+                int newVol = (int) Math.round(mapped * (double) Prefs.AVRCP_MAX_VOLUME / maxSteps);
+                newVol = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, newVol));
+                if (newVol != vol) {
+                    if (newVol != sLastLoggedCurveValue) {
+                        sLastLoggedCurveValue = newVol;
+                        XposedKit.log("defaultAvrcp(BT): vol " + vol + " (index~" + index
+                                + ") -> " + newVol + " (range=" + dr.min + "~" + dr.max + ")");
+                    }
+                    Object[] newArgs = args.toArray();
+                    newArgs[volIdx] = newVol;
+                    return chain.proceed(newArgs);
+                }
+            } catch (Throwable t) {
+                XposedKit.logError("defaultAvrcp native-send hook failed: " + t);
+            }
+            return chain.proceed();
+        }
     }
 }
