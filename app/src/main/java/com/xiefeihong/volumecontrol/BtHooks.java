@@ -16,6 +16,10 @@ import io.github.libxposed.api.XposedModule;
  *       使用曲线反函数保持双向一致；</li>
  *   <li>模式B（停用绝对音量）：{@code deviceConnected} 强制上报不支持 + {@code sendVolumeChanged}
  *       阻断 AVRCP 发送。耳机固定于自身硬件音量，手机端通过 AudioService 软件衰减控制音量。</li>
+ *   <li>默认模式（保持绝对音量、无曲线）：耳机音量由 AVRCP 绝对音量决定，system_server 侧对 BT
+ *       的重映射被绝对音量旁路，故其「最小/最大音量」必须在 {@code systemToAvrcpVolume} 生效——按
+ *       {@code defaultRange} 用 {@link Avrcp#defaultRangeToIndex} 抬升系统档位后再套 AOSP 线性公式换算，
+ *       使抬高最小音量真正生效、消除首档无声。</li>
  * </ul>
  *
  * <p>切换模式（A↔B）后需重启蓝牙使 {@code deviceConnected} 重新触发。</p>
@@ -92,9 +96,13 @@ final class BtHooks {
             Object result = chain.proceed();
             try {
                 VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
+                if (config == null || !config.enabled) {
+                    return result; // 未启用：走系统原始换算
+                }
                 VolumeMode m = config.bluetoothAvrcpMode();
-                if (m == null) {
-                    return result; // 非模式A（含未启用/模式B）走系统原始换算
+                boolean defaultMode = config.modeFor(OutputDevice.BT) == Prefs.BT_MODE_DEFAULT;
+                if (m == null && !defaultMode) {
+                    return result; // 模式B（软件衰减，不经 AVRCP）走系统原始换算
                 }
                 int maxSteps = readDeviceMaxVolume(volumeManager);
                 if (maxSteps <= 0) {
@@ -105,6 +113,25 @@ final class BtHooks {
                     return result;
                 }
                 int step = (Integer) arg0;
+                if (defaultMode) {
+                    // 默认模式：耳机音量由 AVRCP 绝对音量决定，system_server 侧对 BT 的重映射
+                    // 被绝对音量旁路（且 mIndexMap 已恢复原值），故最小/最大音量必须在 AVRCP 生效。
+                    // 按 defaultRange 把系统档位线性等分抬升后，再套 AOSP 线性公式换算 AVRCP。
+                    Range dr = config.activeRangeFor(OutputDevice.BT); // 满量程=直通返回 null
+                    if (dr == null) {
+                        return result;
+                    }
+                    int mappedIndex = Avrcp.defaultRangeToIndex(step, maxSteps, dr.min, dr.max);
+                    int abs = (int) Math.round(mappedIndex * (double) Prefs.AVRCP_MAX_VOLUME / maxSteps);
+                    abs = Math.max(0, Math.min(Prefs.AVRCP_MAX_VOLUME, abs));
+                    if (abs != sLastLoggedCurveValue) {
+                        sLastLoggedCurveValue = abs;
+                        XposedKit.log("default(BT): step " + step + "/" + maxSteps + " -> index "
+                                + mappedIndex + " avrcp " + result + " -> " + abs
+                                + " (range=" + dr.min + "~" + dr.max + ")");
+                    }
+                    return abs;
+                }
                 Range range = config.bluetooth.absolute;
                 int minA = range.min;
                 int maxA = range.max;

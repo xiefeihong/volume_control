@@ -181,43 +181,60 @@ public final class VolumeConfig {
             new Range(0, Prefs.MEDIA_STEPS_MAX, Prefs.CURVE_LINEAR);
 
     /**
-     * 序列化为紧凑单行 XML（不含单引号，可安全嵌入 {@code settings put global '<v>'} 与镜像
-     * {@code echo}）。每设备始终写模式B 范围 {@code <b>} 与默认范围 {@code <d>}；
-     * 仅蓝牙额外写模式A 范围 {@code <a>}。
+     * 序列化为紧凑单行 XML。每设备始终写模式B 范围 {@code <b>} 与默认范围 {@code <d>}；
+     * 仅蓝牙额外写模式A 范围 {@code <a>}。用于 SharedPreferences 暂存与差异比对（稳定、无换行）。
      */
     public String toXml() {
-        StringBuilder sb = new StringBuilder(256);
+        return buildXml(false);
+    }
+
+    /**
+     * 序列化为缩进多行的可读 XML，内容与 {@link #toXml()} 解析等价，仅排版不同。供写入
+     * {@code Settings.Global} 与镜像文件，便于人工 {@code cat}/{@code settings get} 直接查看。
+     * 全程只用双引号、不含单引号，可安全嵌入 {@code settings put global '<v>'} 与 {@code echo '<v>'}
+     * （POSIX 单引号原样保留其中的换行）。
+     */
+    public String toPrettyXml() {
+        return buildXml(true);
+    }
+
+    private String buildXml(boolean pretty) {
+        String nl = pretty ? "\n" : "";
+        String i1 = pretty ? "  " : "";
+        String i2 = pretty ? "    " : "";
+        StringBuilder sb = new StringBuilder(pretty ? 512 : 256);
         sb.append('<').append(TAG_ROOT)
                 .append(" enabled=\"").append(enabled ? 1 : 0)
                 .append("\" mediaSteps=\"").append(Prefs.clampMediaSteps(mediaSteps))
                 .append("\" keySteps=\"").append(Prefs.clampKeySteps(keySteps))
-                .append("\">");
-        appendDevice(sb, "speaker", speaker, false);
-        appendDevice(sb, "wired", wired, false);
-        appendDevice(sb, "bt", bluetooth, true);
+                .append(pretty ? "\">\n" : "\">");
+        appendDevice(sb, "speaker", speaker, false, i1, i2, nl);
+        appendDevice(sb, "wired", wired, false, i1, i2, nl);
+        appendDevice(sb, "bt", bluetooth, true, i1, i2, nl);
         sb.append("</").append(TAG_ROOT).append('>');
         return sb.toString();
     }
 
-    private static void appendDevice(StringBuilder sb, String name, DeviceConfig c, boolean withAbsolute) {
-        sb.append('<').append(TAG_DEVICE)
+    private static void appendDevice(StringBuilder sb, String name, DeviceConfig c, boolean withAbsolute,
+            String i1, String i2, String nl) {
+        sb.append(i1).append('<').append(TAG_DEVICE)
                 .append(" name=\"").append(name)
-                .append("\" mode=\"").append(c.mode).append("\">");
+                .append("\" mode=\"").append(c.mode).append("\">").append(nl);
         if (withAbsolute) {
-            appendRange(sb, 'a', c.absolute);
+            appendRange(sb, 'a', c.absolute, i2, nl);
         }
-        appendRange(sb, 'b', c.software);
-        appendRange(sb, 'd', c.defaultRange);
-        sb.append("</").append(TAG_DEVICE).append('>');
+        appendRange(sb, 'b', c.software, i2, nl);
+        appendRange(sb, 'd', c.defaultRange, i2, nl);
+        sb.append(i1).append("</").append(TAG_DEVICE).append('>').append(nl);
     }
 
-    private static void appendRange(StringBuilder sb, char tag, Range r) {
+    private static void appendRange(StringBuilder sb, char tag, Range r, String i2, String nl) {
         Range safe = (r != null) ? r : FALLBACK_RANGE;
-        sb.append('<').append(tag)
+        sb.append(i2).append('<').append(tag)
                 .append(" min=\"").append(Prefs.clampAbs(safe.min))
                 .append("\" max=\"").append(Prefs.clampAbs(safe.max))
                 .append("\" curve=\"").append(Prefs.clampCurve(safe.curve))
-                .append("\"/>");
+                .append("\"/>").append(nl);
     }
 
     /**

@@ -274,6 +274,16 @@ public class MainActivity extends AppCompatActivity {
 
     /** 从 prefs 载入整份配置到内存模型，按当前输出选中设备标签，并同步全部共享控件。 */
     private void loadConfigIntoUi() {
+        loadConfigIntoUi(true);
+    }
+
+    /**
+     * 从 prefs 载入整份配置到内存模型并同步全部共享控件。
+     *
+     * @param detectDevice true=按当前音频输出定位设备标签（仅冷启动时）；
+     *                     false=保留当前 {@link #editingDevice}（保存后重载，不因当前输出而切走，req-3）。
+     */
+    private void loadConfigIntoUi(boolean detectDevice) {
         suppressListeners = true;
         model = loadModelFromPrefs();
 
@@ -286,8 +296,11 @@ public class MainActivity extends AppCompatActivity {
         clampStepsFloor();
         applyStepsEditable(enabled);
 
-        // 设备标签：selectTab 触发 onDeviceTabSelected 载入对应切片（suppress 保护下仅载入不落盘）。
-        editingDevice = detectCurrentDevice();
+        // 设备标签：冷启动按当前输出定位；保存后保留当前编辑设备（req-3）。
+        // selectTab 触发 onDeviceTabSelected 载入对应切片（suppress 保护下仅载入不落盘）。
+        if (detectDevice) {
+            editingDevice = detectCurrentDevice();
+        }
         selectDeviceTab(editingDevice);
         loadDeviceSliceIntoUi();
 
@@ -935,20 +948,23 @@ public class MainActivity extends AppCompatActivity {
      */
     private void saveToSystem(Runnable onSaved) {
         persistToPrefs(true);
-        final String configXml = model.toXml();
+        final String configXml = model.toXml();          // 紧凑：暂存与差异比对基线
+        final String pushXml = model.toPrettyXml();      // 格式化：写入 Settings.Global 与镜像，便于查看
         final boolean softwareMode = model.modeFor(OutputDevice.BT) == Prefs.BT_MODE_SOFTWARE;
         final boolean active = model.remapActive();
         final int mediaSteps = model.mediaSteps;
         try {
             executor.execute(() -> {
-                ShellResult putResult = Shell.putGlobalConfig(Prefs.GLOBAL_KEY, configXml);
-                Shell.writeGlobalMirror(configXml);
+                ShellResult putResult = Shell.putGlobalConfig(Prefs.GLOBAL_KEY, pushXml);
+                Shell.writeGlobalMirror(pushXml);
                 Shell.writeBootScript(active, mediaSteps);
                 Shell.putGlobalConfig(Shell.SETTING_AV_DISABLE, (active && softwareMode) ? "1" : "0");
                 boolean verified = false;
                 if (putResult.isSuccess()) {
-                    String readBack = Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output;
-                    verified = readBack != null && readBack.contains(configXml);
+                    // 解析回读再序列化比对：与排版（换行/缩进）无关，兼容格式化写入
+                    VolumeConfig readBack = VolumeConfig.fromXml(
+                            Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output);
+                    verified = readBack != null && readBack.toXml().equals(configXml);
                 }
                 Shell.appendSysLog("push config saved=" + verified);
                 final boolean ok = verified;
@@ -1044,10 +1060,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         final List<String> changes = describeChanges(base, pending);
-        // 是否需重启系统框架：仅当「实际物理档位数」相对上次生效值发生变化。
-        // 启用 ON 但档位数=系统默认（或启用 OFF）时物理档位数不变 → 不提示重启。
-        final boolean needsSystem = base == null
-                || targetPhysicalSteps(pending) != targetPhysicalSteps(base);
+        // 是否需重启系统框架：仅当「生效后的物理档位数」与「当前系统实际档位数」不同才需重启。
+        // 优先以实时读取的当前档位数（getStreamMaxVolume）为准——档位值等于当前档位值时不提示重启；
+        // 读不到（<=0）才回退到与上次基线比对。
+        final int currentPhysical = readStreamMaxSafe(Prefs.STREAM_MUSIC_INDEX);
+        final int targetSteps = targetPhysicalSteps(pending);
+        final boolean needsSystem = currentPhysical > 0
+                ? targetSteps != currentPhysical
+                : (base == null || targetSteps != targetPhysicalSteps(base));
         // 是否需重启蓝牙：仅当蓝牙设备模式发生变化影响 AVRCP 绝对音量协商（需重连）。
         // 有线/外放的模式或范围改动经 Hook 每次实时读配置生效，无需重启任何组件。
         final boolean needsBt = base == null
@@ -1096,7 +1116,7 @@ public class MainActivity extends AppCompatActivity {
             boolean thenClearData) {
         model = pending;
         applyConfigToPrefs(pending);
-        loadConfigIntoUi();
+        loadConfigIntoUi(false);
         updatePreview();
         if (thenClearData) {
             saveToSystem(() -> promptClearData(restartBt, restartSystem));
