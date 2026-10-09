@@ -1333,29 +1333,17 @@ public class MainActivity extends AppCompatActivity {
             }
 
             int actualMedia = readStreamMaxSafe(Prefs.STREAM_MUSIC_INDEX);
-            // 系统原生媒体档位数捕获（一次性固化、之后不再更新）：仅当本地与系统侧都未启用覆盖时，
-            // 读到的才是未被模块改写的真实原生值（req-3）。但“关闭后、框架未重启”窗口里物理上限
-            // 仍是刚退下的旧覆盖值（如 100），此时不能固化——用 last_pushed_steps 记住“已安装到框架
-            // 的覆盖值”，只要实时读到的值仍等于它就判定重启未生效、跳过捕获；回退原生后（≠）才首次固化。
+            // 首次捕获系统原生媒体档位数：仅当本地与系统侧都未启用覆盖时，读到的才是未被
+            // 模块改写过的真实原生值（req-3）；否则（已推送生效配置）不固化，避免把覆盖值当默认。
             VolumeConfig stored = VolumeConfig.fromXml(prefs.getString(Prefs.KEY_CONFIG_XML, ""));
             boolean enabledNow = stored != null && stored.enabled;
             VolumeConfig pushed = VolumeConfig.fromXml(
                     Shell.getGlobalConfig(Prefs.GLOBAL_KEY).output);
             boolean systemActive = pushed != null && pushed.remapActive();
-            boolean inRange = actualMedia >= 1 && actualMedia <= 100;
-            int lastPushed = prefs.getInt(Prefs.KEY_LAST_PUSHED_STEPS, -1);
-            if ((enabledNow || systemActive) && inRange) {
-                // 模块正在覆盖：把当前物理上限记为“已安装的覆盖值”，供停用后判别重启是否已回退原生。
-                if (actualMedia != lastPushed) {
-                    prefs.edit().putInt(Prefs.KEY_LAST_PUSHED_STEPS, actualMedia).commit();
-                }
-            } else if (!enabledNow && !systemActive && inRange
-                    && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)) {
-                // 停用且未捕获过：仅当读到的不再是刚退下的覆盖值（=框架已重启回退原生）才固化。
-                if (actualMedia != lastPushed) {
-                    prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, actualMedia)
-                            .remove(Prefs.KEY_LAST_PUSHED_STEPS).commit();
-                }
+            if (!enabledNow && !systemActive
+                    && !prefs.contains(Prefs.KEY_SYSTEM_DEFAULT_STEPS)
+                    && actualMedia >= 1 && actualMedia <= 100) {
+                prefs.edit().putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, actualMedia).commit();
             }
             String btSummary = buildBluetoothSummary();
 

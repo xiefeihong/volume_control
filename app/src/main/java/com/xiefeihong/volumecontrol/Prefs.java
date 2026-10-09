@@ -29,13 +29,6 @@ public final class Prefs {
     public static final String KEY_SYSTEM_DEFAULT_STEPS = "system_default_steps";
 
     /**
-     * 模块当前已安装到运行框架的覆盖档位数（启用时物理上限会等于它，直到下次重启才回落原生）。
-     * 用途：关闭「启用档位修改」后、框架尚未重启时 {@code getStreamMaxVolume} 读到的仍是该残留
-     * 覆盖值（非原生），靠此标记阻止把残留覆盖误当作系统默认固化（重启回退原生后自动清除）。
-     */
-    public static final String KEY_LAST_PUSHED_STEPS = "last_pushed_steps";
-
-    /**
      * 「未获取系统默认档位」警告是否仍需弹出：用户点「使用档位默认值」后置 true 即不再弹。
      * 与 {@link #KEY_SYSTEM_DEFAULT_STEPS} 解耦——后者只在真正从系统服务探到档位时才固化，
      * 本标志仅记录「用户已知晓并选择继续」，不代表已拿到真实默认档位。
