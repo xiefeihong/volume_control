@@ -1140,9 +1140,25 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** 清除此应用写入的所有数据：本地 SharedPreferences + 系统侧配置(键/镜像/boot 脚本) + 模块日志，确保无残留不可恢复。 */
+    /**
+     * 清除本应用写入的数据：用户配置（config_xml/告知识晓标志）、系统侧配置（Settings.Global 键/镜像/boot 脚本/被改写的 ro 属性）与模块日志。
+     *
+     * <p>但保留两个「设备环境事实/守卫」键：{@link Prefs#KEY_SYSTEM_DEFAULT_STEPS}（已捕获的原生档位数）与
+     * {@link Prefs#KEY_LAST_PUSHED_STEPS}（已装入框架的覆盖值）。因为清除后框架未重启时 getStreamMaxVolume 仍
+     * 返回刚退下的旧覆盖值（如 100），若一并抹掉原生值会导致 refreshStatus 在重启前把它重新误捕获为默认。</p>
+     */
     private void clearAppData() {
-        prefs.edit().clear().commit();
+        // 保留环境事实与守卫标记（非用户配置），清除其余一切。
+        int nativeSteps = prefs.getInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, -1);
+        int residualOverride = prefs.getInt(Prefs.KEY_LAST_PUSHED_STEPS, -1);
+        SharedPreferences.Editor editor = prefs.edit().clear();
+        if (nativeSteps > 0) {
+            editor.putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, nativeSteps);
+        }
+        if (residualOverride > 0) {
+            editor.putInt(Prefs.KEY_LAST_PUSHED_STEPS, residualOverride);
+        }
+        editor.commit();
         lastSavedXml = model.toXml();
         updateTvPending();
         try {
