@@ -62,7 +62,8 @@
     <string name="curve_hint" formatted="false">选择档位到音量范围的映射分布；三者第 1 档=最小音量、最高档=最大音量。绝对音量模式与相对音量模式的曲线各自独立保存。</string>
     <string name="label_min_abs_fmt">最小音量：%1$d · 约 %2$d%%</string>
     <string name="label_max_abs_fmt">最大音量：%1$d · 约 %2$d%%</string>
-    <string name="default_range_info" formatted="false">默认：沿用 ROM 原生音量曲线，不做自定义映射或衰减（该设备直通）。当前手机默认媒体档位数：%1$d 级；下方曲线图横轴为系统档位、纵轴为按 dB 归一的相对增益（0~100%%），按 ROM audio policy 配置绘制、读不到时回退 AOSP 参考曲线，对应顶部所选设备。</string>
+    <string name="default_range_info" formatted="false">默认模式：沿用系统直通 · ROM 原生曲线\n该设备不做自定义映射或衰减（直通），当前手机默认媒体档位数：%1$d 级</string>
+    <string name="default_mode_tip" formatted="false">提示：下方曲线图横轴为系统档位、纵轴为按 dB 归一的相对增益（0~100%），按 ROM audio policy 配置绘制、读不到时回退 AOSP 参考曲线，对应顶部所选设备。</string>
 
     <string name="status_root_ok">Root：可用（su 已授权）</string>
     <string name="status_root_fail">Root：不可用，无法写入系统配置</string>

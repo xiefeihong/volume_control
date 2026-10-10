@@ -635,7 +635,8 @@ public class MainActivity extends AppCompatActivity {
                     Math.round(maxS * 100.0 / mediaSteps)));
             binding.tvRangeHint.setText(getString(R.string.range_hint));
             binding.tvSummary.setText(getString(R.string.default_range_info, systemDefaultSteps())
-                    + "\n" + Avrcp.defaultKeyStepHint(mediaSteps, minS, maxS, keySteps));
+                    + "\n" + Avrcp.defaultKeyStepHint(mediaSteps, minS, maxS, keySteps)
+                    + "\n" + getString(R.string.default_mode_tip));
             if (selectedNativeAxis == NativeAxis.PERCENT) {
                 NativeVolumeCurve.Anchors a =
                         NativeVolumeCurve.anchorsFor(device, selectedNativeMode);
@@ -1140,9 +1141,13 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /** 清除此应用写入的所有数据：本地 SharedPreferences + 系统侧配置(键/镜像/boot 脚本) + 模块日志，确保无残留不可恢复。 */
+    /**
+     * 清除此应用写入的系统侧数据：配置(Settings.Global 键/镜像/boot 脚本/被改写的 ro 属性)与模块日志。
+     *
+     * <p>保留本地 SharedPreferences（{@code settings.xml}）：其中的原生档位数等属设备环境事实，
+     * 且清除后框架未重启时 getStreamMaxVolume 仍返回刚退下的旧覆盖值，一并抹掉会导致重启前把它重新误固化。</p>
+     */
     private void clearAppData() {
-        prefs.edit().clear().commit();
         lastSavedXml = model.toXml();
         updateTvPending();
         try {

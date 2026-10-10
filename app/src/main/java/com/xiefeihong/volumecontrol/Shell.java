@@ -262,13 +262,17 @@ public final class Shell {
     }
 
     /**
-     * 清理模块日志：删除模块自写文件 + LSPosed 日志文件 + 清除 logcat。
+     * 清理模块日志：删除模块自写的专用文件 + 清除 logcat。
+     *
+     * <p>LSPosed 日志（/data/adb/lspd/log/）是多模块共享的追加文件，不能整体删除；
+     * 这里用 {@code sed} 只剔除含本模块标记 {@code VolumeControl} 的行，保留其他模块日志。</p>
      */
     public static void clearModuleLogs() {
         su("rm -f /data/system/volumecontrol_sys.log "
                 + "/data/misc/volumecontrol_sys.log "
-                + "/data/data/com.android.bluetooth/files/volumecontrol_bt.log "
-                + "/data/adb/lspd/log/* 2>/dev/null; "
+                + "/data/data/com.android.bluetooth/files/volumecontrol_bt.log 2>/dev/null; "
+                + "for f in /data/adb/lspd/log/*; do "
+                + "[ -f \"$f\" ] && sed -i '/VolumeControl/d' \"$f\" 2>/dev/null; done; "
                 + "logcat -c 2>/dev/null");
     }
 
