@@ -48,6 +48,12 @@ public final class CurveChartView extends View {
     private int nativeXMin;
     /** 图注：「设备 · 来源(引擎/策略/AOSP) · 纵轴口径」。 */
     private String nativeCaption = "";
+    /** 默认曲线纵轴是否按 dB 标注（仅「dB 线性」口径为 true，其余显示 0~100%）。 */
+    private boolean nativeShowDb;
+    /** dB 纵轴底端（0%）对应 dB 值（曲线最负增益）。 */
+    private float nativeDbFloor;
+    /** dB 纵轴顶端（100%）对应 dB 值（曲线最接近 0 的增益）。 */
+    private float nativeDbCeil;
 
     public CurveChartView(Context context) {
         this(context, null);
@@ -103,16 +109,22 @@ public final class CurveChartView extends View {
      * @param gainByX     按绝对横轴索引的归一化增益（0~100%，长度至少 {@code xMax+1}，仅取 {@code [xMin,xMax]} 段）
      * @param dots        落点圆点横坐标（绝对值；超出 {@code [xMin,xMax]} 的被裁剪）
      * @param percentAxis 横轴是否取百分比（影响轴标签）
+     * @param showDbAxis  纵轴是否按 dB 标注（仅「dB 线性」口径为 true，否则显示 0~100%）
+     * @param dbFloor     纵轴底端（0%）对应 dB 值
+     * @param dbCeil      纵轴顶端（100%）对应 dB 值
      * @param caption     图注
      */
     public void configureNativeCurve(int xMin, int xMax, float[] gainByX, int[] dots,
-            boolean percentAxis, String caption) {
+            boolean percentAxis, boolean showDbAxis, float dbFloor, float dbCeil, String caption) {
         this.nativeCurveMode = true;
         this.nativeXMin = Math.max(0, xMin);
         this.maxSteps = Math.max(this.nativeXMin + 1, xMax);
         this.nativeGainPct = gainByX;
         this.nativeDots = dots;
         this.nativePercentAxis = percentAxis;
+        this.nativeShowDb = showDbAxis;
+        this.nativeDbFloor = dbFloor;
+        this.nativeDbCeil = dbCeil;
         this.nativeCaption = caption == null ? "" : caption;
         invalidate();
     }
@@ -240,9 +252,15 @@ public final class CurveChartView extends View {
                 left, bottom + 3f * density, false);
         drawLabel(canvas, nativePercentAxis ? xMax + "%" : String.valueOf(xMax), right,
                 bottom + 3f * density, true);
-        // 纵轴标签：增益百分比
-        drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
-        drawYText(canvas, "100%", top, left);
+        // 纵轴标签：dB 口径显示 dB 值（0%/50%/100% 对应 floor/中值/ceil dB），否则显示归一增益百分比
+        if (nativeShowDb) {
+            drawYText(canvas, fmtDb((nativeDbFloor + nativeDbCeil) / 2f),
+                    bottom - (bottom - top) * 0.5f, left);
+            drawYText(canvas, fmtDb(nativeDbCeil), top, left);
+        } else {
+            drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
+            drawYText(canvas, "100%", top, left);
+        }
         canvas.drawText("系统原生 · " + nativeCaption,
                 left, top - 6f * density, labelPaint);
     }
@@ -265,6 +283,11 @@ public final class CurveChartView extends View {
     private static float mapPct(float percent, float top, float bottom) {
         float v = Math.max(0f, Math.min(100f, percent));
         return bottom - (bottom - top) * (v / 100f);
+    }
+
+    /** dB 值轴标签（四舍五入取整、带 dB 单位），如 {@code "-48dB"}、{@code "0dB"}。 */
+    private static String fmtDb(float db) {
+        return String.format(java.util.Locale.US, "%ddB", Math.round(db));
     }
 
     /** 在 y 轴左侧绘制右对齐、垂直居中于 centerY 的字符串标签。 */

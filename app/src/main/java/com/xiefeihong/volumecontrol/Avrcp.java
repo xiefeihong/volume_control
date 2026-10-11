@@ -322,6 +322,15 @@ public final class Avrcp {
         } else {
             sb.append("✓ 已高于常见可闻下限\n");
         }
+        if (maxSteps >= 2) {
+            int spacing = defaultRangeToIndex(2, maxSteps, lo, hi) - lowest;
+            sb.append("低音量区间距：第 1→2 档相差 ").append(spacing).append("\n");
+            if (spacing < 8) {
+                sb.append("⚠ 偏小，耳机粒度粗时可能听感相同，建议减少档位数或改用模式B\n");
+            } else {
+                sb.append("✓ 低音量区不易重复\n");
+            }
+        }
         sb.append("提示：两端锚到 min/max、中间保持 ROM 原生响度曲线（满量程即直通）；")
                 .append("下方曲线图横轴为系统档位、纵轴为按 dB 归一的相对增益（0~100%）。");
         return sb.toString();

@@ -669,8 +669,10 @@ public class MainActivity extends AppCompatActivity {
                         + " · 纵轴" + getString(modeLabel(a.mode))
                         + " · 范围" + minPct + "%~" + maxPct + "%";
                 // 曲线图：横轴窗口化到 [minPct,maxPct]（从设定最小值开始），仅取窗内原生增益。
+                // 纵轴：dB 口径时以整条曲线 floor/ceil dB（百分 0/100 处）标注。
                 binding.curveChart.configureNativeCurve(minPct, maxPct, a.gainByPercent,
-                        a.percent, true, caption);
+                        a.percent, true, showDb, a.gainDbByPercent[0],
+                        a.gainDbByPercent[a.gainDbByPercent.length - 1], caption);
                 binding.tvRangeMapping.setText(Avrcp.buildNativePercentTable(wp, wg, wdb, showDb,
                         computePercentTableColumns(wp[wp.length - 1], showDb)));
                 return;
@@ -689,8 +691,11 @@ public class MainActivity extends AppCompatActivity {
             String caption = devTab + " · " + getString(sourceLabel(curve.source))
                     + " · 纵轴" + getString(modeLabel(curve.mode))
                     + " · 范围" + minS + "~" + maxS;
+            float dbFloor = curve.gainDb != null ? curve.gainDb[0] : 0f;
+            float dbCeil = curve.gainDb != null ? curve.gainDb[mediaSteps] : 0f;
             binding.curveChart.configureNativeCurve(0, mediaSteps, effGain,
-                    buildPressLevels(mediaSteps, keySteps), false, caption);
+                    buildPressLevels(mediaSteps, keySteps), false,
+                    showDb && curve.gainDb != null, dbFloor, dbCeil, caption);
             int segs = Prefs.clampKeySteps(keySteps);
             binding.tvRangeMapping.setText(Avrcp.buildNativeStepsTable(
                     mediaSteps, effGain, effDb, showDb, keySteps,
