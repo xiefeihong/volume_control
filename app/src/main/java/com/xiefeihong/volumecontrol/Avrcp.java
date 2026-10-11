@@ -29,6 +29,12 @@ public final class Avrcp {
      */
     public static final double MIN_VOLUME_FLOOR_RATIO = 0.06;
 
+    /**
+     * 默认模式低音量区可分辨下限：第 1→2 档的原生 dB 差值小于此值时，相邻档位听感几乎相同，
+     * 预览给出 ⚠ 提示（约为人耳可辨的最小响度差，可按实机微调）。
+     */
+    public static final float DEFAULT_DB_GAP_MIN = 1.0f;
+
     private Avrcp() {
     }
 
@@ -256,6 +262,7 @@ public final class Avrcp {
     private static String buildSoftwarePreview(int maxSteps, int minStep, int maxStep,
             int curveType, int keySteps) {
         int lowest = curveToSystemIndex(1, maxSteps, minStep, maxStep, curveType);
+        int lowestPercent = (int) Math.round(lowest * 100.0 / maxSteps);
         int maxPercent = (int) Math.round(maxStep * 100.0 / maxSteps);
 
         StringBuilder sb = new StringBuilder();
@@ -271,8 +278,9 @@ public final class Avrcp {
             sb.append("⚠ 有 ").append(dups)
                     .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
         }
-        sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps).append("\n");
-        if (lowest <= 5) {
+        sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps)
+                .append("（约 ").append(lowestPercent).append("%）\n");
+        if (lowestPercent <= 5) {
             sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
         } else {
             sb.append("✓ 已高于常见可闻下限\n");
@@ -290,8 +298,10 @@ public final class Avrcp {
      * @param minStep  当前窗口最小系统档位
      * @param maxStep  当前窗口最大系统档位
      * @param keySteps 音量键步进（按键段数）
+     * @param nativeGainDb 该设备原生逐档 dB（长度 maxSteps+1，供第 1→2 档 dB 差值判定；可为 null）
      */
-    public static String buildDefaultPreview(int maxSteps, int minStep, int maxStep, int keySteps) {
+    public static String buildDefaultPreview(int maxSteps, int minStep, int maxStep, int keySteps,
+            float[] nativeGainDb) {
         if (maxSteps <= 0) {
             return "暂无数据";
         }
@@ -317,18 +327,22 @@ public final class Avrcp {
         }
         sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps)
                 .append("（约 ").append(lowestPercent).append("%）\n");
-        if (lowest <= 5) {
+        if (lowestPercent <= 5) {
             sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
         } else {
             sb.append("✓ 已高于常见可闻下限\n");
         }
-        if (maxSteps >= 2) {
-            int spacing = defaultRangeToIndex(2, maxSteps, lo, hi) - lowest;
-            sb.append("低音量区间距：第 1→2 档相差 ").append(spacing).append("\n");
-            if (spacing < 8) {
-                sb.append("⚠ 偏小，耳机粒度粗时可能听感相同，建议减少档位数或改用模式B\n");
+        if (maxSteps >= 2 && nativeGainDb != null && nativeGainDb.length > 2) {
+            int idx1 = defaultRangeToIndex(1, maxSteps, lo, hi);
+            int idx2 = defaultRangeToIndex(2, maxSteps, lo, hi);
+            float dbGap = nativeGainDb[Math.min(idx2, nativeGainDb.length - 1)]
+                    - nativeGainDb[Math.min(idx1, nativeGainDb.length - 1)];
+            sb.append("低音量区间距：第 1→2 档相差 ")
+                    .append(String.format(java.util.Locale.US, "%.1f", dbGap)).append(" dB\n");
+            if (dbGap < DEFAULT_DB_GAP_MIN) {
+                sb.append("⚠ 差值过小，相邻档位听感几乎相同，建议减少档位数\n");
             } else {
-                sb.append("✓ 低音量区不易重复\n");
+                sb.append("✓ 低音量区档位可分辨\n");
             }
         }
         sb.append("提示：两端锚到 min/max、中间保持 ROM 原生响度曲线（满量程即直通）；")

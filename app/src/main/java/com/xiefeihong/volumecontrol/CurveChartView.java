@@ -252,8 +252,9 @@ public final class CurveChartView extends View {
                 left, bottom + 3f * density, false);
         drawLabel(canvas, nativePercentAxis ? xMax + "%" : String.valueOf(xMax), right,
                 bottom + 3f * density, true);
-        // 纵轴标签：dB 口径显示 dB 值（0%/50%/100% 对应 floor/中值/ceil dB），否则显示归一增益百分比
+        // 纵轴标签：dB 口径显示 dB 值（底/中/顶对应 floor/中值/ceil），并在原点标出起始 dB；否则显示归一增益百分比
         if (nativeShowDb) {
+            drawYText(canvas, fmtDb(nativeDbFloor), bottom, left);
             drawYText(canvas, fmtDb((nativeDbFloor + nativeDbCeil) / 2f),
                     bottom - (bottom - top) * 0.5f, left);
             drawYText(canvas, fmtDb(nativeDbCeil), top, left);

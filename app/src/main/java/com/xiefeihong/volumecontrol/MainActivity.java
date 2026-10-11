@@ -630,12 +630,15 @@ public class MainActivity extends AppCompatActivity {
             String devTab = getString(deviceTabLabel(device));
             int minS = Prefs.clampSystemStep(currentMinAbs(), mediaSteps);
             int maxS = Prefs.clampSystemStep(currentMaxAbs(), mediaSteps);
+            NativeVolumeCurve.Curve curve =
+                    NativeVolumeCurve.curveFor(device, mediaSteps, selectedNativeMode);
             binding.tvMinAbs.setText(getString(R.string.label_min_abs_fmt, minS,
                     Math.round(minS * 100.0 / mediaSteps)));
             binding.tvMaxAbs.setText(getString(R.string.label_max_abs_fmt, maxS,
                     Math.round(maxS * 100.0 / mediaSteps)));
             binding.tvRangeHint.setText(getString(R.string.range_hint));
-            binding.tvSummary.setText(Avrcp.buildDefaultPreview(mediaSteps, minS, maxS, keySteps));
+            binding.tvSummary.setText(Avrcp.buildDefaultPreview(mediaSteps, minS, maxS, keySteps,
+                    curve.gainDb));
             if (selectedNativeAxis == NativeAxis.PERCENT) {
                 NativeVolumeCurve.Anchors a =
                         NativeVolumeCurve.anchorsFor(device, selectedNativeMode);
@@ -677,8 +680,6 @@ public class MainActivity extends AppCompatActivity {
                         computePercentTableColumns(wp[wp.length - 1], showDb)));
                 return;
             }
-            NativeVolumeCurve.Curve curve =
-                    NativeVolumeCurve.curveFor(device, mediaSteps, selectedNativeMode);
             float[] effGain = new float[mediaSteps + 1];
             float[] effDb = curve.gainDb != null ? new float[mediaSteps + 1] : null;
             for (int i = 0; i <= mediaSteps; i++) {
