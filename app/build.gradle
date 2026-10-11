@@ -65,4 +65,6 @@ dependencies {
     implementation 'com.google.android.material:material:1.10.0'
     // libxposed 新版 API（102）：仅编译期需要，运行期由 LSPosed 注入
     compileOnly 'io.github.libxposed:api:102.0.0'
+    // 纯计算逻辑（Prefs/Avrcp/VolumeConfig）的 JVM 单元测试，无需 Android 框架
+    testImplementation 'junit:junit:4.13.2'
 }
