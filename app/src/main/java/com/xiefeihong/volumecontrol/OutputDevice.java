@@ -4,8 +4,9 @@ package com.xiefeihong.volumecontrol;
  * 输出设备类别（App 与 Hook 端共用，纯 {@code DEVICE_OUT} int 位掩码判定，
  * 禁止引用任何 Android / Xposed API）。
  *
- * <p>序数与 UI 设备标签、{@link NativeVolumeCurve.Device} 保持一致
- * （SPEAKER/WIRED/BT = 0/1/2），便于 {@code values()[tabIndex]} 直接映射。</p>
+ * <p>序数与 UI 设备标签、{@link NativeVolumeCurve.Device} 当前一致
+ * （SPEAKER/WIRED/BT = 0/1/2），但跨维度映射统一走显式 {@code switch}（见
+ * {@code MainActivity.toNativeDevice}），不依赖 {@code values()[ordinal()]} 的顺序巧合。</p>
  */
 public enum OutputDevice {
 

@@ -633,8 +633,7 @@ public class MainActivity extends AppCompatActivity {
 
         // 默认：与 A/B 同范式，按当前 [min,max] 把窗内原生响度曲线重算（目标档位线性等分）。
         if (showingDefault) {
-            NativeVolumeCurve.Device device =
-                    NativeVolumeCurve.Device.values()[editingDevice.ordinal()];
+            NativeVolumeCurve.Device device = toNativeDevice(editingDevice);
             boolean showDb = selectedNativeMode == NativeVolumeCurve.Mode.DB_LINEAR;
             String devTab = getString(deviceTabLabel(device));
             int minS = Prefs.clampSystemStep(currentMinAbs(), mediaSteps);
@@ -787,6 +786,23 @@ public class MainActivity extends AppCompatActivity {
             avail = (int) (getResources().getDisplayMetrics().widthPixels - 72 * density);
         }
         return Math.max(1, (int) Math.floor(avail / cellPx));
+    }
+
+    /**
+     * {@link OutputDevice}（UI/配置维度）→ {@link NativeVolumeCurve.Device}（原生曲线维度）显式映射。
+     * 两个枚举当前恰好同序（SPEAKER/WIRED/BT），但刻意用显式 {@code switch} 而非 {@code values()[ordinal()]}
+     * 解耦，避免任一枚举调序时静默错位。
+     */
+    private static NativeVolumeCurve.Device toNativeDevice(OutputDevice device) {
+        switch (device) {
+            case WIRED:
+                return NativeVolumeCurve.Device.WIRED;
+            case BT:
+                return NativeVolumeCurve.Device.BT;
+            case SPEAKER:
+            default:
+                return NativeVolumeCurve.Device.SPEAKER;
+        }
     }
 
     /** 「默认」预览设备 Tab 的显示文案资源 id。 */
