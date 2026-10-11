@@ -17,4 +17,9 @@ final class SettingsGlobal {
         return android.provider.Settings.Global.getString(
                 context.getContentResolver(), key);
     }
+
+    /** 该 Global 键对应的通知 Uri，供 {@code registerContentObserver} 监听配置变更实时失效缓存。 */
+    static android.net.Uri getUriFor(String key) {
+        return android.provider.Settings.Global.getUriFor(key);
+    }
 }

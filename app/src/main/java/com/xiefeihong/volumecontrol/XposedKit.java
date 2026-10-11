@@ -350,24 +350,69 @@ public final class XposedKit {
         return null;
     }
 
-    // ==================== 配置读取（双通道） ====================
+    // ==================== 配置读取（双通道 + TTL 缓存） ====================
 
     /**
-     * 读取配置（多重通道，任一成功即返回）。
+     * 配置对象缓存有效期（毫秒）：有效期内热路径直接返回 {@link #sCachedConfig}，
+     * 跳过 SettingsProvider binder IPC 与镜像文件读。一次音量按键会命中 2~4 个 hook，
+     * 每个都 {@code readConfig}，此前每次一次 binder IPC。配置仅在 App 保存时变化，
+     * 实时性由 {@link #ensureConfigObserver} 的 ContentObserver 立即失效保证，TTL 仅作
+     * observer 注册失败（开机早期未就绪）时的兜底。
+     */
+    private static final long CONFIG_CACHE_TTL_MS = 800;
+    /** 上次成功填充配置缓存的时间戳（毫秒）；ContentObserver 触发时置 0 立即失效。 */
+    private static volatile long sConfigCacheAtMs;
+    /** ContentObserver 经弱引用持有，必须保留强引用防止被 GC 回收后静默失效；非 null 即已注册。 */
+    private static volatile android.database.ContentObserver sConfigObserver;
+    /** 上次尝试注册观察器的时间：开机早期 IContentService 未就绪时按节流重试，避免高频刷屏。 */
+    private static volatile long sConfigObserverAttemptMs;
+    private static final long OBSERVER_RETRY_MS = 15_000L;
+
+    /**
+     * 读取配置（TTL 缓存快路径 + 多重通道兜底，任一成功即返回）。
      *
-     * <p>通道1 Settings.Global（各进程均可访问，冷启动早期 SettingsProvider 未就绪时失败）
-     * → 通道2 配置镜像文件（App 以 root 写入 /data/system，不依赖 SettingsProvider，
-     * 开机全程可读——冷启动构造期的关键通道）。</p>
+     * <p>有效期内直接返回缓存对象；否则走 {@link #readConfigUncached} 逐通道读取，
+     * 成功后刷新缓存时间戳。App 保存配置后经 ContentObserver 立即失效，保证热路径
+     * 及时读到新值。</p>
      *
      * @return 解析后的 {@link VolumeConfig}（任一通道成功即返回），全部失败返回 null
      */
     static VolumeConfig readConfig(Context context) {
+        // 缓存快路径：有效期内直接返回已解析配置，跳过 SettingsProvider binder IPC 与镜像文件读。
+        long now = System.currentTimeMillis();
+        VolumeConfig cached = sCachedConfig;
+        if (cached != null && CONFIG_CACHE_TTL_MS > 0
+                && now - sConfigCacheAtMs < CONFIG_CACHE_TTL_MS) {
+            return cached;
+        }
+        boolean[] fromGlobal = new boolean[1];
+        VolumeConfig config = readConfigUncached(context, fromGlobal);
+        if (config != null) {
+            sConfigCacheAtMs = System.currentTimeMillis();
+            // 仅当本次确实从 Settings.Global 读到配置时才尝试注册观察器：
+            // system_server 的早期 Context 无 IContentService（getString/observer 均 NPE），
+            // 实际走镜像文件通道，该通道变更无法用 ContentObserver 监听——此时 TTL 即为失效手段。
+            if (fromGlobal[0]) {
+                ensureConfigObserver(context);
+            }
+        }
+        return config;
+    }
+
+    /**
+     * 逐通道读取配置（无 TTL 缓存）：Settings.Global → 镜像文件兜底。
+     *
+     * @param outFromGlobal 长度≥1 的出参：{@code [0]=true} 表示本次成功来自 Settings.Global
+     *                      （可被 ContentObserver 监听），{@code false} 表示来自镜像文件通道。
+     */
+    private static VolumeConfig readConfigUncached(Context context, boolean[] outFromGlobal) {
         // 通道1：Settings.Global
         if (context != null) {
             try {
                 String raw = SettingsGlobal.getString(context, Prefs.GLOBAL_KEY);
                 VolumeConfig config = parseCached(raw);
                 if (config != null) {
+                    outFromGlobal[0] = true;
                     return config;
                 }
                 if (raw != null) {
@@ -391,6 +436,39 @@ public final class XposedKit {
             logErrorOnce("mirror-failed", "read mirror config failed: " + t);
         }
         return null;
+    }
+
+    /**
+     * 懒注册 Settings.Global 配置变更观察器（每进程一次）：App 保存配置经
+     * {@code Settings.Global.putString} 下发，触发 {@code onChange} 把缓存时间戳置 0，
+     * 下次热路径 {@code readConfig} 立即走 IPC 重取，无需等待 TTL 过期。App 同时写
+     * Settings.Global 与镜像文件，二者内容一致，单一失效点即覆盖两个通道。
+     */
+    private static void ensureConfigObserver(Context context) {
+        if (CONFIG_CACHE_TTL_MS <= 0 || sConfigObserver != null || context == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - sConfigObserverAttemptMs < OBSERVER_RETRY_MS) {
+            return;   // 节流：早期 IContentService 未就绪，避免每次慢路径都触发失败重试/刷屏
+        }
+        sConfigObserverAttemptMs = now;
+        try {
+            android.net.Uri uri = SettingsGlobal.getUriFor(Prefs.GLOBAL_KEY);
+            android.database.ContentObserver observer = new android.database.ContentObserver(
+                    new android.os.Handler(android.os.Looper.getMainLooper())) {
+                @Override
+                public void onChange(boolean selfChange) {
+                    sConfigCacheAtMs = 0;   // 配置已变：立即失效，下次 readConfig 走 IPC 重取
+                }
+            };
+            context.getContentResolver().registerContentObserver(uri, false, observer);
+            sConfigObserver = observer;   // 保强引用，防弱引用注册被 GC；非 null 兼作「已注册」标志
+            log("config ContentObserver registered");
+        } catch (Throwable t) {
+            // 失败不置 sConfigObserver，保留强引用外不标记成功，后续慢路径按节流重试
+            logErrorOnce("config-observer", "register config observer failed: " + t);
+        }
     }
 
     /** 按原始串缓存已解析配置（DOM 解析较 {@code split} 重，高频 hook 路径避免重复解析）。 */
