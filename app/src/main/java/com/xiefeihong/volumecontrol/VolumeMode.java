@@ -26,9 +26,10 @@ public enum VolumeMode {
     },
 
     /**
-     * 默认（系统直通）模式：不重映射、不改档位数。任何生效路径都先经
-     * {@link VolumeConfig#remapActive()} 与该设备 {@link DeviceConfig#isDefault()} 判定，
-     * 默认直通时不会取到本枚举去重映射。
+     * 默认模式：不改档位数、不加自定义曲线，仅在 system_server 把系统档位在所选
+     * {@code [min,max]} 间线性等分重映射（见 {@code AudioHooks} 的 defaultMode 分支，用
+     * {@link Avrcp#defaultRangeToIndex}；满量程时恒等于直通）。是否生效仍先经
+     * {@link VolumeConfig#remapActive()} 与该设备 {@link DeviceConfig#isDefault()} 判定。
      */
     DEFAULT {
         @Override public boolean attenuatesInSystemServer() { return false; }

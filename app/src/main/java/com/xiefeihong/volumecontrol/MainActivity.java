@@ -635,8 +635,7 @@ public class MainActivity extends AppCompatActivity {
             binding.tvMaxAbs.setText(getString(R.string.label_max_abs_fmt, maxS,
                     Math.round(maxS * 100.0 / mediaSteps)));
             binding.tvRangeHint.setText(getString(R.string.range_hint));
-            binding.tvSummary.setText(Avrcp.buildDefaultPreview(
-                    systemDefaultSteps(), mediaSteps, minS, maxS, keySteps));
+            binding.tvSummary.setText(Avrcp.buildDefaultPreview(mediaSteps, minS, maxS, keySteps));
             if (selectedNativeAxis == NativeAxis.PERCENT) {
                 NativeVolumeCurve.Anchors a =
                         NativeVolumeCurve.anchorsFor(device, selectedNativeMode);

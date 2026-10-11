@@ -211,38 +211,9 @@ public final class Avrcp {
         return buildAbsolutePreview(maxSteps, minAbs, maxAbs, curveType, keySteps);
     }
 
-    /** 模式B：手机端软件衰减（系统档位直映射）。 */
-    private static String buildSoftwarePreview(int maxSteps, int minStep, int maxStep,
-            int curveType, int keySteps) {
-        int lowest = curveToSystemIndex(1, maxSteps, minStep, maxStep, curveType);
-        int maxPercent = (int) Math.round(maxStep * 100.0 / maxSteps);
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("相对音量模式：停用绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
-        sb.append("档位直接映射为系统音量档位，范围 ")
-                .append(lowest).append('~').append(maxStep).append("（共 ").append(maxSteps).append(" 档）\n");
-
-        int dups = countDuplicateAtKeySteps(maxSteps, keySteps,
-                level -> curveToSystemIndex(level, maxSteps, minStep, maxStep, curveType));
-        if (dups == 0) {
-            sb.append("✓ 各次按键的系统音量档位互不相同\n");
-        } else {
-            sb.append("⚠ 有 ").append(dups)
-                    .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
-        }
-        sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps).append("\n");
-        if (lowest <= 5) {
-            sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
-        } else {
-            sb.append("✓ 已高于常见可闻下限\n");
-        }
-        sb.append("提示：耳机音量请用耳机自身的音量键调整；耳机端音量同步显示会失效（正常现象）");
-        return sb.toString();
-    }
-
     /** 模式A：所选曲线分布 + 音量范围。 */
     private static String buildAbsolutePreview(int maxSteps, int minAbs, int maxAbs,
-            int curveType, int keySteps) {
+                                               int curveType, int keySteps) {
         int[] range = normalizedRange(minAbs, maxAbs);
         StringBuilder sb = new StringBuilder();
 
@@ -281,18 +252,46 @@ public final class Avrcp {
         return sb.toString();
     }
 
+    /** 模式B：手机端软件衰减（系统档位直映射）。 */
+    private static String buildSoftwarePreview(int maxSteps, int minStep, int maxStep,
+            int curveType, int keySteps) {
+        int lowest = curveToSystemIndex(1, maxSteps, minStep, maxStep, curveType);
+        int maxPercent = (int) Math.round(maxStep * 100.0 / maxSteps);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("相对音量模式：停用绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
+        sb.append("档位直接映射为系统音量档位，范围 ")
+                .append(lowest).append('~').append(maxStep).append("（共 ").append(maxSteps).append(" 档）\n");
+
+        int dups = countDuplicateAtKeySteps(maxSteps, keySteps,
+                level -> curveToSystemIndex(level, maxSteps, minStep, maxStep, curveType));
+        if (dups == 0) {
+            sb.append("✓ 各次按键的系统音量档位互不相同\n");
+        } else {
+            sb.append("⚠ 有 ").append(dups)
+                    .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
+        }
+        sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps).append("\n");
+        if (lowest <= 5) {
+            sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
+        } else {
+            sb.append("✓ 已高于常见可闻下限\n");
+        }
+        sb.append("提示：耳机音量请用耳机自身的音量键调整；耳机端音量同步显示会失效（正常现象）");
+        return sb.toString();
+    }
+
     /**
-     * 默认（系统直通）模式：沿用 ROM 原生响度曲线，不做自定义映射或衰减。按当前 {@code [minStep,maxStep]}
-     * 窗口预览，与模式A/B 同构的四段式（模式行 / 范围行 / ✓⚠ 判重 / 提示）；档位数与百分比均为变量。
+     * 默认模式：把系统档位在 {@code [minStep,maxStep]} 间线性等分重映射（无自定义曲线），两端锚到
+     * min/max、中间保持 ROM 原生响度曲线（满量程时恒等于直通）。与模式A/B 同构的多段式（模式行 /
+     * 范围行 / ✓⚠ 判重 / 第 1 档可闻下限 / 提示）；档位数与百分比均为变量。
      *
-     * @param nativeSteps 系统原生媒体档位数（{@code systemDefaultSteps()}）
-     * @param maxSteps    当前生效媒体档位数
-     * @param minStep     当前窗口最小系统档位
-     * @param maxStep     当前窗口最大系统档位
-     * @param keySteps    音量键步进（按键段数）
+     * @param maxSteps 当前生效媒体档位数
+     * @param minStep  当前窗口最小系统档位
+     * @param maxStep  当前窗口最大系统档位
+     * @param keySteps 音量键步进（按键段数）
      */
-    public static String buildDefaultPreview(int nativeSteps, int maxSteps, int minStep,
-            int maxStep, int keySteps) {
+    public static String buildDefaultPreview(int maxSteps, int minStep, int maxStep, int keySteps) {
         if (maxSteps <= 0) {
             return "暂无数据";
         }
@@ -302,22 +301,29 @@ public final class Avrcp {
         int hiPct = (int) Math.round(hi * 100.0 / maxSteps);
         int dups = countDuplicateAtKeySteps(maxSteps, keySteps,
                 level -> defaultRangeToIndex(level, maxSteps, minStep, maxStep));
+        int lowest = defaultRangeToIndex(1, maxSteps, lo, hi);
+        int lowestPercent = (int) Math.round(lowest * 100.0 / maxSteps);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("默认模式：沿用系统直通 · ROM 原生曲线\n");
-        sb.append("该设备不做自定义映射或衰减（直通），当前手机默认媒体档位数：")
-                .append(nativeSteps).append(" 级\n");
-        sb.append("档位范围 ").append(lo).append('~').append(hi)
-                .append("（共 ").append(maxSteps).append(" 档，约 ").append(loPct)
-                .append("%~").append(hiPct).append("%）\n");
+        sb.append("默认模式：系统档位线性映射 · ROM 原生曲线\n");
+        sb.append("媒体 ").append(maxSteps).append(" 档 → 系统档位（0~").append(maxSteps)
+                .append("）线性等分，范围 ").append(lo).append('~').append(hi)
+                .append("（约 ").append(loPct).append("%~").append(hiPct).append("%）\n");
         if (dups == 0) {
             sb.append("✓ 各次按键的系统音量档位互不相同\n");
         } else {
             sb.append("⚠ 有 ").append(dups)
                     .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
         }
-        sb.append("提示：下方曲线图横轴为系统档位、纵轴为按 dB 归一的相对增益（0~100%），")
-                .append("按 ROM audio policy 配置绘制、读不到时回退 AOSP 参考曲线。");
+        sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps)
+                .append("（约 ").append(lowestPercent).append("%）\n");
+        if (lowest <= 5) {
+            sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
+        } else {
+            sb.append("✓ 已高于常见可闻下限\n");
+        }
+        sb.append("提示：两端锚到 min/max、中间保持 ROM 原生响度曲线（满量程即直通）；")
+                .append("下方曲线图横轴为系统档位、纵轴为按 dB 归一的相对增益（0~100%）。");
         return sb.toString();
     }
 
