@@ -132,7 +132,8 @@ public final class CurveChartView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        float padL = 34f * density;
+        // dB 纵轴需容纳“‑100dB”等较宽标签，适当加宽左边距，避免被夹到画布左边缘而与纵轴贴合
+        float padL = (nativeCurveMode && nativeShowDb ? 48f : 34f) * density;
         float padR = 8f * density;
         float padT = 18f * density;
         float padB = 20f * density;
@@ -254,8 +255,7 @@ public final class CurveChartView extends View {
                 bottom + 3f * density, true);
         // 纵轴标签：dB 口径显示 dB 值（底/中/顶对应 floor/中值/ceil），并在原点标出起始 dB；否则显示归一增益百分比
         if (nativeShowDb) {
-            // 原点起始值向左偏 2px，避免与纵轴/底部拐角贴在一起
-            drawYText(canvas, fmtDb(nativeDbFloor), bottom, left - 2f);
+            drawYText(canvas, fmtDb(nativeDbFloor), bottom, left);
             drawYText(canvas, fmtDb((nativeDbFloor + nativeDbCeil) / 2f),
                     bottom - (bottom - top) * 0.5f, left);
             drawYText(canvas, fmtDb(nativeDbCeil), top, left);
