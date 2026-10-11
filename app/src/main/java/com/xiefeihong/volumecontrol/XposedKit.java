@@ -281,19 +281,67 @@ public final class XposedKit {
         return count;
     }
 
-    /** 读实例字段（任意可见性）；失败返回 null / 抛出异常由调用方决定。 */
-    static Object getField(Object object, String name) throws Exception {
-        Class<?> c = object.getClass();
+    /**
+     * 字段解析缓存：热路径（如 setStreamVolumeIndex 每次读 mStreamType/this$0/mIndexMax 等）
+     * 此前每次都沿类层次 {@code getDeclaredField} 遍历。key 带 {@code I:}/{@code S:} 前缀区分
+     * 实例/静态口径，含未命中的 {@code Optional.empty()} 负缓存，避免对不存在的字段反复遍历。
+     */
+    private static final ConcurrentHashMap<String, java.util.Optional<Field>> sFieldCache =
+            new ConcurrentHashMap<>();
+
+    /** 沿类层次解析实例字段（任意可见性）；带缓存，未命中缓存 empty 并抛 {@link NoSuchFieldException}。 */
+    private static Field resolveInstanceField(Class<?> startClass, String name) throws Exception {
+        String key = "I:" + startClass.getName() + "#" + name;
+        java.util.Optional<Field> cached = sFieldCache.get(key);
+        if (cached != null) {
+            if (!cached.isPresent()) {
+                throw new NoSuchFieldException(name);
+            }
+            return cached.get();
+        }
+        Field found = null;
+        Class<?> c = startClass;
         while (c != null && c != Object.class) {
             try {
                 Field field = c.getDeclaredField(name);
                 field.setAccessible(true);
-                return field.get(object);
+                found = field;
+                break;
             } catch (NoSuchFieldException e) {
                 c = c.getSuperclass();
             }
         }
-        throw new NoSuchFieldException(name);
+        sFieldCache.put(key, java.util.Optional.ofNullable(found));
+        if (found == null) {
+            throw new NoSuchFieldException(name);
+        }
+        return found;
+    }
+
+    /** 解析静态字段（带缓存）；未命中缓存 empty 并抛 {@link NoSuchFieldException}。 */
+    private static Field resolveStaticField(Class<?> clazz, String name) throws Exception {
+        String key = "S:" + clazz.getName() + "#" + name;
+        java.util.Optional<Field> cached = sFieldCache.get(key);
+        if (cached != null) {
+            if (!cached.isPresent()) {
+                throw new NoSuchFieldException(name);
+            }
+            return cached.get();
+        }
+        try {
+            Field field = clazz.getDeclaredField(name);
+            field.setAccessible(true);
+            sFieldCache.put(key, java.util.Optional.of(field));
+            return field;
+        } catch (NoSuchFieldException e) {
+            sFieldCache.put(key, java.util.Optional.empty());
+            throw e;
+        }
+    }
+
+    /** 读实例字段（任意可见性）；失败抛出异常由调用方决定。 */
+    static Object getField(Object object, String name) throws Exception {
+        return resolveInstanceField(object.getClass(), name).get(object);
     }
 
     /** 读实例 int 字段；失败抛出异常。 */
@@ -307,25 +355,12 @@ public final class XposedKit {
 
     /** 写实例 int 字段；失败抛出异常。 */
     static void setIntField(Object object, String name, int value) throws Exception {
-        Class<?> c = object.getClass();
-        while (c != null && c != Object.class) {
-            try {
-                Field field = c.getDeclaredField(name);
-                field.setAccessible(true);
-                field.setInt(object, value);
-                return;
-            } catch (NoSuchFieldException e) {
-                c = c.getSuperclass();
-            }
-        }
-        throw new NoSuchFieldException(name);
+        resolveInstanceField(object.getClass(), name).setInt(object, value);
     }
 
     /** 读静态字段（任意可见性）。 */
     static Object getStaticField(Class<?> clazz, String name) throws Exception {
-        Field field = clazz.getDeclaredField(name);
-        field.setAccessible(true);
-        return field.get(null);
+        return resolveStaticField(clazz, name).get(null);
     }
 
     /** 读静态 int 字段。 */

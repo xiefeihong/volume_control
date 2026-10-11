@@ -100,6 +100,14 @@ final class AudioHooks {
     /** ROM 原始档位数组：只在首次调用时备份。 */
     private static int[] sOriginalMaxStreamVolumes;
 
+    /**
+     * 方法解析缓存：{@link #findIntMethod} 与 {@link #invokeSetStreamVolume} 此前每次调用都
+     * 沿类层次 {@code getDeclaredMethod}/{@code getDeclaredMethods} 遍历。key 含类名与方法签名，
+     * 含未命中的 {@code Optional.empty()} 负缓存。热路径（音量键 adjust/读写当前与最大档位）受益。
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.Optional<Method>>
+            sMethodCache = new java.util.concurrent.ConcurrentHashMap<>();
+
     private AudioHooks() {
     }
 
@@ -720,16 +728,25 @@ final class AudioHooks {
         throw new NoSuchMethodException(name + " not returning int");
     }
 
-    /** 在类层次中查找名字为 name、单个 int 参数的方法（任意可见性）。 */
+    /** 在类层次中查找名字为 name、单个 int 参数的方法（任意可见性）；带 {@link #sMethodCache} 缓存。 */
     private static Method findIntMethod(Class<?> c, String name) {
-        while (c != null && c != Object.class) {
+        String key = "M:" + c.getName() + "#" + name + "#(int)";
+        java.util.Optional<Method> cached = sMethodCache.get(key);
+        if (cached != null) {
+            return cached.orElse(null);
+        }
+        Method found = null;
+        Class<?> cur = c;
+        while (cur != null && cur != Object.class) {
             try {
-                return c.getDeclaredMethod(name, int.class);
+                found = cur.getDeclaredMethod(name, int.class);
+                break;
             } catch (NoSuchMethodException e) {
-                c = c.getSuperclass();
+                cur = cur.getSuperclass();
             }
         }
-        return null;
+        sMethodCache.put(key, java.util.Optional.ofNullable(found));
+        return found;
     }
 
     /**
@@ -889,26 +906,7 @@ final class AudioHooks {
      */
     private static void invokeSetStreamVolume(Object audioService, int streamType, int index,
             int flags) throws Throwable {
-        Method target = null;
-        Class<?> c = audioService.getClass();
-        while (c != null) {
-            for (Method m : c.getDeclaredMethods()) {
-                if (!METHOD_SET_STREAM_VOLUME.equals(m.getName())) {
-                    continue;
-                }
-                Class<?>[] p = m.getParameterTypes();
-                if (p.length >= 3 && p[0] == int.class && p[1] == int.class && p[2] == int.class
-                        && (target == null || p.length < target.getParameterTypes().length)) {
-                    m.setAccessible(true);
-                    target = m;
-                }
-            }
-            c = c.getSuperclass();
-        }
-        if (target == null) {
-            throw new NoSuchMethodException(METHOD_SET_STREAM_VOLUME
-                    + "(int,int,int,...) not found on " + audioService.getClass().getName());
-        }
+        Method target = resolveSetStreamVolumeMethod(audioService.getClass());
         Class<?>[] p = target.getParameterTypes();
         Object[] args = new Object[p.length];
         args[0] = streamType;
@@ -931,6 +929,44 @@ final class AudioHooks {
         } catch (InvocationTargetException e) {
             throw (e.getCause() != null) ? e.getCause() : e;
         }
+    }
+
+    /**
+     * 解析 setStreamVolume 目标方法（前 3 参为 int、优先参数最少重载），结果按声明类缓存于
+     * {@link #sMethodCache}；未命中缓存 empty 并抛 {@link NoSuchMethodException}。行为与旧内联逻辑一致。
+     */
+    private static Method resolveSetStreamVolumeMethod(Class<?> startClass) throws Exception {
+        String key = "M:" + startClass.getName() + "#" + METHOD_SET_STREAM_VOLUME + "#(iii..)";
+        java.util.Optional<Method> cached = sMethodCache.get(key);
+        if (cached != null) {
+            if (!cached.isPresent()) {
+                throw new NoSuchMethodException(METHOD_SET_STREAM_VOLUME
+                        + "(int,int,int,...) not found on " + startClass.getName());
+            }
+            return cached.get();
+        }
+        Method target = null;
+        Class<?> c = startClass;
+        while (c != null) {
+            for (Method m : c.getDeclaredMethods()) {
+                if (!METHOD_SET_STREAM_VOLUME.equals(m.getName())) {
+                    continue;
+                }
+                Class<?>[] p = m.getParameterTypes();
+                if (p.length >= 3 && p[0] == int.class && p[1] == int.class && p[2] == int.class
+                        && (target == null || p.length < target.getParameterTypes().length)) {
+                    m.setAccessible(true);
+                    target = m;
+                }
+            }
+            c = c.getSuperclass();
+        }
+        sMethodCache.put(key, java.util.Optional.ofNullable(target));
+        if (target == null) {
+            throw new NoSuchMethodException(METHOD_SET_STREAM_VOLUME
+                    + "(int,int,int,...) not found on " + startClass.getName());
+        }
+        return target;
     }
 
     /**

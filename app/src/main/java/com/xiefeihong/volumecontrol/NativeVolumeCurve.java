@@ -114,6 +114,17 @@ public final class NativeVolumeCurve {
     // 引擎表 music 组的 <indexMax>（ROM 声明的媒体原生档位数）；0＝未解析到。
     private static int musicIndexMax = 0;
 
+    /**
+     * 曲线构建缓存：App 内拖动 min/max 时 steps/mode 不变，重复 {@code updatePreview}
+     * 命中缓存，省去逐次 {@code maxSteps+1}（或 101 点）插值。{@link Curve}/{@link Anchors}
+     * 均为不可变值对象且调用方只读不写，可安全共享。{@link #load()} 完成后清空，确保
+     * 缓存只基于最终点表（避免 load 前误缓存 AOSP 回退结果）。
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Curve> sCurveCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ConcurrentHashMap<String, Anchors> sAnchorsCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     /** 引擎表 music 组声明的媒体档位数（{@code <indexMax>}）；未加载/未解析到返回 0。 */
     public static int nativeMusicIndexMax() {
         return loaded ? musicIndexMax : 0;
@@ -159,6 +170,9 @@ public final class NativeVolumeCurve {
         parsed = points;
         parsedSource = sources;
         loaded = true;
+        // 点表已最终确定：清空此前可能基于 AOSP 回退填充的曲线/锚点缓存。
+        sCurveCache.clear();
+        sAnchorsCache.clear();
     }
 
     /** 归一化增益曲线（0~100），按档位数 {@code steps} 输出。 */
@@ -167,6 +181,11 @@ public final class NativeVolumeCurve {
     }
 
     public static Curve curveFor(Device device, int steps, Mode mode) {
+        String key = device.name() + "|" + steps + "|" + mode.name();
+        Curve cached = sCurveCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
         int maxSteps = Math.max(1, steps);
         int[][] points = resolvePoints(device);
         float floor = floorDb(device, points);   // 最负 dB（底 → 0%）
@@ -180,7 +199,9 @@ public final class NativeVolumeCurve {
             gain[i] = transform(db, floor, ceil, mode);
         }
         Source src = sourceOf(device);
-        return new Curve(device, src != Source.AOSP, src, mode, gain, gainDb, maxSteps);
+        Curve curve = new Curve(device, src != Source.AOSP, src, mode, gain, gainDb, maxSteps);
+        sCurveCache.put(key, curve);
+        return curve;
     }
 
     /**
@@ -212,8 +233,13 @@ public final class NativeVolumeCurve {
         }
     }
 
-    /** 取某设备 XML 点表的档位百分比锚点曲线（横轴=百分比）。 */
+    /** 取某设备 XML 点表的档位百分比锚点曲线（横轴=百分比）；带 {@link #sAnchorsCache} 缓存。 */
     public static Anchors anchorsFor(Device device, Mode mode) {
+        String key = device.name() + "|" + mode.name();
+        Anchors cached = sAnchorsCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
         int[][] points = resolvePoints(device);
         float floor = floorDb(device, points);
         float ceil = ceilDb(device, points);
@@ -234,7 +260,9 @@ public final class NativeVolumeCurve {
             byPct[p] = transform(db, floor, ceil, mode);
             dbByPct[p] = db / 100f;
         }
-        return new Anchors(pct, gain, gdb, byPct, dbByPct, sourceOf(device), mode);
+        Anchors anchors = new Anchors(pct, gain, gdb, byPct, dbByPct, sourceOf(device), mode);
+        sAnchorsCache.put(key, anchors);
+        return anchors;
     }
 
     // --- 归一化 / 采样 ---
