@@ -142,6 +142,10 @@ public final class XposedKit {
 
     /** 追加写入当前进程的日志文件（带级别标记）；文件过大时清空重写，连续失败 3 次后放弃文件日志。 */
     private static void writeLogFile(String level, String message) {
+        // 放弃文件日志的提示需在锁外发出：logErrorOnce→log→writeLogFile 会重入同一 LOG_LOCK，
+        // 虽同线程可重入不死锁，但会在持锁期间触发文件路径重复探测/写失败计数错乱。锁内只置标志。
+        boolean giveUp = false;
+        int failures = 0;
         synchronized (LOG_LOCK) {
             try {
                 String path = resolveLogPath();
@@ -169,15 +173,18 @@ public final class XposedKit {
                 }
                 sLogFileFailureCount = 0;
             } catch (Throwable t) {
-                if (++sLogFileFailureCount >= 3 && sLogFilePath != null) {
+                failures = ++sLogFileFailureCount;
+                if (failures >= 3 && sLogFilePath != null) {
                     // 连续失败（如 SELinux 限制）：放弃文件日志，依赖 logcat 兜底
-                    logErrorOnce("logfile-give-up",
-                            "log file write failed " + sLogFileFailureCount
-                                    + " times, switching to logcat only");
                     sLogFilePath = null;
                     sLogFileFailureCount = 4;
+                    giveUp = true;
                 }
             }
+        }
+        if (giveUp) {
+            logErrorOnce("logfile-give-up",
+                    "log file write failed " + failures + " times, switching to logcat only");
         }
     }
 

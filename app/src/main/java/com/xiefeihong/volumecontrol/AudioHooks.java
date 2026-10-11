@@ -73,7 +73,7 @@ final class AudioHooks {
     /** system_server 最近一次见到的 AudioService 实例。 */
     private static volatile Object sAudioService;
     /**
-     * 属性拦截缓存：ro.config.media_vol_steps 的返回值（15~29）；-1 表示
+     * 属性拦截缓存：ro.config.media_vol_steps 的返回值（10~100）；-1 表示
      * 未就绪或模块停用（不拦截）。由配置读取路径与属性回调现场刷新。
      */
     private static volatile int sMediaStepsOverride = -1;
@@ -296,7 +296,7 @@ final class AudioHooks {
         }
     }
 
-    /** 把媒体流档位上限改为用户设置值（15~29，其余流不动；原地修改兼容 final 字段）。 */
+    /** 把媒体流档位上限改为用户设置值（10~100，其余流不动；原地修改兼容 final 字段）。 */
     private static void applyMediaSteps() {
         Class<?> audioServiceClass = sAudioServiceClass;
         if (audioServiceClass == null) {

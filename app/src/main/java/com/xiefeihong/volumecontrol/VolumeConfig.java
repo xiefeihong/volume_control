@@ -221,18 +221,27 @@ public final class VolumeConfig {
                 .append(" name=\"").append(name)
                 .append("\" mode=\"").append(c.mode).append("\">").append(nl);
         if (withAbsolute) {
-            appendRange(sb, 'a', c.absolute, i2, nl);
+            appendRange(sb, 'a', c.absolute, i2, nl, true);
         }
-        appendRange(sb, 'b', c.software, i2, nl);
-        appendRange(sb, 'd', c.defaultRange, i2, nl);
+        appendRange(sb, 'b', c.software, i2, nl, false);
+        appendRange(sb, 'd', c.defaultRange, i2, nl, false);
         sb.append(i1).append("</").append(TAG_DEVICE).append('>').append(nl);
     }
 
-    private static void appendRange(StringBuilder sb, char tag, Range r, String i2, String nl) {
+    /**
+     * 写单个范围元素。{@code absolute} 决定端点 clamp 口径：true＝AVRCP（0~{@code AVRCP_MAX_VOLUME}），
+     * false＝系统档位（0~{@code MEDIA_STEPS_MAX}）。两者现值域不重叠（当前上限 100&lt;127）故等价，
+     * 按口径区分避免未来放宽档位数上限时静默截断。
+     */
+    private static void appendRange(StringBuilder sb, char tag, Range r, String i2, String nl,
+            boolean absolute) {
         Range safe = (r != null) ? r : FALLBACK_RANGE;
+        int hi = absolute ? Prefs.AVRCP_MAX_VOLUME : Prefs.MEDIA_STEPS_MAX;
+        int min = Math.max(0, safe.min);
+        int max = Math.max(0, Math.min(hi, safe.max));
         sb.append(i2).append('<').append(tag)
-                .append(" min=\"").append(Prefs.clampAbs(safe.min))
-                .append("\" max=\"").append(Prefs.clampAbs(safe.max))
+                .append(" min=\"").append(min)
+                .append("\" max=\"").append(max)
                 .append("\" curve=\"").append(Prefs.clampCurve(safe.curve))
                 .append("\"/>").append(nl);
     }
@@ -252,6 +261,21 @@ public final class VolumeConfig {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(false);
+            // XXE 加固：输入源自 Settings.Global / 镜像文件（非完全可信），禁用 DTD 与外部实体，
+            // 避免外部实体解析或实体膨胀（billion laughs）拖垮 system_server / 蓝牙进程的 hook 回调。
+            // 每项单独 try-catch：内置 parser 若不支持该 feature 则跳过，不影响解析主流程。
+            try {
+                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            } catch (Throwable ignored) {
+            }
+            try {
+                factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            } catch (Throwable ignored) {
+            }
+            try {
+                factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            } catch (Throwable ignored) {
+            }
             DocumentBuilder builder = factory.newDocumentBuilder();
             Document doc = builder.parse(new InputSource(new StringReader(trimmed)));
             Element root = doc.getDocumentElement();
@@ -281,9 +305,9 @@ public final class VolumeConfig {
         }
         int rawMode = intAttr(el, "mode", Prefs.BT_MODE_DEFAULT);
         int mode = normalizeMode(rawMode, withAbsolute);
-        Range absolute = withAbsolute ? readRange(el, "a") : FALLBACK_RANGE;
-        Range software = readRange(el, "b");
-        Range defaultRange = readRange(el, "d", DEFAULT_FALLBACK_RANGE);
+        Range absolute = withAbsolute ? readRange(el, "a", true) : FALLBACK_RANGE;
+        Range software = readRange(el, "b", false);
+        Range defaultRange = readRange(el, "d", DEFAULT_FALLBACK_RANGE, false);
         return new DeviceConfig(mode, absolute, software, defaultRange);
     }
 
@@ -299,21 +323,27 @@ public final class VolumeConfig {
         return null;
     }
 
-    /** 读取指定标签的范围；缺失回落 {@link #FALLBACK_RANGE}。 */
-    private static Range readRange(Element parent, String tag) {
-        return readRange(parent, tag, FALLBACK_RANGE);
+    /**
+     * 读取指定标签的范围；缺失回落 {@link #FALLBACK_RANGE}。{@code absolute} 决定 clamp 口径：
+     * true＝AVRCP（0~{@code AVRCP_MAX_VOLUME}），false＝系统档位（0~{@code MEDIA_STEPS_MAX}）。
+     */
+    private static Range readRange(Element parent, String tag, boolean absolute) {
+        return readRange(parent, tag, FALLBACK_RANGE, absolute);
     }
 
-    /** 读取指定标签的范围；缺失回落 {@code fallback}。 */
-    private static Range readRange(Element parent, String tag, Range fallback) {
+    /** 读取指定标签的范围；缺失回落 {@code fallback}。{@code absolute} 同 {@link #readRange(Element, String, boolean)}。 */
+    private static Range readRange(Element parent, String tag, Range fallback, boolean absolute) {
+        int hi = absolute ? Prefs.AVRCP_MAX_VOLUME : Prefs.MEDIA_STEPS_MAX;
         NodeList list = parent.getElementsByTagName(tag);
         for (int i = 0; i < list.getLength(); i++) {
             Node node = list.item(i);
             if (node instanceof Element) {
                 Element el = (Element) node;
-                return new Range(
-                        Prefs.clampAbs(intAttr(el, "min", Prefs.ABS_VOLUME_MIN_DEFAULT)),
-                        Prefs.clampAbs(intAttr(el, "max", Prefs.ABS_VOLUME_MAX_DEFAULT)),
+                int min = Math.max(0,
+                        intAttr(el, "min", Prefs.ABS_VOLUME_MIN_DEFAULT));
+                int max = Math.max(0, Math.min(hi,
+                        intAttr(el, "max", hi)));
+                return new Range(min, max,
                         Prefs.clampCurve(intAttr(el, "curve", Prefs.CURVE_TYPE_DEFAULT)));
             }
         }

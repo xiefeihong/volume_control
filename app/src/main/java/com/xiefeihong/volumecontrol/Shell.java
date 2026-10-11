@@ -84,11 +84,23 @@ public final class Shell {
     }
 
     /**
+     * 用单引号安全包裹字符串供 root shell 使用。POSIX 单引号内除单引号外一切原样保留，
+     * 故把值里的单引号闭开为 {@code '\''}（结束引号 + 转义单引号 + 重开引号）。
+     * 当前配置 XML 只含双引号不会产生单引号，本包裹为防御性加固，避免未来格式变化引入命令注入。
+     */
+    static String quote(String s) {
+        if (s == null) {
+            return "''";
+        }
+        return "'" + s.replace("'", "'\\''") + "'";
+    }
+
+    /**
      * 写入 Settings.Global 配置（供 Hook 端在 system_server 中读取）。
-     * 注意：值必须单引号包裹，避免分号被 shell 解析为命令分隔符。
+     * 值经 {@link #quote} 安全包裹，避免分号/单引号等被 shell 解析。
      */
     public static ShellResult putGlobalConfig(String key, String value) {
-        return su("settings put global " + key + " '" + value + "'");
+        return su("settings put global " + key + " " + quote(value));
     }
 
     /** 读取 Settings.Global 中的值（root 方式，用于校验写入结果）。 */
@@ -101,7 +113,7 @@ public final class Shell {
      * chmod 644 使 system 用户可读；restorecon 修正 SELinux 上下文（不可用时静默跳过）。
      */
     public static ShellResult writeGlobalMirror(String value) {
-        return su("echo '" + value + "' > " + Prefs.MIRROR_CONFIG_FILE
+        return su("echo " + quote(value) + " > " + Prefs.MIRROR_CONFIG_FILE
                 + "; chmod 644 " + Prefs.MIRROR_CONFIG_FILE
                 + "; restorecon " + Prefs.MIRROR_CONFIG_FILE + " 2>/dev/null");
     }

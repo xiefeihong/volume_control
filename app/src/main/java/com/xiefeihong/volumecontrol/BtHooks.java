@@ -148,7 +148,7 @@ final class BtHooks {
                     return curved;
                 }
             } catch (Throwable t) {
-                XposedKit.logError("modeA systemToAvrcp hook failed: " + t);
+                XposedKit.logErrorOnce("modeA-toavrcp-err", "modeA systemToAvrcp hook failed: " + t);
             }
             return result;
         }
@@ -171,6 +171,9 @@ final class BtHooks {
             Object result = chain.proceed();
             try {
                 VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
+                if (config == null) {
+                    return result; // 配置未就绪：走系统原始换算
+                }
                 VolumeMode m = config.bluetoothAvrcpMode();
                 if (m == null) {
                     return result; // 非模式A（含未启用/模式B）无需反算
@@ -195,7 +198,7 @@ final class BtHooks {
                 int step = Avrcp.curveToSystemStep(avrcp, maxSteps, minA, maxA, curveType);
                 return Math.max(0, Math.min(maxSteps, step));
             } catch (Throwable t) {
-                XposedKit.logError("modeA avrcpToSystem hook failed: " + t);
+                XposedKit.logErrorOnce("modeA-tosystem-err", "modeA avrcpToSystem hook failed: " + t);
             }
             return result;
         }
@@ -218,7 +221,7 @@ final class BtHooks {
                             if (args.size() >= 2 && Boolean.TRUE.equals(args.get(1))) {
                                 VolumeConfig config = XposedKit.readConfig(
                                         XposedKit.bluetoothContext());
-                                if (config.suppressBtAbsoluteVolume()) {
+                                if (config != null && config.suppressBtAbsoluteVolume()) {
                                     if (!sModeBLogged) {
                                         sModeBLogged = true;
                                         XposedKit.log("modeB: force absoluteVolume=false");
@@ -229,7 +232,7 @@ final class BtHooks {
                                 }
                             }
                         } catch (Throwable t) {
-                            XposedKit.logError("deviceConnected hook failed: " + t);
+                            XposedKit.logErrorOnce("devconn-err", "deviceConnected hook failed: " + t);
                         }
                         return chain.proceed();
                     }
@@ -256,11 +259,11 @@ final class BtHooks {
                         try {
                             XposedKit.logOnce("hook-bt-sendvol", "HOOK fired: sendVolumeChanged (modeB)");
                             VolumeConfig config = XposedKit.readConfig(XposedKit.bluetoothContext());
-                            if (config.suppressBtAbsoluteVolume()) {
+                            if (config != null && config.suppressBtAbsoluteVolume()) {
                                 return null; // 模式B：阻止发送 AVRCP
                             }
                         } catch (Throwable t) {
-                            XposedKit.logError("sendVolumeChanged hook failed: " + t);
+                            XposedKit.logErrorOnce("sendvol-err", "sendVolumeChanged hook failed: " + t);
                         }
                         return chain.proceed();
                     }
@@ -331,7 +334,7 @@ final class BtHooks {
                     return chain.proceed(newArgs);
                 }
             } catch (Throwable t) {
-                XposedKit.logError("defaultAvrcp native-send hook failed: " + t);
+                XposedKit.logErrorOnce("default-send-err", "defaultAvrcp native-send hook failed: " + t);
             }
             return chain.proceed();
         }
