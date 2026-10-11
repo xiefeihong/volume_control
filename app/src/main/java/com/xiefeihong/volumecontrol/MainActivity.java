@@ -57,6 +57,12 @@ public class MainActivity extends AppCompatActivity {
     /** {@link #measureCellColumns} 复用的文本测量 Paint（避免每次测量新建对象）。 */
     private final Paint measurePaint = new Paint();
 
+    /**
+     * dB 模式映射表右列用 {@code "%6.1f"} 格式；{@link #computeTableColumns} 靠 valueMax 的位数
+     * 估算列宽，传此 6 位哨兵值使估宽贴近 dB 列实际宽度（其数值不参与 dB 表渲染）。
+     */
+    private static final int DB_COLUMN_WIDTH_SENTINEL = 999999;
+
     /** {@code tvPending} 在「已保存」状态下显示的（重启待生效）文案，由 renderStatus 写入。 */
     private String pendingStatusText = "";
 
@@ -703,7 +709,7 @@ public class MainActivity extends AppCompatActivity {
             int segs = Prefs.clampKeySteps(keySteps);
             binding.tvRangeMapping.setText(Avrcp.buildNativeStepsTable(
                     mediaSteps, effGain, effDb, showDb, keySteps,
-                    computeTableColumns(segs, showDb ? 999999 : 100, !showDb)));
+                    computeTableColumns(segs, showDb ? DB_COLUMN_WIDTH_SENTINEL : 100, !showDb)));
             return;
         }
 

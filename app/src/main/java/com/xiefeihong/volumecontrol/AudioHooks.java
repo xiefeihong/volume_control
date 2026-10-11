@@ -97,6 +97,15 @@ final class AudioHooks {
     private static volatile long sLastKeyAdjustNanos;
     private static long sLastBypassLogNanos;
 
+    /** 判定「刚由按键接管改过」的时间窗（纳秒）：此窗内的 off-grid 落点视为正常，不记绕过。 */
+    private static final long KEY_ADJUST_WINDOW_NS = 200_000_000L;
+
+    /** 绕过路径调用栈抓取的最小间隔（纳秒）：低频节流，避免拖动时刷屏。 */
+    private static final long BYPASS_LOG_THROTTLE_NS = 6_000_000_000L;
+
+    /** 按键 adjust 最小有效增量占档位数的比例：|delta| 小于 max(2, levels*此比例) 视为噪声交回系统。 */
+    private static final float KEY_DELTA_MIN_RATIO = 0.03f;
+
     /** ROM 原始档位数组：只在首次调用时备份。 */
     private static int[] sOriginalMaxStreamVolumes;
 
@@ -870,7 +879,7 @@ final class AudioHooks {
                 // 的 Δ 只有 0/±1。Δ 过小一律视为系统回写、原样放行——否则会把同步写入吸附
                 // 成反向掉档并与 SystemUI 相互回写振荡（实测按音量+反而 40→39 的根因）。
                 int delta = index - current;
-                int minKeyDelta = Math.max(2, Math.round(levels * 0.03f));
+                int minKeyDelta = Math.max(2, Math.round(levels * KEY_DELTA_MIN_RATIO));
                 if (Math.abs(delta) < minKeyDelta) {
                     return chain.proceed();
                 }
@@ -1055,7 +1064,7 @@ final class AudioHooks {
             return;
         }
         long now = System.nanoTime();
-        if (now - sLastKeyAdjustNanos < 200_000_000L) {
+        if (now - sLastKeyAdjustNanos < KEY_ADJUST_WINDOW_NS) {
             return;   // 刚由按键接管改过，属正常网格落点
         }
         int levels = Prefs.clampMediaSteps(config.mediaSteps);
@@ -1067,7 +1076,7 @@ final class AudioHooks {
         if (Prefs.keyStepLevel(nearest, levels, segs) == index) {
             return;   // 恰在网格上
         }
-        if (now - sLastBypassLogNanos < 6_000_000_000L) {
+        if (now - sLastBypassLogNanos < BYPASS_LOG_THROTTLE_NS) {
             return;   // 节流：6s 一次
         }
         sLastBypassLogNanos = now;

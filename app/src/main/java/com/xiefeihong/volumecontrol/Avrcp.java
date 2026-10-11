@@ -36,6 +36,15 @@ public final class Avrcp {
      */
     public static final float DEFAULT_DB_GAP_MIN = 1.0f;
 
+    /** 模式A（AVRCP 0~127）第 1 档可闻下限阈值：AVRCP 值 ≤ 此值提示低音量可能无声。 */
+    static final int ABS_LOW_FLOOR = 5;
+
+    /** 模式A 低音量区第 1→2 档最小间距（AVRCP 单位）：小于此值提示耳机粒度下听感趋同。 */
+    static final int ABS_SPACING_MIN = 8;
+
+    /** 模式B/默认（百分比口径）第 1 档可闻下限阈值：归一百分比 ≤ 此值提示低音量可能无声。 */
+    static final int LOW_FLOOR_PCT = 5;
+
     private Avrcp() {
     }
 
@@ -144,8 +153,9 @@ public final class Avrcp {
         if (maxSteps <= 0 || step <= 0) {
             return 0;
         }
-        int lo = Math.max(0, Math.min(maxSteps, Math.min(minStep, maxStep)));
-        int hi = Math.max(0, Math.min(maxSteps, Math.max(minStep, maxStep)));
+        int[] range = clampSwapRange(maxSteps, minStep, maxStep);
+        int lo = range[0];
+        int hi = range[1];
         if (lo <= 0) {
             lo = Math.max(1, (int) Math.round(MIN_VOLUME_FLOOR_RATIO * hi));
         }
@@ -153,6 +163,13 @@ public final class Avrcp {
             lo = hi;
         }
         return Math.max(0, Math.min(maxSteps, applyCurve(step, maxSteps, lo, hi, curveType)));
+    }
+
+    /** clamp+swap：把 [minStep,maxStep] 归一到 [0,maxSteps] 且 lo<=hi（curveToSystemIndex 与 defaultRangeToIndex 共用）。 */
+    private static int[] clampSwapRange(int maxSteps, int minStep, int maxStep) {
+        int lo = Math.max(0, Math.min(maxSteps, Math.min(minStep, maxStep)));
+        int hi = Math.max(0, Math.min(maxSteps, Math.max(minStep, maxStep)));
+        return new int[]{lo, hi};
     }
 
     /**
@@ -165,9 +182,9 @@ public final class Avrcp {
         if (maxSteps <= 0 || step <= 0) {
             return 0;
         }
-        int lo = Math.max(0, Math.min(maxSteps, Math.min(minStep, maxStep)));
-        int hi = Math.max(0, Math.min(maxSteps, Math.max(minStep, maxStep)));
-        int value = (int) Math.round(lo + (hi - lo) * (double) step / maxSteps);
+        int[] range = clampSwapRange(maxSteps, minStep, maxStep);
+        int value = (int) Math.round(
+                range[0] + (range[1] - range[0]) * (double) step / maxSteps);
         return Math.max(0, Math.min(maxSteps, value));
     }
 
@@ -195,6 +212,29 @@ public final class Avrcp {
             prevValue = value;
         }
         return duplicates;
+    }
+
+    /** 预览「✓/⚠ 各次按键是否重复」判重块：三模式共用。okUnit/dupUnit 分别嵌入 ✓/⚠ 句，输出逐字不变。 */
+    private static void appendKeyStepDupHint(StringBuilder sb, int dups, String okUnit,
+            String dupUnit) {
+        if (dups == 0) {
+            sb.append("✓ 各次按键的").append(okUnit).append("互不相同\n");
+        } else {
+            sb.append("⚠ 有 ").append(dups)
+                    .append(" 次相邻按键落到相同").append(dupUnit)
+                    .append("（可增大按键段数使每次跳更小）\n");
+        }
+    }
+
+    /** 预览「第 1 档 → …」行 + 可闻下限提示：模式B/默认共用（百分比口径）。stepLine 需自带结尾换行。 */
+    private static void appendAudibleHint(StringBuilder sb, String stepLine, int percent,
+            int thresholdPct) {
+        sb.append(stepLine);
+        if (percent <= thresholdPct) {
+            sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
+        } else {
+            sb.append("✓ 已高于常见可闻下限\n");
+        }
     }
 
     /**
@@ -234,22 +274,17 @@ public final class Avrcp {
         sb.append("绝对音量模式：保持绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");
         sb.append("媒体 ").append(maxSteps).append(" 档 → 蓝牙 AVRCP（0~127），范围 ")
                 .append(range[0]).append('~').append(range[1]).append("\n");
-        if (duplicates == 0) {
-            sb.append("✓ 各次按键的 AVRCP 值互不相同\n");
-        } else {
-            sb.append("⚠ 有 ").append(duplicates)
-                    .append(" 次相邻按键落到相同 AVRCP 值（可增大按键段数使每次跳更小）\n");
-        }
+        appendKeyStepDupHint(sb, duplicates, " AVRCP 值", " AVRCP 值");
         sb.append("第 1 档 → AVRCP ").append(lowest)
                 .append("（约 ").append(lowestPercent).append("%）\n");
-        if (lowest <= 5) {
+        if (lowest <= ABS_LOW_FLOOR) {
             sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
         } else {
             sb.append("✓ 已高于常见可闻下限\n");
         }
         if (maxSteps >= 2) {
             sb.append("低音量区间距：第 1→2 档相差 ").append(spacing).append("\n");
-            if (spacing < 8) {
+            if (spacing < ABS_SPACING_MIN) {
                 sb.append("⚠ 偏小，耳机粒度粗时可能听感相同，建议减少档位数或改用模式B\n");
             } else {
                 sb.append("✓ 低音量区不易重复\n");
@@ -273,19 +308,9 @@ public final class Avrcp {
 
         int dups = countDuplicateAtKeySteps(maxSteps, keySteps,
                 level -> curveToSystemIndex(level, maxSteps, minStep, maxStep, curveType));
-        if (dups == 0) {
-            sb.append("✓ 各次按键的系统音量档位互不相同\n");
-        } else {
-            sb.append("⚠ 有 ").append(dups)
-                    .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
-        }
-        sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps)
-                .append("（约 ").append(lowestPercent).append("%）\n");
-        if (lowestPercent <= 5) {
-            sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
-        } else {
-            sb.append("✓ 已高于常见可闻下限\n");
-        }
+        appendKeyStepDupHint(sb, dups, "系统音量档位", "系统档位");
+        appendAudibleHint(sb, "第 1 档 → 系统档位 " + lowest + "/" + maxSteps
+                + "（约 " + lowestPercent + "%）\n", lowestPercent, LOW_FLOOR_PCT);
         sb.append("提示：耳机音量请用耳机自身的音量键调整；耳机端音量同步显示会失效（正常现象）");
         return sb.toString();
     }
@@ -320,24 +345,13 @@ public final class Avrcp {
         sb.append("媒体 ").append(maxSteps).append(" 档 → 系统档位（0~").append(maxSteps)
                 .append("）线性等分，范围 ").append(lo).append('~').append(hi)
                 .append("（约 ").append(loPct).append("%~").append(hiPct).append("%）\n");
-        if (dups == 0) {
-            sb.append("✓ 各次按键的系统音量档位互不相同\n");
-        } else {
-            sb.append("⚠ 有 ").append(dups)
-                    .append(" 次相邻按键落到相同系统档位（可增大按键段数使每次跳更小）\n");
-        }
-        sb.append("第 1 档 → 系统档位 ").append(lowest).append('/').append(maxSteps)
-                .append("（约 ").append(lowestPercent).append("%）\n");
-        if (lowestPercent <= 5) {
-            sb.append("⚠ 低于部分耳机可闻下限，低音量可能无声\n");
-        } else {
-            sb.append("✓ 已高于常见可闻下限\n");
-        }
+        appendKeyStepDupHint(sb, dups, "系统音量档位", "系统档位");
+        appendAudibleHint(sb, "第 1 档 → 系统档位 " + lowest + "/" + maxSteps
+                + "（约 " + lowestPercent + "%）\n", lowestPercent, LOW_FLOOR_PCT);
         if (maxSteps >= 2 && nativeGainDb != null && nativeGainDb.length > 2) {
-            int idx1 = defaultRangeToIndex(1, maxSteps, lo, hi);
             int idx2 = defaultRangeToIndex(2, maxSteps, lo, hi);
             float dbGap = nativeGainDb[Math.min(idx2, nativeGainDb.length - 1)]
-                    - nativeGainDb[Math.min(idx1, nativeGainDb.length - 1)];
+                    - nativeGainDb[Math.min(lowest, nativeGainDb.length - 1)];
             sb.append("低音量区间距：第 1→2 档相差 ")
                     .append(String.format(Locale.US, "%.1f", dbGap)).append(" dB\n");
             if (dbGap < DEFAULT_DB_GAP_MIN) {

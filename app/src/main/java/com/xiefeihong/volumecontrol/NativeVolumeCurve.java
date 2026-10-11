@@ -188,8 +188,8 @@ public final class NativeVolumeCurve {
         }
         int maxSteps = Math.max(1, steps);
         int[][] points = resolvePoints(device);
-        float floor = floorDb(device, points);   // 最负 dB（底 → 0%）
-        float ceil = ceilDb(device, points);     // 最接近 0 的 dB（顶 → 100%）
+        float floor = floorDb(points);   // 最负 dB（底 → 0%）
+        float ceil = ceilDb(points);     // 最接近 0 的 dB（顶 → 100%）
         float[] gain = new float[maxSteps + 1];
         float[] gainDb = new float[maxSteps + 1];
         for (int i = 0; i <= maxSteps; i++) {
@@ -241,8 +241,8 @@ public final class NativeVolumeCurve {
             return cached;
         }
         int[][] points = resolvePoints(device);
-        float floor = floorDb(device, points);
-        float ceil = ceilDb(device, points);
+        float floor = floorDb(points);
+        float ceil = ceilDb(points);
         int n = points.length;
         int[] pct = new int[n];
         float[] gain = new float[n];
@@ -297,14 +297,14 @@ public final class NativeVolumeCurve {
     }
 
     /** 本曲线点表的最负 dB（底）。 */
-    private static float floorDb(Device device, int[][] points) {
+    private static float floorDb(int[][] points) {
         float floor = points.length > 0 ? points[0][1] : -9600f;
         for (int[] pt : points) floor = Math.min(floor, pt[1]);
         return floor;
     }
 
     /** 本曲线点表的最接近 0 的 dB（顶）。 */
-    private static float ceilDb(Device device, int[][] points) {
+    private static float ceilDb(int[][] points) {
         float ceil = points.length > 0 ? points[0][1] : 0f;
         for (int[] pt : points) ceil = Math.max(ceil, pt[1]);
         return ceil;
