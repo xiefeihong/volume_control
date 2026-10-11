@@ -1,5 +1,6 @@
 package com.xiefeihong.volumecontrol;
 
+import java.util.Locale;
 import java.util.function.IntUnaryOperator;
 
 /**
@@ -338,7 +339,7 @@ public final class Avrcp {
             float dbGap = nativeGainDb[Math.min(idx2, nativeGainDb.length - 1)]
                     - nativeGainDb[Math.min(idx1, nativeGainDb.length - 1)];
             sb.append("低音量区间距：第 1→2 档相差 ")
-                    .append(String.format(java.util.Locale.US, "%.1f", dbGap)).append(" dB\n");
+                    .append(String.format(Locale.US, "%.1f", dbGap)).append(" dB\n");
             if (dbGap < DEFAULT_DB_GAP_MIN) {
                 sb.append("⚠ 差值过小，相邻档位听感几乎相同，建议减少档位数\n");
             } else {

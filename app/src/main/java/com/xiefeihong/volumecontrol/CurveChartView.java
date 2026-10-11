@@ -254,7 +254,8 @@ public final class CurveChartView extends View {
                 bottom + 3f * density, true);
         // 纵轴标签：dB 口径显示 dB 值（底/中/顶对应 floor/中值/ceil），并在原点标出起始 dB；否则显示归一增益百分比
         if (nativeShowDb) {
-            drawYText(canvas, fmtDb(nativeDbFloor), bottom, left);
+            // 原点起始值向左偏 2px，避免与纵轴/底部拐角贴在一起
+            drawYText(canvas, fmtDb(nativeDbFloor), bottom, left - 2f);
             drawYText(canvas, fmtDb((nativeDbFloor + nativeDbCeil) / 2f),
                     bottom - (bottom - top) * 0.5f, left);
             drawYText(canvas, fmtDb(nativeDbCeil), top, left);
