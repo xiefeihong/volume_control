@@ -18,8 +18,9 @@ android {
         applicationId "com.xiefeihong.volumecontrol"
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName "1.0.1"
+        // 版本号单一来源：从 gradle.properties 的 appVersionCode / appVersionName 读取（E1）。
+        versionCode Integer.parseInt(appVersionCode)
+        versionName appVersionName
     }
 
     buildFeatures {
@@ -57,6 +58,15 @@ android {
         // 本机 lint 工具链初始化崩溃（UastFacade），非代码缺陷；跳过 release 的 lintVital，
         // 使 ./gradlew assembleRelease 可直接产出已签名发布包。
         checkReleaseBuilds false
+    }
+
+    // 产物自动命名（E1）：release → VolumeControl-v<versionName>.apk；
+    // debug 额外加 -debug 后缀，与开发验证工作流的安装路径一致。
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            def suffix = variant.buildType.name == "debug" ? "-debug" : ""
+            outputFileName = "VolumeControl-v${variant.versionName}${suffix}.apk"
+        }
     }
 }
 
