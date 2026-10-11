@@ -26,6 +26,7 @@ import com.xiefeihong.volumecontrol.databinding.ActivityMainBinding;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -634,9 +635,8 @@ public class MainActivity extends AppCompatActivity {
             binding.tvMaxAbs.setText(getString(R.string.label_max_abs_fmt, maxS,
                     Math.round(maxS * 100.0 / mediaSteps)));
             binding.tvRangeHint.setText(getString(R.string.range_hint));
-            binding.tvSummary.setText(getString(R.string.default_range_info, systemDefaultSteps())
-                    + "\n" + Avrcp.defaultKeyStepHint(mediaSteps, minS, maxS, keySteps)
-                    + "\n" + getString(R.string.default_mode_tip));
+            binding.tvSummary.setText(Avrcp.buildDefaultPreview(
+                    systemDefaultSteps(), mediaSteps, minS, maxS, keySteps));
             if (selectedNativeAxis == NativeAxis.PERCENT) {
                 NativeVolumeCurve.Anchors a =
                         NativeVolumeCurve.anchorsFor(device, selectedNativeMode);
@@ -648,7 +648,7 @@ public class MainActivity extends AppCompatActivity {
                     maxPct = tmp;
                 }
                 // 仅取窗口 [minPct,maxPct] 内的点位：窗口内 XML 锚点 + 两端点（保证覆盖窗口）。
-                java.util.TreeSet<Integer> pts = new java.util.TreeSet<>();
+                TreeSet<Integer> pts = new TreeSet<>();
                 pts.add(minPct);
                 pts.add(maxPct);
                 for (int p : a.percent) {

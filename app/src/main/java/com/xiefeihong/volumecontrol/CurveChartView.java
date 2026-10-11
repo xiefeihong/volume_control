@@ -192,10 +192,21 @@ public final class CurveChartView extends View {
         int xMin = nativeXMin;
         int xMax = Math.max(xMin + 1, maxSteps);   // 横轴＝[xMin,xMax]（可窗口化）；纵轴＝增益 0~100%
         float spanX = xMax - xMin;
-        // 纵向网格：0 / 半 / 满（按绘图宽度三等分）
-        for (int p = 0; p <= 2; p++) {
-            float gx = left + (right - left) * p / 2f;
-            canvas.drawLine(gx, top, gx, bottom, gridPaint);
+        // 纵向网格：档位模式与模式A/B 一致（每个按键落点一条纵线，{@code nativeDots} 即落点）；
+        // 百分比模式无按键落点语义，按绘图宽度三等分。
+        if (!nativePercentAxis && nativeDots != null && nativeDots.length > 0) {
+            for (int dx : nativeDots) {
+                if (dx < xMin || dx > xMax) {
+                    continue;
+                }
+                float gx = nativeMapX(dx, xMin, spanX, left, right);
+                canvas.drawLine(gx, top, gx, bottom, gridPaint);
+            }
+        } else {
+            for (int p = 0; p <= 2; p++) {
+                float gx = left + (right - left) * p / 2f;
+                canvas.drawLine(gx, top, gx, bottom, gridPaint);
+            }
         }
         // 横向网格：0% / 50% / 100% 增益
         for (int p = 0; p <= 2; p++) {
@@ -303,7 +314,7 @@ public final class CurveChartView extends View {
         TypedValue tv = new TypedValue();
         if (context.getTheme().resolveAttribute(attr, tv, true)) {
             if (tv.resourceId != 0) {
-                return context.getResources().getColor(tv.resourceId);
+                return context.getColor(tv.resourceId);
             }
             if (tv.type >= TypedValue.TYPE_FIRST_COLOR_INT
                     && tv.type <= TypedValue.TYPE_LAST_COLOR_INT) {
