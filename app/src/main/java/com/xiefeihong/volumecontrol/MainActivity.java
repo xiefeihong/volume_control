@@ -54,6 +54,9 @@ public class MainActivity extends AppCompatActivity {
      */
     private String lastSavedXml = "";
 
+    /** {@link #measureCellColumns} 复用的文本测量 Paint（避免每次测量新建对象）。 */
+    private final Paint measurePaint = new Paint();
+
     /** {@code tvPending} 在「已保存」状态下显示的（重启待生效）文案，由 renderStatus 写入。 */
     private String pendingStatusText = "";
 
@@ -438,7 +441,7 @@ public class MainActivity extends AppCompatActivity {
         loadRangeIntoUi();
         suppressListeners = false;
         updatePreview();
-        persistToPrefs(false);
+        persistToPrefs();
         updateTvPending();
     }
 
@@ -454,7 +457,7 @@ public class MainActivity extends AppCompatActivity {
         model = model.withDevice(editingDevice, cur.withMode(Prefs.BT_MODE_DEFAULT));
         loadRangeIntoUi();
         suppressListeners = false;
-        persistToPrefs(false);
+        persistToPrefs();
         updatePreview();
         updateTvPending();
     }
@@ -766,8 +769,9 @@ public class MainActivity extends AppCompatActivity {
 
     /** 以等宽字体测量代表单元格 {@code cell} 的像素宽，返回每行可容纳的列数（<=0 交回自然换行）。 */
     private int measureCellColumns(String cell) {
-        Paint paint = new Paint(binding.tvRangeMapping.getPaint());
-        float cellPx = paint.measureText(cell);
+        // 复用成员 Paint：仅拷贝当前文本绘制属性到复用实例，避免每次测量新建 Paint。
+        measurePaint.set(binding.tvRangeMapping.getPaint());
+        float cellPx = measurePaint.measureText(cell);
         if (cellPx <= 0) {
             return 0;
         }
@@ -830,15 +834,11 @@ public class MainActivity extends AppCompatActivity {
 
     // ==================== 持久化 ====================
 
-    /** 把内存模型整体序列化到单一 SharedPreferences 键（整份配置一次写入）。 */
-    private void persistToPrefs(boolean synchronous) {
-        SharedPreferences.Editor editor = prefs.edit()
-                .putString(Prefs.KEY_CONFIG_XML, model.toXml());
-        if (synchronous) {
-            editor.commit();
-        } else {
-            editor.apply();
-        }
+    /** 把内存模型整体序列化到单一 SharedPreferences 键（整份配置一次写入）。
+     *  用 apply()：内存即时更新、落盘异步，同进程回读立即可见；Hook 端读 Settings.Global/
+     *  镜像文件而非本 App 私有 prefs，无「写完立刻另一进程读」依赖，无需阻塞主线程同步落盘。 */
+    private void persistToPrefs() {
+        prefs.edit().putString(Prefs.KEY_CONFIG_XML, model.toXml()).apply();
     }
 
     /** 界面任一设置变更（含曲线/范围）：写回 steps + 当前设备范围。 */
@@ -856,7 +856,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         writeUiIntoModel(writeRange);
-        persistToPrefs(false);
+        persistToPrefs();
         if (!writeRange) {
             suppressListeners = true;
             loadRangeIntoUi();   // 档位变了：滑条满量程随新档位数重载，进度读回未改动的存储范围。
@@ -925,7 +925,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** 把一个完整配置写入 prefs（供保存/默认重置后统一回读界面）。 */
     private void applyConfigToPrefs(VolumeConfig c) {
-        prefs.edit().putString(Prefs.KEY_CONFIG_XML, c.toXml()).commit();
+        prefs.edit().putString(Prefs.KEY_CONFIG_XML, c.toXml()).apply();
     }
 
     // ==================== 未保存提示 ====================
@@ -953,7 +953,7 @@ public class MainActivity extends AppCompatActivity {
      * @param onSaved 校验成功后的后续动作（重启按钮使用）；null 表示自动保存（失败时短提示）
      */
     private void saveToSystem(Runnable onSaved) {
-        persistToPrefs(true);
+        persistToPrefs();
         final String configXml = model.toXml();          // 紧凑：暂存与差异比对基线
         final String pushXml = model.toPrettyXml();      // 格式化：写入 Settings.Global 与镜像，便于查看
         final boolean softwareMode = model.modeFor(OutputDevice.BT) == Prefs.BT_MODE_SOFTWARE;
@@ -1048,7 +1048,7 @@ public class MainActivity extends AppCompatActivity {
                     if (capturedRealDefault) {
                         ed.putInt(Prefs.KEY_SYSTEM_DEFAULT_STEPS, steps);
                     }
-                    ed.putBoolean(Prefs.KEY_SYSTEM_DEFAULT_ACK, true).commit();
+                    ed.putBoolean(Prefs.KEY_SYSTEM_DEFAULT_ACK, true).apply();
                     proceedSave(rawPending.withSteps(steps, key), false);
                 })
                 .show();
