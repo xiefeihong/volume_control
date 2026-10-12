@@ -17,6 +17,11 @@ import android.view.View;
  * 曲线用 {@link Avrcp} 的同一映射函数绘制，与预览文本、实际下发完全一致；叠加的圆点是
  * 音量键每次按键（网格吸附 {@link Prefs#keyStepLevel}）的落点，直观呈现「按键段数」把连续
  * 级数量化成 100/keySteps 整数倍的停点。</p>
+ *
+ * <p>「默认（系统原生）」模式则按 {@link NativeVolumeCurve} 的真实增益曲线渲染，横轴可取
+ * 档位或百分比、纵轴可取 dB 或归一增益。两条数据路径（A/B 与默认）在 {@link #configure} /
+ * {@link #configureNativeCurve} 各自打包成统一的 {@link PlotModel}，{@link #onDraw} 只认
+ * PlotModel 单一渲染，消除历史 {@code drawNative}/{@code onDraw} 两套重复绘制。</p>
  */
 public final class CurveChartView extends View {
 
@@ -29,31 +34,36 @@ public final class CurveChartView extends View {
 
     private final float density;
 
-    // 映射参数（configure 写入，onDraw 读取）
-    private int maxSteps = 15;
-    private int minAbs;
-    private int maxAbs = Prefs.AVRCP_MAX_VOLUME;
-    private int curveType = Prefs.CURVE_LOG;
-    private boolean useSystemIndex;
-    private int keySteps = Prefs.KEY_STEP_DEFAULT;
-    /** 「默认/系统原生」模式：true 时按真实曲线渲染，横轴含义由 {@link #nativePercentAxis} 决定。 */
-    private boolean nativeCurveMode;
-    /** 归一化增益数组 gain[i]＝横轴第 i 个单位的 0~100%（来自 {@link NativeVolumeCurve}）。 */
-    private float[] nativeGainPct;
-    /** 默认曲线落点圆点的横坐标数组（档位模式=按键落点，百分比模式=XML 锚点）。 */
-    private int[] nativeDots;
-    /** 默认曲线横轴是否取百分比（true：0~100%；false：0~档位数）。 */
-    private boolean nativePercentAxis;
-    /** 默认曲线横轴左端起值（窗口化：百分比模式下可为非 0，表示从设定最小值开始）。 */
-    private int nativeXMin;
-    /** 图注：「设备 · 来源(引擎/策略/AOSP) · 纵轴口径」。 */
-    private String nativeCaption = "";
-    /** 默认曲线纵轴是否按 dB 标注（仅「dB 线性」口径为 true，其余显示 0~100%）。 */
-    private boolean nativeShowDb;
-    /** dB 纵轴底端（0%）对应 dB 值（曲线最负增益）。 */
-    private float nativeDbFloor;
-    /** dB 纵轴顶端（100%）对应 dB 值（曲线最接近 0 的增益）。 */
-    private float nativeDbCeil;
+    /**
+     * 统一渲染模型：{@link #configure}/{@link #configureNativeCurve} 各自把数据打包成一份，
+     * {@link #onDraw} 仅依赖它绘制。字段语义与两条历史数据路径逐一对齐，保证视觉输出不变。
+     */
+    private static final class PlotModel {
+        /** 横轴左端（含），常规为 0；默认·百分比模式可为窗口起点。 */
+        int xMin;
+        /** 横轴右端（含），恒 &gt; {@link #xMin}。 */
+        int xMax;
+        /** 横轴标签是否带 {@code %} 后缀（默认·百分比模式）。 */
+        boolean xIsPercent;
+        /** 逐单位纵轴原始值：{@code samples[i]}＝横轴绝对值 {@code xMin+i} 的纵轴值，长度 {@code xMax-xMin+1}。 */
+        float[] samples;
+        /** 纵轴满量程：A/B＝127(AVRCP) 或档位数(系统档位)；默认＝100（归一增益百分比）。 */
+        float yMax;
+        /** 底端纵轴标签（仅 dB 口径非空，此时左边距加宽容纳宽标签）。 */
+        String yLabelBottom;
+        /** 中间（50% 高度）纵轴标签。 */
+        String yLabelMid;
+        /** 顶端（100% 高度）纵轴标签。 */
+        String yLabelTop;
+        /** 落点圆点的横轴绝对坐标（可空）。 */
+        int[] dots;
+        /** 纵向网格是否按 {@link #dots} 逐点绘制（false 则按绘图宽度三等分）。 */
+        boolean dotsDriveGrid;
+        /** 图注（含前缀，直接绘制）。 */
+        String caption = "";
+    }
+
+    private PlotModel model = new PlotModel();
 
     public CurveChartView(Context context) {
         this(context, null);
@@ -88,16 +98,39 @@ public final class CurveChartView extends View {
         labelPaint.setColor(text);
     }
 
-    /** 设置映射参数并刷新。 */
+    /**
+     * 设置 A/B（绝对/相对音量）映射参数并刷新。逐档位采样 {@link Avrcp} 映射函数，
+     * 与预览文本、实际下发完全一致；圆点为音量键逐次按键落点。
+     */
     public void configure(int maxSteps, int minAbs, int maxAbs, int curveType,
             boolean useSystemIndex, int keySteps) {
-        this.nativeCurveMode = false;
-        this.maxSteps = Math.max(1, maxSteps);
-        this.minAbs = minAbs;
-        this.maxAbs = maxAbs;
-        this.curveType = curveType;
-        this.useSystemIndex = useSystemIndex;
-        this.keySteps = keySteps;
+        int steps = Math.max(1, maxSteps);
+        int segs = Prefs.clampKeySteps(keySteps);
+        int yMax = useSystemIndex ? steps : Prefs.AVRCP_MAX_VOLUME;
+
+        PlotModel m = new PlotModel();
+        m.xMin = 0;
+        m.xMax = steps;
+        m.xIsPercent = false;
+        m.yMax = yMax;
+        m.samples = new float[steps + 1];
+        for (int s = 0; s <= steps; s++) {
+            m.samples[s] = abValueAt(s, steps, minAbs, maxAbs, curveType, useSystemIndex);
+        }
+        // 圆点：含 0 档 + 每次按键落点（网格吸附），与历史 onDraw 完全一致
+        m.dots = new int[segs + 1];
+        m.dots[0] = 0;
+        for (int i = 1; i <= segs; i++) {
+            m.dots[i] = Prefs.keyStepLevel(i, steps, segs);
+        }
+        m.dotsDriveGrid = true;
+        m.yLabelBottom = null;
+        m.yLabelMid = String.valueOf(yMax / 2);
+        m.yLabelTop = String.valueOf(yMax);
+        m.caption = Avrcp.curveLabel(curveType) + "曲线 · "
+                + (useSystemIndex ? "系统档位" : "AVRCP")
+                + " " + minAbs + "~" + maxAbs + " · ○=每次按键落点";
+        this.model = m;
         invalidate();
     }
 
@@ -116,24 +149,42 @@ public final class CurveChartView extends View {
      */
     public void configureNativeCurve(int xMin, int xMax, float[] gainByX, int[] dots,
             boolean percentAxis, boolean showDbAxis, float dbFloor, float dbCeil, String caption) {
-        this.nativeCurveMode = true;
-        this.nativeXMin = Math.max(0, xMin);
-        this.maxSteps = Math.max(this.nativeXMin + 1, xMax);
-        this.nativeGainPct = gainByX;
-        this.nativeDots = dots;
-        this.nativePercentAxis = percentAxis;
-        this.nativeShowDb = showDbAxis;
-        this.nativeDbFloor = dbFloor;
-        this.nativeDbCeil = dbCeil;
-        this.nativeCaption = caption == null ? "" : caption;
+        PlotModel m = new PlotModel();
+        m.xMin = Math.max(0, xMin);
+        m.xMax = Math.max(m.xMin + 1, xMax);
+        m.xIsPercent = percentAxis;
+        m.yMax = 100f;   // 默认曲线纵轴＝归一增益 0~100%
+        int count = m.xMax - m.xMin + 1;
+        m.samples = new float[count];
+        for (int x = m.xMin; x <= m.xMax; x++) {
+            m.samples[x - m.xMin] = gainAt(gainByX, x);
+        }
+        m.dots = dots;
+        // 档位模式：纵向网格按按键落点；百分比模式：无落点语义，三等分（与历史 drawNative 一致）
+        m.dotsDriveGrid = !percentAxis && dots != null && dots.length > 0;
+        if (showDbAxis) {
+            m.yLabelBottom = fmtDb(dbFloor);
+            m.yLabelMid = fmtDb((dbFloor + dbCeil) / 2f);
+            m.yLabelTop = fmtDb(dbCeil);
+        } else {
+            m.yLabelBottom = null;
+            m.yLabelMid = "50%";
+            m.yLabelTop = "100%";
+        }
+        m.caption = "系统原生 · " + (caption == null ? "" : caption);
+        this.model = m;
         invalidate();
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        PlotModel m = model;
+        if (m.samples == null || m.samples.length < 2) {
+            return;
+        }
         // dB 纵轴需容纳“‑100dB”等较宽标签，适当加宽左边距，避免被夹到画布左边缘而与纵轴贴合
-        float padL = (nativeCurveMode && nativeShowDb ? 48f : 34f) * density;
+        float padL = (m.yLabelBottom != null ? 48f : 34f) * density;
         float padR = 8f * density;
         float padT = 18f * density;
         float padB = 20f * density;
@@ -144,75 +195,15 @@ public final class CurveChartView extends View {
         if (right <= left || bottom <= top) {
             return;
         }
-        if (nativeCurveMode) {
-            drawNative(canvas, left, right, top, bottom);
-            return;
-        }
-        int yMax = useSystemIndex ? maxSteps : Prefs.AVRCP_MAX_VOLUME;
-        int segs = Prefs.clampKeySteps(keySteps);
+        float spanX = m.xMax - m.xMin;
 
-        // 纵向网格：每个按键落点一条（对应 100/keySteps 百分比刻度）
-        for (int i = 0; i <= segs; i++) {
-            float gx = mapX(Prefs.keyStepLevel(i, maxSteps, segs), left, right);
-            canvas.drawLine(gx, top, gx, bottom, gridPaint);
-        }
-        // 横向网格：0 / 50% / 100%
-        for (int p = 0; p <= 2; p++) {
-            float gy = mapY(yMax * p / 2.0, top, bottom, yMax);
-            canvas.drawLine(left, gy, right, gy, gridPaint);
-        }
-
-        // 坐标轴
-        canvas.drawRect(left, top, right, bottom, axisPaint);
-
-        // 曲线：逐档位采样，与映射函数完全一致
-        float prevX = mapX(0, left, right);
-        float prevY = mapY(valueAt(0), top, bottom, yMax);
-        for (int step = 1; step <= maxSteps; step++) {
-            float x = mapX(step, left, right);
-            float y = mapY(valueAt(step), top, bottom, yMax);
-            canvas.drawLine(prevX, prevY, x, y, curvePaint);
-            prevX = x;
-            prevY = y;
-        }
-
-        // 按键落点圆点（含 0 档）
-        float r = 3f * density;
-        for (int press = 0; press <= segs; press++) {
-            int level = (press == 0) ? 0 : Prefs.keyStepLevel(press, maxSteps, segs);
-            float x = mapX(level, left, right);
-            float y = mapY(valueAt(level), top, bottom, yMax);
-            canvas.drawCircle(x, y, r, dotPaint);
-        }
-
-        // 轴标签：x 轴（音量级数）起止
-        drawLabel(canvas, "0", left, bottom + 3f * density, false);
-        drawLabel(canvas, String.valueOf(maxSteps), right, bottom + 3f * density, true);
-        // y 轴数值标签：靠左、右对齐，垂直居中于对应横向网格线（0 与 x 轴原点共用，故省略）
-        drawYLabel(canvas, yMax / 2, mapY(yMax / 2.0, top, bottom, yMax), left);
-        drawYLabel(canvas, yMax, mapY(yMax, top, bottom, yMax), left);
-        String caption = Avrcp.curveLabel(curveType) + "曲线 · "
-                + (useSystemIndex ? "系统档位" : "AVRCP")
-                + " " + minAbs + "~" + maxAbs + " · ○=每次按键落点";
-        canvas.drawText(caption, left, top - 6f * density, labelPaint);
-    }
-
-    /**
-     * 「默认（系统原生）」渲染：横轴＝系统音量档位(0~maxSteps)，纵轴＝增益(0~100%)。
-     * 按 {@link #nativeGainPct} 逐档连成真实默认曲线（ROM 配置或 AOSP 回退）。
-     */
-    private void drawNative(Canvas canvas, float left, float right, float top, float bottom) {
-        int xMin = nativeXMin;
-        int xMax = Math.max(xMin + 1, maxSteps);   // 横轴＝[xMin,xMax]（可窗口化）；纵轴＝增益 0~100%
-        float spanX = xMax - xMin;
-        // 纵向网格：档位模式与模式A/B 一致（每个按键落点一条纵线，{@code nativeDots} 即落点）；
-        // 百分比模式无按键落点语义，按绘图宽度三等分。
-        if (!nativePercentAxis && nativeDots != null && nativeDots.length > 0) {
-            for (int dx : nativeDots) {
-                if (dx < xMin || dx > xMax) {
+        // 纵向网格：dots 驱动时逐落点一条，否则按宽度三等分
+        if (m.dotsDriveGrid) {
+            for (int dx : m.dots) {
+                if (dx < m.xMin || dx > m.xMax) {
                     continue;
                 }
-                float gx = nativeMapX(dx, xMin, spanX, left, right);
+                float gx = mapX(dx, m, left, right, spanX);
                 canvas.drawLine(gx, top, gx, bottom, gridPaint);
             }
         } else {
@@ -221,70 +212,90 @@ public final class CurveChartView extends View {
                 canvas.drawLine(gx, top, gx, bottom, gridPaint);
             }
         }
-        // 横向网格：0% / 50% / 100% 增益
+        // 横向网格：0 / 50% / 100%
         for (int p = 0; p <= 2; p++) {
             float gy = bottom - (bottom - top) * (p / 2f);
             canvas.drawLine(left, gy, right, gy, gridPaint);
         }
+
+        // 坐标轴
         canvas.drawRect(left, top, right, bottom, axisPaint);
-        // 曲线：逐横轴单位按归一化增益连线（仅取 [xMin,xMax] 段）
-        float prevX = nativeMapX(xMin, xMin, spanX, left, right);
-        float prevY = mapPct(gainAt(xMin), top, bottom);
-        for (int x = xMin + 1; x <= xMax; x++) {
-            float x2 = nativeMapX(x, xMin, spanX, left, right);
-            float y2 = mapPct(gainAt(x), top, bottom);
+
+        // 曲线：逐横轴单位连线
+        float prevX = mapX(m.xMin, m, left, right, spanX);
+        float prevY = mapY(sampleAt(m, m.xMin), top, bottom, m.yMax);
+        for (int x = m.xMin + 1; x <= m.xMax; x++) {
+            float x2 = mapX(x, m, left, right, spanX);
+            float y2 = mapY(sampleAt(m, x), top, bottom, m.yMax);
             canvas.drawLine(prevX, prevY, x2, y2, curvePaint);
             prevX = x2;
             prevY = y2;
         }
-        // 落点圆点：横轴=档位时=每次按键落点；横轴=百分比时=XML 锚点（仅落在窗口内）
-        float r = 3f * density;
-        if (nativeDots != null) {
-            for (int dx : nativeDots) {
-                if (dx < xMin || dx > xMax) {
+
+        // 落点圆点（仅落在窗口内）
+        if (m.dots != null) {
+            float r = 3f * density;
+            for (int dx : m.dots) {
+                if (dx < m.xMin || dx > m.xMax) {
                     continue;
                 }
-                canvas.drawCircle(nativeMapX(dx, xMin, spanX, left, right),
-                        mapPct(gainAt(dx), top, bottom), r, dotPaint);
+                canvas.drawCircle(mapX(dx, m, left, right, spanX),
+                        mapY(sampleAt(m, dx), top, bottom, m.yMax), r, dotPaint);
             }
         }
-        // 横轴标签：百分比模式带 % 后缀，否则取档位数值；端点反映窗口
-        drawLabel(canvas, nativePercentAxis ? xMin + "%" : String.valueOf(xMin),
+
+        // 横轴标签：端点反映窗口，百分比口径带 % 后缀
+        drawLabel(canvas, m.xIsPercent ? m.xMin + "%" : String.valueOf(m.xMin),
                 left, bottom + 3f * density, false);
-        drawLabel(canvas, nativePercentAxis ? xMax + "%" : String.valueOf(xMax), right,
-                bottom + 3f * density, true);
-        // 纵轴标签：dB 口径显示 dB 值（底/中/顶对应 floor/中值/ceil），并在原点标出起始 dB；否则显示归一增益百分比
-        if (nativeShowDb) {
-            drawYText(canvas, fmtDb(nativeDbFloor), bottom, left);
-            drawYText(canvas, fmtDb((nativeDbFloor + nativeDbCeil) / 2f),
-                    bottom - (bottom - top) * 0.5f, left);
-            drawYText(canvas, fmtDb(nativeDbCeil), top, left);
-        } else {
-            drawYText(canvas, "50%", bottom - (bottom - top) * 0.5f, left);
-            drawYText(canvas, "100%", top, left);
+        drawLabel(canvas, m.xIsPercent ? m.xMax + "%" : String.valueOf(m.xMax),
+                right, bottom + 3f * density, true);
+        // 纵轴标签：底/中/顶对应 0%/50%/100% 高度（底端仅在 dB 口径显示，否则与原点共用）
+        if (m.yLabelBottom != null) {
+            drawYText(canvas, m.yLabelBottom, bottom, left);
         }
-        canvas.drawText("系统原生 · " + nativeCaption,
-                left, top - 6f * density, labelPaint);
+        drawYText(canvas, m.yLabelMid, bottom - (bottom - top) * 0.5f, left);
+        drawYText(canvas, m.yLabelTop, top, left);
+
+        canvas.drawText(m.caption, left, top - 6f * density, labelPaint);
     }
 
-    /** 默认曲线横轴映射：把绝对横轴值 {@code x} 按窗口 {@code [xMin, xMin+spanX]} 线性映到画布 x 坐标。 */
-    private static float nativeMapX(int x, int xMin, float spanX, float left, float right) {
-        return left + (right - left) * ((x - xMin) / spanX);
+    /** A/B 曲线：第 {@code step} 档经所选曲线映射后的纵轴输出值（AVRCP 或系统档位）。 */
+    private static float abValueAt(int step, int maxSteps, int minAbs, int maxAbs,
+            int curveType, boolean useSystemIndex) {
+        return useSystemIndex
+                ? Avrcp.curveToSystemIndex(step, maxSteps, minAbs, maxAbs, curveType)
+                : Avrcp.curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
     }
 
-    /** 取第 {@code level} 档的归一化增益百分比（越界钳到数组末端）。 */
-    private float gainAt(int level) {
-        if (nativeGainPct == null || nativeGainPct.length == 0) {
+    /** 取默认曲线第 {@code level} 档的归一化增益百分比（越界钳到数组末端）。 */
+    private static float gainAt(float[] gainByX, int level) {
+        if (gainByX == null || gainByX.length == 0) {
             return 0f;
         }
-        int i = Math.min(level, nativeGainPct.length - 1);
-        return nativeGainPct[Math.max(0, i)];
+        int i = Math.min(level, gainByX.length - 1);
+        return gainByX[Math.max(0, i)];
     }
 
-    /** 把增益百分比(0~100)映射到画布纵坐标。 */
-    private static float mapPct(float percent, float top, float bottom) {
-        float v = Math.max(0f, Math.min(100f, percent));
-        return bottom - (bottom - top) * (v / 100f);
+    /** 按绝对横轴值取模型样本（越界由 {@link #gainAt}/{@link #abValueAt} 在打包时已保证）。 */
+    private static float sampleAt(PlotModel m, int x) {
+        int i = x - m.xMin;
+        if (i < 0) {
+            i = 0;
+        } else if (i >= m.samples.length) {
+            i = m.samples.length - 1;
+        }
+        return m.samples[i];
+    }
+
+    /** 横轴绝对值 → 画布 x：把 {@code x} 按窗口 {@code [xMin, xMax]} 线性映射。 */
+    private static float mapX(int x, PlotModel m, float left, float right, float spanX) {
+        return left + (right - left) * ((x - m.xMin) / spanX);
+    }
+
+    /** 纵轴原始值 → 画布 y：按 {@code yMax} 满量程钳制后线性映射（顶=底端 0、底=yMax）。 */
+    private static float mapY(double value, float top, float bottom, float yMax) {
+        double v = Math.max(0, Math.min(yMax, value));
+        return bottom - (bottom - top) * (float) (v / yMax);
     }
 
     /** dB 值轴标签（四舍五入取整、带 dB 单位），如 {@code "-48dB"}、{@code "0dB"}。 */
@@ -292,7 +303,7 @@ public final class CurveChartView extends View {
         return String.format(java.util.Locale.US, "%ddB", Math.round(db));
     }
 
-    /** 在 y 轴左侧绘制右对齐、垂直居中于 centerY 的字符串标签。 */
+    /** 在 y 轴左侧绘制右对齐、垂直居中于 {@code centerY} 的字符串标签。 */
     private void drawYText(Canvas canvas, String s, float centerY, float axisLeft) {
         labelPaint.getTextBounds(s, 0, s.length(), textBounds);
         float tx = axisLeft - 5f * density - textBounds.width();
@@ -300,34 +311,10 @@ public final class CurveChartView extends View {
         canvas.drawText(s, Math.max(0, tx), baseline, labelPaint);
     }
 
-    private float valueAt(int step) {
-        return useSystemIndex
-                ? Avrcp.curveToSystemIndex(step, maxSteps, minAbs, maxAbs, curveType)
-                : Avrcp.curveToAbsoluteVolume(step, maxSteps, minAbs, maxAbs, curveType);
-    }
-
-    private float mapX(int step, float left, float right) {
-        return left + (right - left) * (step / (float) maxSteps);
-    }
-
-    private float mapY(double value, float top, float bottom, int yMax) {
-        double v = Math.max(0, Math.min(yMax, value));
-        return bottom - (bottom - top) * (float) (v / yMax);
-    }
-
     private void drawLabel(Canvas canvas, String s, float x, float y, boolean alignRight) {
         labelPaint.getTextBounds(s, 0, s.length(), textBounds);
         float tx = alignRight ? x - textBounds.width() : x;
         canvas.drawText(s, Math.max(0, tx), y + textBounds.height(), labelPaint);
-    }
-
-    /** 在 y 轴左侧绘制右对齐、垂直居中于 {@code centerY} 的数值标签。 */
-    private void drawYLabel(Canvas canvas, int v, float centerY, float axisLeft) {
-        String s = String.valueOf(v);
-        labelPaint.getTextBounds(s, 0, s.length(), textBounds);
-        float tx = axisLeft - 5f * density - textBounds.width();
-        float baseline = centerY + textBounds.height() / 2f;
-        canvas.drawText(s, Math.max(0, tx), baseline, labelPaint);
     }
 
     private static int withAlpha(int color, float factor) {
