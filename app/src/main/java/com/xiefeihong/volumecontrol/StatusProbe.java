@@ -5,7 +5,6 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
-import android.util.Log;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
@@ -271,10 +270,5 @@ class StatusProbe {
                         .show();
             });
         });
-    }
-
-    /** 供宿主门面复用：Log tag 输出异常兜底（保留 App 侧日志可见性）。 */
-    void logRejected(String msg, Throwable t) {
-        Log.i(MainActivity.LOG_TAG, msg, t);
     }
 }
