@@ -40,6 +40,7 @@ public class XposedEntry extends XposedModule {
     public void onPackageLoaded(PackageLoadedParam param) {
         if (BtHooks.BT_PACKAGE.equals(param.getPackageName())) {
             XposedKit.log("bluetooth package loaded, installing hooks");
+            // minSdk=29(Q) 已由构建保证：getDefaultClassLoader() 恒可用，无需再判 SDK_INT。
             BtHooks.install(param.getDefaultClassLoader(), this);
         }
     }
