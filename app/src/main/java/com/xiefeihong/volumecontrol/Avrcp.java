@@ -299,7 +299,6 @@ public final class Avrcp {
             int curveType, int keySteps) {
         int lowest = curveToSystemIndex(1, maxSteps, minStep, maxStep, curveType);
         int lowestPercent = (int) Math.round(lowest * 100.0 / maxSteps);
-        int maxPercent = (int) Math.round(maxStep * 100.0 / maxSteps);
 
         StringBuilder sb = new StringBuilder();
         sb.append("相对音量模式：停用绝对音量 · ").append(curveLabel(curveType)).append("曲线\n");

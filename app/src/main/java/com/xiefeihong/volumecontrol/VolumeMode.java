@@ -16,13 +16,11 @@ public enum VolumeMode {
     /** 模式A：蓝牙 AVRCP 绝对音量，档位映射为 0~127 直接发送给耳机（蓝牙进程）。 */
     ABSOLUTE {
         @Override public boolean attenuatesInSystemServer() { return false; }
-        @Override public boolean drivesAvrcp() { return true; }
     },
 
     /** 模式B：停用绝对音量，由手机端在 system_server 软件衰减音频。 */
     SOFTWARE {
         @Override public boolean attenuatesInSystemServer() { return true; }
-        @Override public boolean drivesAvrcp() { return false; }
     },
 
     /**
@@ -33,25 +31,10 @@ public enum VolumeMode {
      */
     DEFAULT {
         @Override public boolean attenuatesInSystemServer() { return false; }
-        @Override public boolean drivesAvrcp() { return false; }
     };
 
     /** 是否天然在 system_server 通过改写系统音量档位做软件衰减（模式B）。 */
     public abstract boolean attenuatesInSystemServer();
-
-    /** 是否在蓝牙进程做 AVRCP 绝对音量映射（模式A）。 */
-    public abstract boolean drivesAvrcp();
-
-    /** 供 App：由模式 id 得到枚举（不判断启用状态；值=0 返回 {@link #DEFAULT}）。 */
-    public static VolumeMode ofBtMode(int btModeId) {
-        if (btModeId == Prefs.BT_MODE_SOFTWARE) {
-            return SOFTWARE;
-        }
-        if (btModeId == Prefs.BT_MODE_DEFAULT) {
-            return DEFAULT;
-        }
-        return ABSOLUTE;
-    }
 
     /** 供 App：枚举写回模式 id。 */
     public int modeId() {
