@@ -90,6 +90,7 @@ final class BtHooks {
         try {
             return XposedKit.getStaticIntField(volumeManager, FIELD_DEVICE_MAX_VOLUME);
         } catch (Throwable t) {
+            XposedKit.logErrorOnce("read-device-max", "readDeviceMaxVolume failed: " + t);
             return -1;
         }
     }

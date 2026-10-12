@@ -1,6 +1,10 @@
 package com.xiefeihong.volumecontrol;
 
 import android.content.Context;
+import android.database.ContentObserver;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import java.io.File;
@@ -13,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -91,17 +96,14 @@ public final class XposedKit {
     static void log(String message) {
         writeLogFile("I", message);
         try {
+            Log.i(LOG_TAG, LOG_PREFIX + message);
             XposedModule module = sModule;
             if (module != null) {
                 module.log(Log.INFO, LOG_TAG, LOG_PREFIX + message);
             }
         } catch (Throwable ignored) {
             // 日志失败不影响功能
-        }
-        try {
-            Log.i(LOG_TAG, LOG_PREFIX + message);
-        } catch (Throwable ignored) {
-            // 日志失败不影响功能
+            ignored.printStackTrace();
         }
     }
 
@@ -112,17 +114,14 @@ public final class XposedKit {
     static void logError(String message) {
         writeLogFile("E", message);
         try {
+            Log.e(LOG_TAG, LOG_PREFIX + message);
             XposedModule module = sModule;
             if (module != null) {
                 module.log(Log.ERROR, LOG_TAG, LOG_PREFIX + message);
             }
         } catch (Throwable ignored) {
             // 日志失败不影响功能
-        }
-        try {
-            Log.e(LOG_TAG, LOG_PREFIX + message);
-        } catch (Throwable ignored) {
-            // 日志失败不影响功能
+            ignored.printStackTrace();
         }
     }
 
@@ -286,13 +285,13 @@ public final class XposedKit {
      * 此前每次都沿类层次 {@code getDeclaredField} 遍历。key 带 {@code I:}/{@code S:} 前缀区分
      * 实例/静态口径，含未命中的 {@code Optional.empty()} 负缓存，避免对不存在的字段反复遍历。
      */
-    private static final ConcurrentHashMap<String, java.util.Optional<Field>> sFieldCache =
+    private static final ConcurrentHashMap<String, Optional<Field>> sFieldCache =
             new ConcurrentHashMap<>();
 
     /** 沿类层次解析实例字段（任意可见性）；带缓存，未命中缓存 empty 并抛 {@link NoSuchFieldException}。 */
     private static Field resolveInstanceField(Class<?> startClass, String name) throws Exception {
         String key = "I:" + startClass.getName() + "#" + name;
-        java.util.Optional<Field> cached = sFieldCache.get(key);
+        Optional<Field> cached = sFieldCache.get(key);
         if (cached != null) {
             if (!cached.isPresent()) {
                 throw new NoSuchFieldException(name);
@@ -311,7 +310,7 @@ public final class XposedKit {
                 c = c.getSuperclass();
             }
         }
-        sFieldCache.put(key, java.util.Optional.ofNullable(found));
+        sFieldCache.put(key, Optional.ofNullable(found));
         if (found == null) {
             throw new NoSuchFieldException(name);
         }
@@ -321,7 +320,7 @@ public final class XposedKit {
     /** 解析静态字段（带缓存）；未命中缓存 empty 并抛 {@link NoSuchFieldException}。 */
     private static Field resolveStaticField(Class<?> clazz, String name) throws Exception {
         String key = "S:" + clazz.getName() + "#" + name;
-        java.util.Optional<Field> cached = sFieldCache.get(key);
+        Optional<Field> cached = sFieldCache.get(key);
         if (cached != null) {
             if (!cached.isPresent()) {
                 throw new NoSuchFieldException(name);
@@ -331,10 +330,10 @@ public final class XposedKit {
         try {
             Field field = clazz.getDeclaredField(name);
             field.setAccessible(true);
-            sFieldCache.put(key, java.util.Optional.of(field));
+            sFieldCache.put(key, Optional.of(field));
             return field;
         } catch (NoSuchFieldException e) {
-            sFieldCache.put(key, java.util.Optional.empty());
+            sFieldCache.put(key, Optional.empty());
             throw e;
         }
     }
@@ -489,9 +488,9 @@ public final class XposedKit {
         }
         sConfigObserverAttemptMs = now;
         try {
-            android.net.Uri uri = SettingsGlobal.getUriFor(Prefs.GLOBAL_KEY);
-            android.database.ContentObserver observer = new android.database.ContentObserver(
-                    new android.os.Handler(android.os.Looper.getMainLooper())) {
+            Uri uri = SettingsGlobal.getUriFor(Prefs.GLOBAL_KEY);
+            ContentObserver observer = new ContentObserver(
+                    new Handler(Looper.getMainLooper())) {
                 @Override
                 public void onChange(boolean selfChange) {
                     sConfigCacheAtMs = 0;   // 配置已变：立即失效，下次 readConfig 走 IPC 重取
@@ -524,8 +523,6 @@ public final class XposedKit {
         }
         return config;
     }
-
-    // Settings.Global 薄封装已提取为独立顶层类（见 SettingsGlobal.java）。
 
     /** 读取 App 以 root 写入的配置镜像（{@link Prefs#MIRROR_CONFIG_FILE}）。 */
     private static String readMirrorConfig() {

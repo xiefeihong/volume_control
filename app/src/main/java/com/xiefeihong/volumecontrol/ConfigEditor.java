@@ -212,24 +212,24 @@ class ConfigEditor {
 
     /** 芯片 id → 编辑模式。 */
     VolumeMode chipIdToMode(int id) {
+        if (id == R.id.chipModeA) {
+            return VolumeMode.ABSOLUTE;
+        }
         if (id == R.id.chipModeB) {
             return VolumeMode.SOFTWARE;
         }
-        if (id == R.id.chipDefault) {
-            return VolumeMode.DEFAULT;
-        }
-        return VolumeMode.ABSOLUTE;
+        return VolumeMode.DEFAULT;
     }
 
     /** 编辑模式 → 芯片 id。 */
     private int modeToChipId(VolumeMode mode) {
+        if (mode == VolumeMode.ABSOLUTE) {
+            return R.id.chipModeA;
+        }
         if (mode == VolumeMode.SOFTWARE) {
             return R.id.chipModeB;
         }
-        if (mode == VolumeMode.DEFAULT) {
-            return R.id.chipDefault;
-        }
-        return R.id.chipModeA;
+        return R.id.chipDefault;
     }
 
     /** 外放/有线不支持绝对音量：把非法的 ABSOLUTE 归一为 SOFTWARE，其余原样。 */

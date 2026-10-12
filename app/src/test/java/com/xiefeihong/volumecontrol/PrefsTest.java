@@ -36,13 +36,6 @@ public class PrefsTest {
     }
 
     @Test
-    public void clampSystemStepAbs_fixedUpperBound() {
-        assertEquals(0, Prefs.clampSystemStepAbs(-5));
-        assertEquals(100, Prefs.clampSystemStepAbs(150));
-        assertEquals(40, Prefs.clampSystemStepAbs(40));
-    }
-
-    @Test
     public void clampAbs_and_clampCurve() {
         assertEquals(0, Prefs.clampAbs(-1));
         assertEquals(127, Prefs.clampAbs(200));

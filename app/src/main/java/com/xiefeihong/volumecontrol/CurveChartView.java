@@ -184,7 +184,7 @@ public final class CurveChartView extends View {
             return;
         }
         // dB 纵轴需容纳“‑100dB”等较宽标签，适当加宽左边距，避免被夹到画布左边缘而与纵轴贴合
-        float padL = (m.yLabelBottom != null ? 48f * density - 1f : 34f * density);
+        float padL = (m.yLabelBottom != null ? 42f : 34f) * density;
         float padR = 8f * density;
         float padT = 18f * density;
         float padB = 20f * density;

@@ -1,9 +1,6 @@
 package com.xiefeihong.volumecontrol;
 
 import io.github.libxposed.api.XposedModule;
-import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
-import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
-import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam;
 
 /**
  * LSPosed 模块入口（libxposed 新 API，minApi 102）。

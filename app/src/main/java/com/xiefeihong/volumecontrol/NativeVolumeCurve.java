@@ -1,9 +1,12 @@
 package com.xiefeihong.volumecontrol;
 
+import android.util.Log;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -120,10 +123,8 @@ public final class NativeVolumeCurve {
      * 均为不可变值对象且调用方只读不写，可安全共享。{@link #load()} 完成后清空，确保
      * 缓存只基于最终点表（避免 load 前误缓存 AOSP 回退结果）。
      */
-    private static final java.util.concurrent.ConcurrentHashMap<String, Curve> sCurveCache =
-            new java.util.concurrent.ConcurrentHashMap<>();
-    private static final java.util.concurrent.ConcurrentHashMap<String, Anchors> sAnchorsCache =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Curve> sCurveCache = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Anchors> sAnchorsCache = new ConcurrentHashMap<>();
 
     /** 引擎表 music 组声明的媒体档位数（{@code <indexMax>}）；未加载/未解析到返回 0。 */
     public static int nativeMusicIndexMax() {
@@ -176,10 +177,6 @@ public final class NativeVolumeCurve {
     }
 
     /** 归一化增益曲线（0~100），按档位数 {@code steps} 输出。 */
-    public static Curve curveFor(Device device, int steps) {
-        return curveFor(device, steps, Mode.DB_LINEAR);
-    }
-
     public static Curve curveFor(Device device, int steps, Mode mode) {
         String key = device.name() + "|" + steps + "|" + mode.name();
         Curve cached = sCurveCache.get(key);
@@ -344,7 +341,10 @@ public final class NativeVolumeCurve {
         try {
             ShellResult r = Shell.su("cat " + path);
             if (r != null && r.isSuccess()) return r.output;
-        } catch (Exception ignored) {
+        } catch (Exception t) {
+            // 共享/App 侧数据类不得引 XposedKit（App 进程会因 compileOnly libxposed 加载失败），
+            // 用框架级 android.util.Log；tag 取模块统一值 "VolumeControl"。
+            Log.w("VolumeControl", "NativeVolumeCurve.read failed: path=" + path, t);
         }
         return null;
     }

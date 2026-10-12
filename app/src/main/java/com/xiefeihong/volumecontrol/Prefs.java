@@ -118,16 +118,6 @@ public final class Prefs {
     }
 
     /**
-     * 把系统档位口径的范围端点限制在固定的 {@code 0..MEDIA_STEPS_MAX}（与当前档位数无关）：
-     * 用于 {@code <b>}/{@code <d>} 这类以系统档位为单位的范围序列化/反序列化——它们与
-     * 以 AVRCP(0~127) 为单位的 {@code <a>} 口径不同，不应走 {@link #clampAbs}。用固定上限
-     * 而非当前 mediaSteps，避免档位数变小时把已存的中立满量程上限（可＝{@code MEDIA_STEPS_MAX}）截断。
-     */
-    public static int clampSystemStepAbs(int v) {
-        return Math.max(0, Math.min(MEDIA_STEPS_MAX, v));
-    }
-
-    /**
      * 音量键每按一次跳过的级数：{@code clamp(round(levels / keySteps), 1, levels)}。
      * App 预览与 system_server Hook 共用此公式，避免算法漂移。
      *
@@ -204,6 +194,4 @@ public final class Prefs {
     /** 曲线类型限制在 0~2。 */
     public static int clampCurve(int v) { return Math.max(0, Math.min(CURVE_SQRT, v)); }
 
-    // 配置的序列化 / 解析（toXml / fromXml）统一收敛于 VolumeConfig；
-    // App 侧整份配置以 XML 存于 KEY_CONFIG_XML 单键，不再使用散落的每模式标量键。
 }

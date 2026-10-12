@@ -33,6 +33,13 @@ android {
         targetCompatibility JavaVersion.VERSION_21
     }
 
+    // 共享数据类(VolumeConfig 等)在 catch 里用 android.util.Log 记录日志；JVM 单测未 mock
+    // android 框架，returnDefaultValues 让 android.util.Log 在单测中退化为 no-op(返回默认值)，
+    // 避免畸形输入用例命中日志行时抛 "not mocked"。
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
     signingConfigs {
         if (keystorePropsFile.exists()) {
             release {

@@ -45,7 +45,7 @@ public final class DeviceConfig {
         if (mode == Prefs.BT_MODE_ABSOLUTE) {
             return absolute;
         }
-        return null;
+        return defaultRange;
     }
 
     /** 返回一个仅模式不同的副本（范围保持不变），供界面按设备写回模式选择。 */

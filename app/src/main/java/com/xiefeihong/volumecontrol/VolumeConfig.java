@@ -1,5 +1,7 @@
 package com.xiefeihong.volumecontrol;
 
+import android.util.Log;
+
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -69,24 +71,6 @@ public final class VolumeConfig {
     /** 指定设备的生效模式 id（0/1/2）。 */
     public int modeFor(OutputDevice d) {
         return deviceFor(d).mode;
-    }
-
-    /**
-     * 指定设备在 system_server 侧应采用的重映射模式；未启用或该设备为默认直通返回 {@code null}
-     * （返回 {@link VolumeMode#DEFAULT} 之外的实际重映射枚举）。
-     */
-    public VolumeMode volumeModeFor(OutputDevice d) {
-        if (!enabled) {
-            return null;
-        }
-        DeviceConfig c = deviceFor(d);
-        if (c.mode == Prefs.BT_MODE_SOFTWARE) {
-            return VolumeMode.SOFTWARE;
-        }
-        if (c.mode == Prefs.BT_MODE_ABSOLUTE) {
-            return VolumeMode.ABSOLUTE;
-        }
-        return null;
     }
 
     /**
@@ -292,6 +276,9 @@ public final class VolumeConfig {
                     readDevice(root, "wired", false),
                     readDevice(root, "bt", true));
         } catch (Throwable t) {
+            // 共享数据类不得引 XposedKit（App 侧会因 compileOnly libxposed 加载失败），
+            // 用框架级 android.util.Log；tag 取模块统一值 "VolumeControl"。
+            Log.e("VolumeControl", "VolumeConfig.fromXml parse failed", t);
             return null;
         }
     }

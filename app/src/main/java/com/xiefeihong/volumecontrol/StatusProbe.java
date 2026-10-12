@@ -5,6 +5,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
+import android.util.Log;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
@@ -50,6 +51,7 @@ class StatusProbe {
             }
             return host.audioManager.getStreamMaxVolume(streamIndex);
         } catch (Throwable t) {
+            Log.w(MainActivity.LOG_TAG, "readStreamMaxVolume failed: stream=" + streamIndex, t);
             return 0;
         }
     }
@@ -76,6 +78,7 @@ class StatusProbe {
                 return OutputDevice.WIRED;
             }
         } catch (Throwable t) {
+            Log.w(MainActivity.LOG_TAG, "detectCurrentDevice failed, fallback to SPEAKER", t);
             return OutputDevice.SPEAKER;
         }
         return OutputDevice.SPEAKER;
@@ -107,6 +110,7 @@ class StatusProbe {
             }
             return sb.toString();
         } catch (Throwable t) {
+            Log.w(MainActivity.LOG_TAG, "buildBluetoothSummary failed", t);
             return null;
         }
     }
