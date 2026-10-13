@@ -85,14 +85,9 @@ final class BtHooks {
         }
     }
 
-    /** 读取音量管理器记录的系统最大档位（sDeviceMaxVolume）；失败返回 -1。 */
-    private static int readDeviceMaxVolume(Class<?> volumeManager) {
-        try {
-            return XposedKit.getStaticIntField(volumeManager, FIELD_DEVICE_MAX_VOLUME);
-        } catch (Throwable t) {
-            XposedKit.logErrorOnce("read-device-max", "readDeviceMaxVolume failed: " + t);
-            return -1;
-        }
+    /** 读取音量管理器记录的系统最大档位（sDeviceMaxVolume）；失败抛出，由调用方 Hooker 统一捕获并放行。 */
+    private static int readDeviceMaxVolume(Class<?> volumeManager) throws Exception {
+        return XposedKit.getStaticIntField(volumeManager, FIELD_DEVICE_MAX_VOLUME);
     }
 
     /**

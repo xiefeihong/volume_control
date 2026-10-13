@@ -353,9 +353,9 @@ final class AudioHooks {
      * 校验并校正媒体流实例档位（{@code mIndexMax} = 档位数×10），返回目标档位数。
      * 调用方：构造完成、开机延迟校正、界面读取自愈。
      *
-     * @return 目标档位数；无配置 / 已停用 / 实例不可用时返回 -1
+     * @return 目标档位数；无配置 / 已停用时返回 -1；实例字段读写失败抛出，由调用方 Hooker 统一捕获
      */
-    private static int syncMediaStreamMax(Object audioService, String tag) {
+    private static int syncMediaStreamMax(Object audioService, String tag) throws Exception {
         VolumeConfig config = XposedKit.readConfig(XposedKit.systemServerContext(audioService));
         if (config == null) {
             XposedKit.log(tag + ": no config, keep system defaults");
@@ -388,43 +388,33 @@ final class AudioHooks {
         return -1;
     }
 
-    /** 读取媒体流实例当前档位上限（档位数）；实例不可用返回 -1。 */
-    private static int readMediaStreamMaxSteps(Object audioService) {
-        try {
-            Object fieldValue = XposedKit.getField(audioService, FIELD_STREAM_STATES);
-            if (!(fieldValue instanceof Object[])
-                    || ((Object[]) fieldValue).length <= Prefs.STREAM_MUSIC_INDEX) {
-                return -1;
-            }
-            Object mediaState = ((Object[]) fieldValue)[Prefs.STREAM_MUSIC_INDEX];
-            if (mediaState == null) {
-                return -1;
-            }
-            return XposedKit.getIntField(mediaState, FIELD_INDEX_MAX) / 10;
-        } catch (Throwable t) {
-            XposedKit.logErrorOnce("read-media-max", "read media mIndexMax failed: " + t);
+    /** 读取媒体流实例当前档位上限（档位数）；mStreamStates 缺失返回 -1，字段读写失败抛出。 */
+    private static int readMediaStreamMaxSteps(Object audioService) throws Exception {
+        Object fieldValue = XposedKit.getField(audioService, FIELD_STREAM_STATES);
+        if (!(fieldValue instanceof Object[])
+                || ((Object[]) fieldValue).length <= Prefs.STREAM_MUSIC_INDEX) {
             return -1;
         }
+        Object mediaState = ((Object[]) fieldValue)[Prefs.STREAM_MUSIC_INDEX];
+        if (mediaState == null) {
+            return -1;
+        }
+        return XposedKit.getIntField(mediaState, FIELD_INDEX_MAX) / 10;
     }
 
-    /** 直接把媒体流实例的 mIndexMax 设为档位数×10；成功返回 true。 */
-    private static boolean correctMediaStreamMax(Object audioService, int steps) {
-        try {
-            Object fieldValue = XposedKit.getField(audioService, FIELD_STREAM_STATES);
-            if (!(fieldValue instanceof Object[])
-                    || ((Object[]) fieldValue).length <= Prefs.STREAM_MUSIC_INDEX) {
-                return false;
-            }
-            Object mediaState = ((Object[]) fieldValue)[Prefs.STREAM_MUSIC_INDEX];
-            if (mediaState == null) {
-                return false;
-            }
-            XposedKit.setIntField(mediaState, FIELD_INDEX_MAX, steps * 10);
-            return true;
-        } catch (Throwable t) {
-            XposedKit.logErrorOnce("correct-media-max", "correct media mIndexMax failed: " + t);
+    /** 直接把媒体流实例的 mIndexMax 设为档位数×10；mStreamStates 缺失返回 false，字段写失败抛出。 */
+    private static boolean correctMediaStreamMax(Object audioService, int steps) throws Exception {
+        Object fieldValue = XposedKit.getField(audioService, FIELD_STREAM_STATES);
+        if (!(fieldValue instanceof Object[])
+                || ((Object[]) fieldValue).length <= Prefs.STREAM_MUSIC_INDEX) {
             return false;
         }
+        Object mediaState = ((Object[]) fieldValue)[Prefs.STREAM_MUSIC_INDEX];
+        if (mediaState == null) {
+            return false;
+        }
+        XposedKit.setIntField(mediaState, FIELD_INDEX_MAX, steps * 10);
+        return true;
     }
 
     /** getStreamMaxVolume 自愈兜底（读取必经点）：不一致立即校正并修正本次返回值。 */
@@ -504,24 +494,19 @@ final class AudioHooks {
      * 实例字段持有外部 AudioService——必须解引用拿到真正的 AudioService，
      * 直接把 Stub 当 AudioService 用会导致读 mStreamStates 失败（v1.8 缺陷）。</p>
      */
-    private static Object systemAudioService() {
-        try {
-            Class<?> serviceManager = Class.forName("android.os.ServiceManager");
-            Object binder = serviceManager.getMethod("getService", String.class)
-                    .invoke(null, Context.AUDIO_SERVICE);
-            if (binder == null) {
-                return null;
-            }
-            Object service = audioServiceFromBinder(binder);
-            if (service == null) {
-                XposedKit.logErrorOnce("audio-service", "audio binder has no AudioService"
-                        + " field: " + binder.getClass().getName());
-            }
-            return service;
-        } catch (Throwable t) {
-            XposedKit.logErrorOnce("audio-service", "get audio service failed: " + t);
+    private static Object systemAudioService() throws Exception {
+        Class<?> serviceManager = Class.forName("android.os.ServiceManager");
+        Object binder = serviceManager.getMethod("getService", String.class)
+                .invoke(null, Context.AUDIO_SERVICE);
+        if (binder == null) {
             return null;
         }
+        Object service = audioServiceFromBinder(binder);
+        if (service == null) {
+            XposedKit.logErrorOnce("audio-service", "audio binder has no AudioService"
+                    + " field: " + binder.getClass().getName());
+        }
+        return service;
     }
 
     /** 从 Binder Stub 中找出 AudioService 类型的实例字段（含 this$0 外部类引用）。 */
@@ -761,40 +746,30 @@ final class AudioHooks {
     /**
      * 供 {@link MediaVolumeGridSnapHooker}：读取当前媒体流逻辑档位（0~levels）。
      * 优先用真实 {@link #sAudioService} 实例（{@code AudioServiceBinderWrapper} 上无
-     * getStreamVolume），回退 {@code fallbackThis}；任何异常返回 -1（调用方保守放行）。
+     * getStreamVolume），回退 {@code fallbackThis}；实例缺失返回 -1，反射失败抛出（由调用方 Hooker 捕获放行）。
      */
-    static int readMediaVolumeIndex(Object fallbackThis) {
+    static int readMediaVolumeIndex(Object fallbackThis) throws Throwable {
         Object audioService = sAudioService != null ? sAudioService : fallbackThis;
         if (audioService == null) {
             return -1;
         }
-        try {
-            return invokeIntMethod(audioService, METHOD_GET_STREAM_VOLUME,
-                    Prefs.STREAM_MUSIC_INDEX);
-        } catch (Throwable t) {
-            XposedKit.logErrorOnce("read-cur-vol", "read current media index failed: " + t);
-            return -1;
-        }
+        return invokeIntMethod(audioService, METHOD_GET_STREAM_VOLUME,
+                Prefs.STREAM_MUSIC_INDEX);
     }
 
     /**
      * 供 {@link MediaVolumeGridSnapHooker}：读取媒体流<b>当前物理最大档位</b>（getStreamMaxVolume）。
      * 必须与 {@link AdjustStreamVolumeHooker} 同源（都取实时物理上限），<b>不能</b>用
      * {@code config.mediaSteps}（那是「期望值」，改档位数后未重启框架时物理上限仍为旧值，
-     * 两者不一致会令两个 Hook 对网格刻度产生分歧而自激振荡）。失败返回 -1（调用方保守放行）。
+     * 两者不一致会令两个 Hook 对网格刻度产生分歧而自激振荡）。实例缺失返回 -1，反射失败抛出（由调用方 Hooker 捕获放行）。
      */
-    static int readMediaMaxIndex(Object fallbackThis) {
+    static int readMediaMaxIndex(Object fallbackThis) throws Throwable {
         Object audioService = sAudioService != null ? sAudioService : fallbackThis;
         if (audioService == null) {
             return -1;
         }
-        try {
-            return invokeIntMethod(audioService, METHOD_GET_STREAM_MAX_VOLUME,
-                    Prefs.STREAM_MUSIC_INDEX);
-        } catch (Throwable t) {
-            XposedKit.logErrorOnce("read-max-vol", "read media max index failed: " + t);
-            return -1;
-        }
+        return invokeIntMethod(audioService, METHOD_GET_STREAM_MAX_VOLUME,
+                Prefs.STREAM_MUSIC_INDEX);
     }
 
     /**
