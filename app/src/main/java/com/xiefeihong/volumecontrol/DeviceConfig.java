@@ -72,4 +72,5 @@ public final class DeviceConfig {
     public int hashCode() {
         return Objects.hash(mode, absolute, software, defaultRange);
     }
+
 }

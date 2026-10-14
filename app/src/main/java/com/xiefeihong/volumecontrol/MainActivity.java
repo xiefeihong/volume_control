@@ -414,4 +414,5 @@ public class MainActivity extends AppCompatActivity {
     String modeLabelShort(int mode) {
         return saveFlow.modeLabelShort(mode);
     }
+
 }

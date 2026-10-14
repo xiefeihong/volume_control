@@ -7,6 +7,7 @@ package com.xiefeihong.volumecontrol;
  * 调用方通过 {@link #isSuccess()} 判断 {@code su} 退出码是否为 0。</p>
  */
 public final class ShellResult {
+
     public final int code;
     public final String output;
 
@@ -18,4 +19,5 @@ public final class ShellResult {
     public boolean isSuccess() {
         return code == 0;
     }
+
 }

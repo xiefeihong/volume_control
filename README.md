@@ -93,8 +93,8 @@ app/src/main/java/com/xiefeihong/volumecontrol/
 
 ### 技术栈
 
-- **语言**：Java 25
-- **构建**：Gradle / AGP，compileSdk 35、targetSdk 35、minSdk 26
+- **语言**：Java 21
+- **构建**：Gradle / AGP，compileSdk 35、targetSdk 35、minSdk 29
 - **框架**：libxposed API 102（编译期依赖，运行期由 LSPosed 注入）
 - **界面**：AndroidX AppCompat + Material3（DayNight 主题，ViewBinding、TabLayout、Spinner）
 - **作用域**：静态声明（`staticScope`），目标 `android`（系统框架）+ `com.android.bluetooth`（蓝牙）+ `android`（Android 系统）

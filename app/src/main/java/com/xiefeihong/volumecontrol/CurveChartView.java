@@ -335,4 +335,5 @@ public final class CurveChartView extends View {
         }
         return fallback;
     }
+
 }

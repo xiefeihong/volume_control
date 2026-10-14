@@ -678,4 +678,5 @@ class ConfigEditor {
             host.binding.tvPending.setText(host.pendingStatusText);
         }
     }
+
 }

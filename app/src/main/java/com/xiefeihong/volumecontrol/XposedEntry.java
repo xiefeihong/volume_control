@@ -41,4 +41,5 @@ public class XposedEntry extends XposedModule {
             BtHooks.install(param.getDefaultClassLoader(), this);
         }
     }
+
 }

@@ -7,12 +7,13 @@ import android.os.Looper;
 
 import java.lang.reflect.Executable;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
@@ -89,19 +90,8 @@ final class AudioHooks {
     private static final long OVERRIDE_REFRESH_THROTTLE_MS = 1000;
 
     /** 日志节流：避免音量拖动时高频刷屏。 */
-    private static int sLastLoggedSystemIndex = -1;
     private static int sLastBlockedIndex = -1;
     private static boolean sPropHitLogged;
-
-    /** 诊断：最近一次音量键接管时间戳；绕过路径日志节流时间戳。 */
-    private static volatile long sLastKeyAdjustNanos;
-    private static long sLastBypassLogNanos;
-
-    /** 判定「刚由按键接管改过」的时间窗（纳秒）：此窗内的 off-grid 落点视为正常，不记绕过。 */
-    private static final long KEY_ADJUST_WINDOW_NS = 200_000_000L;
-
-    /** 绕过路径调用栈抓取的最小间隔（纳秒）：低频节流，避免拖动时刷屏。 */
-    private static final long BYPASS_LOG_THROTTLE_NS = 6_000_000_000L;
 
     /** 按键 adjust 最小有效增量占档位数的比例：|delta| 小于 max(2, levels*此比例) 视为噪声交回系统。 */
     private static final float KEY_DELTA_MIN_RATIO = 0.03f;
@@ -114,8 +104,7 @@ final class AudioHooks {
      * 沿类层次 {@code getDeclaredMethod}/{@code getDeclaredMethods} 遍历。key 含类名与方法签名，
      * 含未命中的 {@code Optional.empty()} 负缓存。热路径（音量键 adjust/读写当前与最大档位）受益。
      */
-    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.Optional<Method>>
-            sMethodCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, Optional<Method>> sMethodCache = new ConcurrentHashMap<>();
 
     private AudioHooks() {
     }
@@ -147,12 +136,6 @@ final class AudioHooks {
             XposedKit.log(audioService.getName() + "#" + METHOD_GET_STREAM_MAX_VOLUME
                     + " hooked: " + selfHeal);
 
-            // 防内联：构造器与 createStreamStates 若被 AOT 内联，其中的
-            // SystemProperties.getInt 调用会绕过 Hook 拦截；强制解释执行。
-            deoptimizeQuietly(module, audioService.getDeclaredConstructors());
-            deoptimizeQuietly(module, findMethodsNamed(
-                    audioService, METHOD_CREATE_STREAM_STATES));
-
             hookSoftwareVolumeCurve(classLoader, module);
             hookAbsoluteVolumeSuppression(classLoader, module);
             hookVolumeKeyStep(classLoader, module);
@@ -161,6 +144,11 @@ final class AudioHooks {
             // 【孤立且 Δ 够大（真实按键一整步）】的媒体写入吸附到相邻网格档；密集（拖动）与 Δ 过小
             // （SystemUI 同步/取整回写）一律原样放行，避免之前的 32%↔36% 自激振荡。详见 MediaVolumeGridSnapHooker。
             hookMediaVolumeGridSnap(classLoader, module);
+
+            // 防内联：构造器与 createStreamStates 若被 AOT 内联，其中的
+            // SystemProperties.getInt 调用会绕过 Hook 拦截；强制解释执行。
+            deoptimizeQuietly(module, audioService.getDeclaredConstructors());
+            deoptimizeQuietly(module, findMethodsNamed(audioService, METHOD_CREATE_STREAM_STATES));
 
             // 立即读取配置填充属性拦截缓存（此时 SettingsProvider 未就绪，
             // 镜像文件通道可读）；失败由属性回调与开机校正重试。
@@ -177,15 +165,11 @@ final class AudioHooks {
         }
     }
 
-    /** 批量 deoptimize（内联防护）；单个失败不影响其余。 */
+    /** 批量 deoptimize（内联防护）；失败抛出，由 install() 边界统一捕获。 */
     private static void deoptimizeQuietly(XposedModule module,
             Executable[] executables) {
         for (Executable executable : executables) {
-            try {
-                module.deoptimize(executable);
-            } catch (Throwable t) {
-                XposedKit.logError("deoptimize failed: " + t);
-            }
+            module.deoptimize(executable);
         }
     }
 
@@ -209,16 +193,13 @@ final class AudioHooks {
      * 冷启动早期读不到就永远错过。刷新带 1 秒节流，就绪后回调只剩
      * volatile 读 + 字符串比较，开销可忽略。</p>
      */
-    private static void hookMediaStepsProperty(ClassLoader classLoader, XposedModule module) {
-        try {
-            Class<?> systemProperties = classLoader.loadClass("android.os.SystemProperties");
-            int hooked = XposedKit.hookAllMethodsNamed(module, systemProperties,
-                    "getInt", new PropGetIntHooker());
-            XposedKit.log("SystemProperties#getInt hooked: " + hooked
-                    + " (target: " + PROP_MEDIA_VOL_STEPS + ")");
-        } catch (Throwable t) {
-            XposedKit.logError("hook media steps property failed: " + t);
-        }
+    private static void hookMediaStepsProperty(ClassLoader classLoader, XposedModule module)
+            throws Throwable {
+        Class<?> systemProperties = classLoader.loadClass("android.os.SystemProperties");
+        int hooked = XposedKit.hookAllMethodsNamed(module, systemProperties,
+                "getInt", new PropGetIntHooker());
+        XposedKit.log("SystemProperties#getInt hooked: " + hooked
+                + " (target: " + PROP_MEDIA_VOL_STEPS + ")");
     }
 
     /** 属性拦截回调：命中 ro.config.media_vol_steps 时返回用户档位数。 */
@@ -283,11 +264,7 @@ final class AudioHooks {
                     XposedKit.cacheSystemContext((Context) args.get(0));
                 }
                 applyMediaSteps();
-            } catch (Throwable t) {
-                XposedKit.logError("constructor: apply media steps failed: " + t);
-            }
-            chain.proceed();
-            try {
+                chain.proceed();
                 Object instance = chain.getThisObject();
                 sAudioService = instance;
                 syncMediaStreamMax(instance, "constructor");
@@ -389,32 +366,42 @@ final class AudioHooks {
     }
 
     /** 读取媒体流实例当前档位上限（档位数）；mStreamStates 缺失返回 -1，字段读写失败抛出。 */
-    private static int readMediaStreamMaxSteps(Object audioService) throws Exception {
-        Object fieldValue = XposedKit.getField(audioService, FIELD_STREAM_STATES);
-        if (!(fieldValue instanceof Object[])
-                || ((Object[]) fieldValue).length <= Prefs.STREAM_MUSIC_INDEX) {
+    private static int readMediaStreamMaxSteps(Object audioService) {
+        try {
+            Object fieldValue = XposedKit.getField(audioService, FIELD_STREAM_STATES);
+            if (!(fieldValue instanceof Object[])
+                    || ((Object[]) fieldValue).length <= Prefs.STREAM_MUSIC_INDEX) {
+                return -1;
+            }
+            Object mediaState = ((Object[]) fieldValue)[Prefs.STREAM_MUSIC_INDEX];
+            if (mediaState == null) {
+                return -1;
+            }
+            return XposedKit.getIntField(mediaState, FIELD_INDEX_MAX) / 10;
+        } catch (Throwable t) {
+            XposedKit.logErrorOnce("read-media-max", "read media mIndexMax failed: " + t);
             return -1;
         }
-        Object mediaState = ((Object[]) fieldValue)[Prefs.STREAM_MUSIC_INDEX];
-        if (mediaState == null) {
-            return -1;
-        }
-        return XposedKit.getIntField(mediaState, FIELD_INDEX_MAX) / 10;
     }
 
     /** 直接把媒体流实例的 mIndexMax 设为档位数×10；mStreamStates 缺失返回 false，字段写失败抛出。 */
-    private static boolean correctMediaStreamMax(Object audioService, int steps) throws Exception {
-        Object fieldValue = XposedKit.getField(audioService, FIELD_STREAM_STATES);
-        if (!(fieldValue instanceof Object[])
-                || ((Object[]) fieldValue).length <= Prefs.STREAM_MUSIC_INDEX) {
+    private static boolean correctMediaStreamMax(Object audioService, int steps) {
+        try {
+            Object fieldValue = XposedKit.getField(audioService, FIELD_STREAM_STATES);
+            if (!(fieldValue instanceof Object[])
+                    || ((Object[]) fieldValue).length <= Prefs.STREAM_MUSIC_INDEX) {
+                return false;
+            }
+            Object mediaState = ((Object[]) fieldValue)[Prefs.STREAM_MUSIC_INDEX];
+            if (mediaState == null) {
+                return false;
+            }
+            XposedKit.setIntField(mediaState, FIELD_INDEX_MAX, steps * 10);
+            return true;
+        } catch (Throwable t) {
+            XposedKit.logErrorOnce("correct-media-max", "correct media mIndexMax failed: " + t);
             return false;
         }
-        Object mediaState = ((Object[]) fieldValue)[Prefs.STREAM_MUSIC_INDEX];
-        if (mediaState == null) {
-            return false;
-        }
-        XposedKit.setIntField(mediaState, FIELD_INDEX_MAX, steps * 10);
-        return true;
     }
 
     /** getStreamMaxVolume 自愈兜底（读取必经点）：不一致立即校正并修正本次返回值。 */
@@ -494,23 +481,28 @@ final class AudioHooks {
      * 实例字段持有外部 AudioService——必须解引用拿到真正的 AudioService，
      * 直接把 Stub 当 AudioService 用会导致读 mStreamStates 失败（v1.8 缺陷）。</p>
      */
-    private static Object systemAudioService() throws Exception {
-        Class<?> serviceManager = Class.forName("android.os.ServiceManager");
-        Object binder = serviceManager.getMethod("getService", String.class)
-                .invoke(null, Context.AUDIO_SERVICE);
-        if (binder == null) {
+    private static Object systemAudioService() {
+        try {
+            Class<?> serviceManager = Class.forName("android.os.ServiceManager");
+            Object binder = serviceManager.getMethod("getService", String.class)
+                    .invoke(null, Context.AUDIO_SERVICE);
+            if (binder == null) {
+                return null;
+            }
+            Object service = audioServiceFromBinder(binder);
+            if (service == null) {
+                XposedKit.logErrorOnce("audio-service", "audio binder has no AudioService"
+                        + " field: " + binder.getClass().getName());
+            }
+            return service;
+        } catch (Throwable t) {
+            XposedKit.logErrorOnce("audio-service", "get audio service failed: " + t);
             return null;
         }
-        Object service = audioServiceFromBinder(binder);
-        if (service == null) {
-            XposedKit.logErrorOnce("audio-service", "audio binder has no AudioService"
-                    + " field: " + binder.getClass().getName());
-        }
-        return service;
     }
 
-    /** 从 Binder Stub 中找出 AudioService 类型的实例字段（含 this$0 外部类引用）。 */
-    private static Object audioServiceFromBinder(Object binder) {
+    /** 从 Binder Stub 中找出 AudioService 类型的实例字段（含 this$0 外部类引用）；读失败抛出，由 boot 校正边界捕获。 */
+    private static Object audioServiceFromBinder(Object binder) throws Throwable {
         Class<?> c = binder.getClass();
         while (c != null && c != Object.class) {
             for (Field field : c.getDeclaredFields()) {
@@ -518,14 +510,10 @@ final class AudioHooks {
                     continue;
                 }
                 if (XposedKit.AUDIO_SERVICE_CLASS.equals(field.getType().getName())) {
-                    try {
-                        field.setAccessible(true);
-                        Object value = field.get(binder);
-                        if (value != null) {
-                            return value;
-                        }
-                    } catch (Throwable t) {
-                        XposedKit.logError("read max stream volume field failed: " + t);
+                    field.setAccessible(true);
+                    Object value = field.get(binder);
+                    if (value != null) {
+                        return value;
                     }
                 }
             }
@@ -543,25 +531,17 @@ final class AudioHooks {
      * 2. {@code postSetAvrcpAbsoluteVolumeIndex}：拦截音量转发。
      */
     private static void hookAbsoluteVolumeSuppression(ClassLoader classLoader,
-            XposedModule module) {
-        try {
-            Class<?> audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
-            int hooked = XposedKit.hookAllMethodsNamed(module, audioService,
-                    METHOD_AVRCP_SUPPORTS_ABS_VOLUME, new AvrcpSupportsHooker());
-            XposedKit.log(audioService.getName() + "#" + METHOD_AVRCP_SUPPORTS_ABS_VOLUME
-                    + " hooked: " + hooked);
-        } catch (Throwable t) {
-            XposedKit.logError("hook " + METHOD_AVRCP_SUPPORTS_ABS_VOLUME + " failed: " + t);
-        }
-        try {
-            Class<?> deviceBroker = classLoader.loadClass(XposedKit.AUDIO_DEVICE_BROKER_CLASS);
-            int hooked = XposedKit.hookAllMethodsNamed(module, deviceBroker,
-                    METHOD_POST_AVRCP_VOLUME, new PostAvrcpVolumeHooker());
-            XposedKit.log(deviceBroker.getName() + "#" + METHOD_POST_AVRCP_VOLUME
-                    + " hooked: " + hooked);
-        } catch (Throwable t) {
-            XposedKit.logError("hook " + METHOD_POST_AVRCP_VOLUME + " failed: " + t);
-        }
+            XposedModule module) throws Throwable {
+        Class<?> audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
+        int hooked1 = XposedKit.hookAllMethodsNamed(module, audioService,
+                METHOD_AVRCP_SUPPORTS_ABS_VOLUME, new AvrcpSupportsHooker());
+        XposedKit.log(audioService.getName() + "#" + METHOD_AVRCP_SUPPORTS_ABS_VOLUME
+                + " hooked: " + hooked1);
+        Class<?> deviceBroker = classLoader.loadClass(XposedKit.AUDIO_DEVICE_BROKER_CLASS);
+        int hooked2 = XposedKit.hookAllMethodsNamed(module, deviceBroker,
+                METHOD_POST_AVRCP_VOLUME, new PostAvrcpVolumeHooker());
+        XposedKit.log(deviceBroker.getName() + "#" + METHOD_POST_AVRCP_VOLUME
+                + " hooked: " + hooked2);
     }
 
     /** 上报入口：模式B 下强制"不支持绝对音量"（使 AudioService 走软件衰减路径）。 */
@@ -623,14 +603,8 @@ final class AudioHooks {
      * {@code VolumeStreamState#setStreamVolumeIndex(index, device)} 是档位应用必经点，
      * 蓝牙 A2DP 设备上的衰减档位按「最小~最大」范围重映射（低音量增强曲线）。
      */
-    private static void hookSoftwareVolumeCurve(ClassLoader classLoader, XposedModule module) {
-        final Class<?> streamState;
-        try {
-            streamState = classLoader.loadClass(XposedKit.VOLUME_STREAM_STATE_CLASS);
-        } catch (Throwable t) {
-            XposedKit.logError(XposedKit.VOLUME_STREAM_STATE_CLASS + " not found: " + t);
-            return;
-        }
+    private static void hookSoftwareVolumeCurve(ClassLoader classLoader, XposedModule module) throws ClassNotFoundException {
+        final Class<?> streamState = classLoader.loadClass(XposedKit.VOLUME_STREAM_STATE_CLASS);
         int hooked = XposedKit.hookAllMethodsNamed(module, streamState,
                 METHOD_SET_STREAM_VOLUME_INDEX, new SetStreamVolumeIndexHooker());
         XposedKit.log(streamState.getName() + "#" + METHOD_SET_STREAM_VOLUME_INDEX
@@ -650,15 +624,10 @@ final class AudioHooks {
      *
      * <p>若 {@code hooked:0}（ROM 音量键不走此方法），则保持系统默认步进并如实记录。</p>
      */
-    private static void hookVolumeKeyStep(ClassLoader classLoader, XposedModule module) {
+    private static void hookVolumeKeyStep(ClassLoader classLoader, XposedModule module) throws ClassNotFoundException {
         Class<?> audioService = sAudioServiceClass;
         if (audioService == null) {
-            try {
-                audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
-            } catch (Throwable t) {
-                XposedKit.logError("key step: AudioService class load failed: " + t);
-                return;
-            }
+            audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
         }
         int hooked = XposedKit.hookAllMethodsNamed(module, audioService,
                 METHOD_ADJUST_STREAM_VOLUME, new AdjustStreamVolumeHooker());
@@ -675,15 +644,10 @@ final class AudioHooks {
      * <p>详见 {@link MediaVolumeGridSnapHooker}。与 {@link #hookVolumeKeyStep} 互补：正常按键走
      * adjustStreamVolume 已被接管吸附，本 Hook 专门兜住「拖动之后」改走 setStreamVolume 的按键。</p>
      */
-    private static void hookMediaVolumeGridSnap(ClassLoader classLoader, XposedModule module) {
+    private static void hookMediaVolumeGridSnap(ClassLoader classLoader, XposedModule module) throws ClassNotFoundException {
         Class<?> audioService = sAudioServiceClass;
         if (audioService == null) {
-            try {
-                audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
-            } catch (Throwable t) {
-                XposedKit.logError("grid snap: AudioService class load failed: " + t);
-                return;
-            }
+            audioService = classLoader.loadClass(XposedKit.AUDIO_SERVICE_CLASS);
         }
         int hooked = XposedKit.hookAllMethodsNamed(module, audioService,
                 METHOD_SET_STREAM_VOLUME_WITH_ATTRIBUTION, new MediaVolumeGridSnapHooker());
@@ -710,12 +674,7 @@ final class AudioHooks {
                     name + "(int) not found on " + target.getClass().getName());
         }
         m.setAccessible(true);
-        Object r;
-        try {
-            r = m.invoke(target, arg);
-        } catch (InvocationTargetException e) {
-            throw (e.getCause() != null) ? e.getCause() : e;
-        }
+        Object r = m.invoke(target, arg);
         if (r instanceof Integer) {
             return (Integer) r;
         }
@@ -725,7 +684,7 @@ final class AudioHooks {
     /** 在类层次中查找名字为 name、单个 int 参数的方法（任意可见性）；带 {@link #sMethodCache} 缓存。 */
     private static Method findIntMethod(Class<?> c, String name) {
         String key = "M:" + c.getName() + "#" + name + "#(int)";
-        java.util.Optional<Method> cached = sMethodCache.get(key);
+        Optional<Method> cached = sMethodCache.get(key);
         if (cached != null) {
             return cached.orElse(null);
         }
@@ -739,7 +698,7 @@ final class AudioHooks {
                 cur = cur.getSuperclass();
             }
         }
-        sMethodCache.put(key, java.util.Optional.ofNullable(found));
+        sMethodCache.put(key, Optional.ofNullable(found));
         return found;
     }
 
@@ -748,13 +707,18 @@ final class AudioHooks {
      * 优先用真实 {@link #sAudioService} 实例（{@code AudioServiceBinderWrapper} 上无
      * getStreamVolume），回退 {@code fallbackThis}；实例缺失返回 -1，反射失败抛出（由调用方 Hooker 捕获放行）。
      */
-    static int readMediaVolumeIndex(Object fallbackThis) throws Throwable {
+    static int readMediaVolumeIndex(Object fallbackThis) {
         Object audioService = sAudioService != null ? sAudioService : fallbackThis;
         if (audioService == null) {
             return -1;
         }
-        return invokeIntMethod(audioService, METHOD_GET_STREAM_VOLUME,
-                Prefs.STREAM_MUSIC_INDEX);
+        try {
+            return invokeIntMethod(audioService, METHOD_GET_STREAM_VOLUME,
+                    Prefs.STREAM_MUSIC_INDEX);
+        } catch (Throwable t) {
+            XposedKit.logErrorOnce("read-cur-vol", "read current media index failed: " + t);
+            return -1;
+        }
     }
 
     /**
@@ -763,13 +727,18 @@ final class AudioHooks {
      * {@code config.mediaSteps}（那是「期望值」，改档位数后未重启框架时物理上限仍为旧值，
      * 两者不一致会令两个 Hook 对网格刻度产生分歧而自激振荡）。实例缺失返回 -1，反射失败抛出（由调用方 Hooker 捕获放行）。
      */
-    static int readMediaMaxIndex(Object fallbackThis) throws Throwable {
+    static int readMediaMaxIndex(Object fallbackThis) {
         Object audioService = sAudioService != null ? sAudioService : fallbackThis;
         if (audioService == null) {
             return -1;
         }
-        return invokeIntMethod(audioService, METHOD_GET_STREAM_MAX_VOLUME,
-                Prefs.STREAM_MUSIC_INDEX);
+        try {
+            return invokeIntMethod(audioService, METHOD_GET_STREAM_MAX_VOLUME,
+                    Prefs.STREAM_MUSIC_INDEX);
+        } catch (Throwable t) {
+            XposedKit.logErrorOnce("read-max-vol", "read media max index failed: " + t);
+            return -1;
+        }
     }
 
     /**
@@ -908,11 +877,7 @@ final class AudioHooks {
                 args[i] = null;
             }
         }
-        try {
-            target.invoke(audioService, args);
-        } catch (InvocationTargetException e) {
-            throw (e.getCause() != null) ? e.getCause() : e;
-        }
+        target.invoke(audioService, args);
     }
 
     /**
@@ -921,7 +886,7 @@ final class AudioHooks {
      */
     private static Method resolveSetStreamVolumeMethod(Class<?> startClass) throws Exception {
         String key = "M:" + startClass.getName() + "#" + METHOD_SET_STREAM_VOLUME + "#(iii..)";
-        java.util.Optional<Method> cached = sMethodCache.get(key);
+        Optional<Method> cached = sMethodCache.get(key);
         if (cached != null) {
             if (!cached.isPresent()) {
                 throw new NoSuchMethodException(METHOD_SET_STREAM_VOLUME
@@ -945,7 +910,7 @@ final class AudioHooks {
             }
             c = c.getSuperclass();
         }
-        sMethodCache.put(key, java.util.Optional.ofNullable(target));
+        sMethodCache.put(key, Optional.ofNullable(target));
         if (target == null) {
             throw new NoSuchMethodException(METHOD_SET_STREAM_VOLUME
                     + "(int,int,int,...) not found on " + startClass.getName());
@@ -1016,7 +981,6 @@ final class AudioHooks {
                     XposedKit.log("key step: " + (raise ? "+" : "-") + (newIndex - oldIndex)
                             + " " + oldIndex + " -> " + newIndex);
                 }
-                sLastKeyAdjustNanos = System.nanoTime();
                 invokeSetStreamVolume(audioService, streamType, newIndex, flags);
                 // 跳过原实现（它自带 ±1 或按 maxIndex/15 的步进），避免双算。
                 return null;
@@ -1029,44 +993,6 @@ final class AudioHooks {
     }
 
     /**
-     * 诊断：若媒体流逻辑档位落在「非按键网格」上，且最近 200ms 内没有发生过
-     * 我们接管的 adjustStreamVolume，则说明本次音量变化绕过了接管路径（拖滑条
-     * 或 MIUI 自有的音量键/解除静音处理）。拖拽属于设计内保留全精度，但若是音量键
-     * 则需定位那条绕过方法——故低频（≥6s 一次）抓取调用栈。仅读日志，不改行为。
-     */
-    private static void maybeLogKeyBypass(int index, VolumeConfig config) {
-        if (index <= 0) {
-            return;
-        }
-        long now = System.nanoTime();
-        if (now - sLastKeyAdjustNanos < KEY_ADJUST_WINDOW_NS) {
-            return;   // 刚由按键接管改过，属正常网格落点
-        }
-        int levels = Prefs.clampMediaSteps(config.mediaSteps);
-        int segs = Prefs.clampKeySteps(config.keySteps);
-        if (levels <= 0 || segs >= levels) {
-            return;   // 网格间距<1，逐级即正确，不判
-        }
-        int nearest = (int) Math.round(index * (double) segs / levels);
-        if (Prefs.keyStepLevel(nearest, levels, segs) == index) {
-            return;   // 恰在网格上
-        }
-        if (now - sLastBypassLogNanos < BYPASS_LOG_THROTTLE_NS) {
-            return;   // 节流：6s 一次
-        }
-        sLastBypassLogNanos = now;
-        StringBuilder sb = new StringBuilder("key-step bypass? media idx ")
-                .append(index).append('/').append(levels)
-                .append(" off-grid (~").append(Math.round(index * 100.0 / levels))
-                .append("%), no recent adjust. stack:");
-        StackTraceElement[] st = Thread.currentThread().getStackTrace();
-        for (int i = 2; i < Math.min(st.length, 12); i++) {
-            sb.append("\n  at ").append(st[i]);
-        }
-        XposedKit.log(sb.toString());
-    }
-
-    /**
      * 模式B 软件衰减曲线映射：
      * {@code VolumeStreamState#setStreamVolumeIndex(index, device)} 是档位应用必经点。
      *
@@ -1074,7 +1000,6 @@ final class AudioHooks {
      * 模式A 保持绝对音量，不在 system_server 干预。</p>
      */
     private static final class SetStreamVolumeIndexHooker implements XposedInterface.Hooker {
-        private static boolean sAnyFireLogged;
         @Override
         public Object intercept(XposedInterface.Chain chain) throws Throwable {
             List<Object> args = chain.getArgs();
@@ -1087,14 +1012,6 @@ final class AudioHooks {
                 int device = (Integer) args.get(1);
                 if (index <= 0) {
                     return chain.proceed();
-                }
-                // 首次触发诊断
-                if (!sAnyFireLogged) {
-                    sAnyFireLogged = true;
-                    VolumeConfig diagConfig = XposedKit.readConfig(XposedKit.systemServerContext(null));
-                    XposedKit.log("setStreamVolumeIndex first fire: index="
-                            + index + " device=" + device
-                            + " config=" + diagConfig);
                 }
                 Object state = chain.getThisObject();
                 if (XposedKit.getIntField(state, FIELD_STREAM_TYPE)
@@ -1116,9 +1033,6 @@ final class AudioHooks {
                 if (config == null || !config.remapActive()) {
                     return chain.proceed();
                 }
-                // 诊断：媒体档位落到「非按键网格」且近期无按键接管 → 音量键可能走了
-                // 绕过 adjustStreamVolume 的路径，抓一次调用栈以定位该方法。
-                maybeLogKeyBypass(index, config);
                 // 按输出设备分派：外放/有线/蓝牙各自按其模式在 system_server 改写档位；
                 // 蓝牙模式A（AVRCP）由蓝牙进程处理、该设备默认直通、未识别设备一律放行。
                 OutputDevice d = OutputDevice.fromOutMask(device);
@@ -1154,12 +1068,6 @@ final class AudioHooks {
                 if (mapped == index) {
                     return chain.proceed();
                 }
-                if (index != sLastLoggedSystemIndex) {
-                    sLastLoggedSystemIndex = index;
-                    XposedKit.log("vol remap(" + (defaultMode ? "default" : "B") + "): "
-                            + index + "/" + maxSteps + " -> " + mapped
-                            + " (range=" + minStep + "~" + maxStep + " device=" + device + ")");
-                }
                 Object[] newArgs = args.toArray();
                 newArgs[0] = mapped;
                 chain.proceed(newArgs); // HAL 应用重映射后的增益（升/降）
@@ -1169,8 +1077,7 @@ final class AudioHooks {
                     Object map = XposedKit.getField(state, "mIndexMap");
                     if (map instanceof Map) {
                         @SuppressWarnings("unchecked")
-                        Map<Integer, Integer> indexMap =
-                                (Map<Integer, Integer>) map;
+                        Map<Integer, Integer> indexMap = (Map<Integer, Integer>) map;
                         indexMap.put(device, index * 10);
                     }
                 } catch (Throwable t) {
@@ -1178,10 +1085,10 @@ final class AudioHooks {
                 }
                 return null;
             } catch (Throwable t) {
-                XposedKit.logOnce("vol-index-err",
-                        "setStreamVolumeIndex hook error: " + t);
+                XposedKit.logOnce("vol-index-err", "setStreamVolumeIndex hook error: " + t);
                 return chain.proceed();
             }
         }
     }
+
 }

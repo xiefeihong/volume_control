@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -95,15 +96,10 @@ public final class XposedKit {
      */
     static void log(String message) {
         writeLogFile("I", message);
-        try {
-            Log.i(LOG_TAG, LOG_PREFIX + message);
-            XposedModule module = sModule;
-            if (module != null) {
-                module.log(Log.INFO, LOG_TAG, LOG_PREFIX + message);
-            }
-        } catch (Throwable ignored) {
-            // 日志失败不影响功能
-            ignored.printStackTrace();
+        Log.i(LOG_TAG, LOG_PREFIX + message);
+        XposedModule module = sModule;
+        if (module != null) {
+            module.log(Log.INFO, LOG_TAG, LOG_PREFIX + message);
         }
     }
 
@@ -113,15 +109,10 @@ public final class XposedKit {
      */
     static void logError(String message) {
         writeLogFile("E", message);
-        try {
-            Log.e(LOG_TAG, LOG_PREFIX + message);
-            XposedModule module = sModule;
-            if (module != null) {
-                module.log(Log.ERROR, LOG_TAG, LOG_PREFIX + message);
-            }
-        } catch (Throwable ignored) {
-            // 日志失败不影响功能
-            ignored.printStackTrace();
+        Log.e(LOG_TAG, LOG_PREFIX + message);
+        XposedModule module = sModule;
+        if (module != null) {
+            module.log(Log.ERROR, LOG_TAG, LOG_PREFIX + message);
         }
     }
 
@@ -247,7 +238,7 @@ public final class XposedKit {
 
     // ==================== Hook 工具（新 API 无 XposedHelpers，统一走反射） ====================
 
-    /** 挂载指定名称的全部方法（等价于旧 API 的 hookAllMethods）；返回挂载数量。 */
+    /** 挂载指定名称的全部方法（等价于旧 API 的 hookAllMethods）；返回挂载数量。失败抛出，由调用方安装边界统一捕获。 */
     static int hookAllMethodsNamed(XposedModule module, Class<?> clazz, String name,
             XposedInterface.Hooker hooker) {
         int count = 0;
@@ -255,27 +246,19 @@ public final class XposedKit {
             if (!name.equals(method.getName())) {
                 continue;
             }
-            try {
-                module.hook(method).intercept(hooker);
-                count++;
-            } catch (Throwable t) {
-                logError("hook " + clazz.getName() + "#" + name + " failed: " + t);
-            }
+            module.hook(method).intercept(hooker);
+            count++;
         }
         return count;
     }
 
-    /** 挂载指定类的全部构造器（等价于旧 API 的 hookAllConstructors）；返回挂载数量。 */
+    /** 挂载指定类的全部构造器（等价于旧 API 的 hookAllConstructors）；返回挂载数量。失败抛出，由调用方安装边界统一捕获。 */
     static int hookAllConstructors(XposedModule module, Class<?> clazz,
             XposedInterface.Hooker hooker) {
         int count = 0;
         for (Constructor<?> constructor : clazz.getDeclaredConstructors()) {
-            try {
-                module.hook(constructor).intercept(hooker);
-                count++;
-            } catch (Throwable t) {
-                logError("hook " + clazz.getName() + " constructor failed: " + t);
-            }
+            module.hook(constructor).intercept(hooker);
+            count++;
         }
         return count;
     }
@@ -285,8 +268,7 @@ public final class XposedKit {
      * 此前每次都沿类层次 {@code getDeclaredField} 遍历。key 带 {@code I:}/{@code S:} 前缀区分
      * 实例/静态口径，含未命中的 {@code Optional.empty()} 负缓存，避免对不存在的字段反复遍历。
      */
-    private static final ConcurrentHashMap<String, Optional<Field>> sFieldCache =
-            new ConcurrentHashMap<>();
+    private static final Map<String, Optional<Field>> sFieldCache = new ConcurrentHashMap<>();
 
     /** 沿类层次解析实例字段（任意可见性）；带缓存，未命中缓存 empty 并抛 {@link NoSuchFieldException}。 */
     private static Field resolveInstanceField(Class<?> startClass, String name) throws Exception {
@@ -397,7 +379,7 @@ public final class XposedKit {
     /** 上次成功填充配置缓存的时间戳（毫秒）；ContentObserver 触发时置 0 立即失效。 */
     private static volatile long sConfigCacheAtMs;
     /** ContentObserver 经弱引用持有，必须保留强引用防止被 GC 回收后静默失效；非 null 即已注册。 */
-    private static volatile android.database.ContentObserver sConfigObserver;
+    private static volatile ContentObserver sConfigObserver;
     /** 上次尝试注册观察器的时间：开机早期 IContentService 未就绪时按节流重试，避免高频刷屏。 */
     private static volatile long sConfigObserverAttemptMs;
     private static final long OBSERVER_RETRY_MS = 15_000L;
@@ -620,4 +602,5 @@ public final class XposedKit {
         }
         return null;
     }
+
 }

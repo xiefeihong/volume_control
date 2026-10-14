@@ -123,8 +123,8 @@ public final class NativeVolumeCurve {
      * 均为不可变值对象且调用方只读不写，可安全共享。{@link #load()} 完成后清空，确保
      * 缓存只基于最终点表（避免 load 前误缓存 AOSP 回退结果）。
      */
-    private static final ConcurrentHashMap<String, Curve> sCurveCache = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, Anchors> sAnchorsCache = new ConcurrentHashMap<>();
+    private static final Map<String, Curve> sCurveCache = new ConcurrentHashMap<>();
+    private static final Map<String, Anchors> sAnchorsCache = new ConcurrentHashMap<>();
 
     /** 引擎表 music 组声明的媒体档位数（{@code <indexMax>}）；未加载/未解析到返回 0。 */
     public static int nativeMusicIndexMax() {
@@ -429,4 +429,5 @@ public final class NativeVolumeCurve {
     private static float clamp(float v, float lo, float hi) {
         return v < lo ? lo : (v > hi ? hi : v);
     }
+
 }

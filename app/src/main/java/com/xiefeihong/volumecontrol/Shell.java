@@ -30,8 +30,6 @@ public final class Shell {
     private Shell() {
     }
 
-    // 命令执行结果值对象 ShellResult 已提取为独立顶层类（见 ShellResult.java）。
-
     /** 在 root 身份下执行一条 shell 命令。 */
     public static ShellResult su(String command) {
         return exec("su", "-c", command);
@@ -301,4 +299,5 @@ public final class Shell {
         }
         return output.substring(start, end).trim();
     }
+
 }

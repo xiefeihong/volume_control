@@ -380,4 +380,5 @@ public final class VolumeConfig {
         Range r = (c.mode == Prefs.BT_MODE_DEFAULT) ? c.defaultRange : c.activeRange();
         return m + (r == null ? "" : "[" + r.min + "~" + r.max + "/" + r.curve + "]");
     }
+
 }

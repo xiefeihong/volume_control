@@ -12,6 +12,7 @@ package com.xiefeihong.volumecontrol;
  * {@link Prefs#CURVE_LOG} / {@link Prefs#CURVE_LINEAR} / {@link Prefs#CURVE_SQRT}。</p>
  */
 public final class Range {
+
     public final int min;
     public final int max;
     /** 曲线类型：{@link Prefs#CURVE_LOG} / {@link Prefs#CURVE_LINEAR} / {@link Prefs#CURVE_SQRT}。 */
@@ -42,4 +43,5 @@ public final class Range {
         result = 31 * result + curve;
         return result;
     }
+
 }

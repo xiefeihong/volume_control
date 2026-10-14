@@ -12,6 +12,7 @@ import android.provider.Settings;
  * 本调用可能抛错，由 {@code XposedKit.readConfig} 捕获后回退镜像文件通道。</p>
  */
 final class SettingsGlobal {
+
     private SettingsGlobal() {
     }
 
@@ -24,4 +25,5 @@ final class SettingsGlobal {
     static Uri getUriFor(String key) {
         return Settings.Global.getUriFor(key);
     }
+
 }
